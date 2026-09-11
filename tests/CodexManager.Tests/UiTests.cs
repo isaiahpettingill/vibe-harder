@@ -408,6 +408,9 @@ public class UiTests
         Assert.True(drawer.TranslatePoint(default, window)!.Value.X >= pane.TranslatePoint(default, window)!.Value.X + pane.Bounds.Width);
         Assert.InRange(((TabItem)tabs.Items[0]!).Bounds.Height, 1, 32);
         var artifact = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")); Directory.CreateDirectory(artifact);
+        window.UpdateLayout();
+        var toggle = window.FindControl<IconButton>("ToggleTerminalButton")!;
+        Assert.True(((Avalonia.Controls.Shapes.Path)toggle.Content!).Bounds.Width > 0);
         using var screenshot = new RenderTargetBitmap(new PixelSize(1220, 840)); screenshot.Render(window); screenshot.Save(Path.Combine(artifact, "ui-terminal.png"), PngBitmapEncoderOptions.Default);
         Named<Button>(window, "Workspace_two").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(0, tabs.ItemCount);
@@ -415,5 +418,3 @@ public class UiTests
         window.Close(); await Task.Delay(100);
     }
 }
-
-

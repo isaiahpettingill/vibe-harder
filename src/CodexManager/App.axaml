@@ -1,5 +1,14 @@
 <Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ct="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit" x:Class="CodexManager.App" RequestedThemeVariant="Dark">
   <Application.Resources>
+    <ControlTheme x:Key="TranscriptItemTheme" TargetType="ListBoxItem">
+      <Setter Property="Template">
+        <ControlTemplate>
+          <ContentPresenter Name="PART_ContentPresenter" Background="Transparent" Padding="12,0,14,0"
+                            Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            HorizontalContentAlignment="Stretch"/>
+        </ControlTemplate>
+      </Setter>
+    </ControlTheme>
     <SolidColorBrush x:Key="AppBackground" Color="#14141C"/>
     <SolidColorBrush x:Key="AppSurface" Color="#1C1B28"/>
     <SolidColorBrush x:Key="AppBorder" Color="#3B354D"/>

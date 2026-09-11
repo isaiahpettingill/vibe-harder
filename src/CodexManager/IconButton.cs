@@ -18,6 +18,8 @@ public sealed class IconButton : Button
                 "chevron-up" => "M3,10 L8,5 L13,10",
                 "chevron-down" => "M3,5 L8,10 L13,5",
                 "chevron-right" => "M5,3 L10,8 L5,13",
+                "chevron-left" => "M10,3 L5,8 L10,13",
+                "terminal" => "M2,3 L7,8 L2,13 M9,13 L15,13",
                 "collapse" => "M3,9 L8,4 L13,9 M3,14 L8,9 L13,14",
                 "send" => "M8,14 L8,2 M3,7 L8,2 L13,7",
                 "stop" => "M3,3 L13,3 L13,13 L3,13 Z",

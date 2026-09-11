@@ -109,6 +109,12 @@ public partial class MainWindow : Window
     {
         this.store = store;
         InitializeComponent();
+        TerminalDrawer.PropertyChanged += (_, e) =>
+        {
+            if (e.Property != IsVisibleProperty) return;
+            ToggleTerminalButton.Icon = TerminalDrawer.IsVisible ? "chevron-left" : "terminal";
+            ToggleTerminalButton.Label = TerminalDrawer.IsVisible ? "Hide terminal (Ctrl+`)" : "Show terminal (Ctrl+`)";
+        };
         FontSettings.Apply(store); AppTheme.Apply(store);
         if (double.TryParse(store.Setting("terminalWidth"), System.Globalization.CultureInfo.InvariantCulture, out var terminalWidth)) TerminalDrawer.Width = Math.Clamp(terminalWidth, 220, 800);
         RootPanes.ColumnDefinitions[0].MinWidth = 170; RootPanes.ColumnDefinitions[0].MaxWidth = 600;

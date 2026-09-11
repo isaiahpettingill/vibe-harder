@@ -13,7 +13,7 @@
     <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource AppBorder}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
     <Grid Grid.Column="2" ColumnDefinitions="*,Auto">
     <Grid Name="ChatPane" RowDefinitions="36,*,Auto">
-      <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="10,0"><Grid ColumnDefinitions="*,Auto,Auto"><TextBlock Name="WorkspaceHeading" Text="No workspace selected" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Button Name="ToggleTerminalButton" Grid.Column="2" Content="▣  Terminal" Click="ToggleTerminal" VerticalAlignment="Center"/></Grid></Border>
+      <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="10,0"><Grid ColumnDefinitions="*,Auto,Auto"><TextBlock Name="WorkspaceHeading" Text="No workspace selected" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><local:IconButton Name="ToggleTerminalButton" Grid.Column="2" Icon="terminal" Label="Show terminal (Ctrl+`)" Click="ToggleTerminal" VerticalAlignment="Center"/></Grid></Border>
       <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
         <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="10,6,10,4"><Grid ColumnDefinitions="22,*"><Image Name="ChatProviderIcon" Width="16" Height="16" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Name="ChatHeading" Text="Select a chat" FontSize="14" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Name="ReconnectChatButton" Content="↻" ToolTip.Tip="Reconnect agent without resending messages" Click="ReconnectChatClick"/><local:IconButton Name="ResumeChatButton" Icon="send" Label="Resume interrupted chat" Click="ResumeChatClick" IsVisible="False"/></StackPanel><local:IconButton Grid.Column="2" Name="ArchiveChatButton" Icon="archive" Label="Archive chat" Click="ArchiveChatClick" Margin="8,0"/><local:IconButton Grid.Column="3" Name="DeleteChatButton" Icon="delete" Label="Delete chat" Click="DeleteChatClick"/></Grid>
         <Border Grid.Row="1" Name="LoginPanel" IsVisible="False" Margin="14,6" Padding="12" BorderThickness="1" BorderBrush="{DynamicResource AppBorder}" CornerRadius="5">
@@ -31,9 +31,8 @@
               <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
               <Button Name="WelcomeOpenButton" Content="Open workspace" Click="OpenWorkspaceClick"/>
             </StackPanel>
-            <ListBox Grid.Row="1" Name="MessageList" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+            <ListBox Grid.Row="1" Name="MessageList" ItemContainerTheme="{StaticResource TranscriptItemTheme}" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
               <ListBox.ItemsPanel><ItemsPanelTemplate><local:TranscriptPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
-              <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style><Style Selector="ListBoxItem /template/ ContentPresenter"><Setter Property="Background" Value="Transparent"/></Style></ListBox.Styles>
               <ListBox.ItemTemplate><DataTemplate x:DataType="local:Message">
                 <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
                   <StackPanel Spacing="6"><local:MessageView Message="{Binding}"/><ItemsControl ItemsSource="{Binding Attachments}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Expander Header="{Binding Name}" IsVisible="{Binding IsImage}" IsExpanded="False" HorizontalAlignment="Stretch"><Image Source="{Binding Thumbnail}" MaxHeight="220" HorizontalAlignment="Left" Stretch="Uniform"/></Expander></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel>
@@ -54,10 +53,10 @@
         </StackPanel>
       </Border>
       </Grid>
-      <Grid Grid.Column="1" Name="TerminalDrawer" IsVisible="False" ColumnDefinitions="5,*" RowDefinitions="Auto,*" Width="380" MinWidth="220">
-        <Border Grid.RowSpan="2" Background="{DynamicResource AppBorder}" PointerPressed="TerminalResizeStart" PointerMoved="TerminalResizeMove" PointerReleased="TerminalResizeEnd" Cursor="SizeWestEast"/>
-        <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="8,4"><TextBlock Text="TERMINAL" Classes="muted" FontSize="11" VerticalAlignment="Center"/><Button Name="NewTerminalButton" Grid.Column="1" Content="＋ Terminal" Click="NewTerminalClick"/><Button Grid.Column="2" Content="Hide" Click="ToggleTerminal" Margin="8,0"/></Grid>
-        <TabControl Grid.Column="1" Grid.Row="1" Name="TerminalTabs" Margin="4,0,4,4"><TabControl.Styles><Style Selector="TabItem"><Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="6,2"/><Setter Property="FontSize" Value="11"/></Style></TabControl.Styles></TabControl>
+      <Grid Grid.Column="1" Name="TerminalDrawer" IsVisible="False" ColumnDefinitions="5,*" Width="380" MinWidth="220">
+        <Border Background="{DynamicResource AppBorder}" PointerPressed="TerminalResizeStart" PointerMoved="TerminalResizeMove" PointerReleased="TerminalResizeEnd" Cursor="SizeWestEast"/>
+        <TabControl Grid.Column="1" Name="TerminalTabs" Margin="4,0,4,4"><TabControl.Styles><Style Selector="TabItem"><Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="6,2"/><Setter Property="FontSize" Value="11"/></Style><Style Selector="TabControl /template/ ItemsPresenter#PART_ItemsPresenter"><Setter Property="Margin" Value="0,0,28,2"/><Setter Property="MinHeight" Value="26"/></Style></TabControl.Styles></TabControl>
+        <local:IconButton Name="NewTerminalButton" Grid.Column="1" Icon="add" Label="New terminal" Click="NewTerminalClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0"/>
       </Grid>
     </Grid>
     <Border Grid.Row="1" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
