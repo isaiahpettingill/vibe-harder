@@ -318,7 +318,8 @@ public class UiTests
         await Task.Delay(100);
         Assert.Equal(2, window.FindControl<ItemsControl>("AttachmentList")!.ItemCount);
         window.FindControl<TextBox>("SearchBox")!.Text = "cross-platform";
-        await Task.Delay(50);
+        var searchDeadline = DateTime.UtcNow.AddSeconds(5);
+        while (list.ItemCount != 1 && DateTime.UtcNow < searchDeadline) await Task.Delay(20);
         Assert.Equal(1, list.ItemCount);
         window.FindControl<TextBox>("SearchBox")!.Text = "";
         await Task.Delay(50);

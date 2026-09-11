@@ -27,7 +27,7 @@ if ($Runtime -eq 'win-arm64' -and $isAot) {
     if (!(Test-Path -LiteralPath $linkerPath)) { throw 'Windows ARM64 AOT requires LLVM lld-link. Install LLVM and add it to PATH.' }
     $nativeOptions += "-p:CppLinker=$linkerPath"
 }
-dotnet publish @nativeOptions (Join-Path $repo 'src/CodexManager') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" -p:StripSymbols=true -o $publish
+dotnet publish @nativeOptions (Join-Path $repo 'src/CodexManager') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" "-p:Version=$Version" -p:StripSymbols=true -o $publish
 if ($LASTEXITCODE) { throw 'Publish failed' }
 # Symbols stay in the build tree, not in distributed packages.
 Get-ChildItem -LiteralPath $publish -File | Where-Object { $_.Extension -in '.pdb', '.dbg' } | Remove-Item

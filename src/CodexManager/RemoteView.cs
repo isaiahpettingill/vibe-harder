@@ -30,10 +30,11 @@ public sealed class RemoteView : UserControl, IDisposable
     private JsonArray chatRows = [];
     private int polls;
     private bool refreshing;
+    private bool viewingHistory;
     public event Action<JsonNode>? CatalogChanged;
     public void SelectChat(string id)
     {
-        chatId = id; messages.Clear(); permissionsJson = ""; configJson = "";
+        viewingHistory = false; chatId = id; if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
     }
@@ -71,8 +72,12 @@ public sealed class RemoteView : UserControl, IDisposable
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (chats.SelectedItem is RemoteItem selected && chatId != selected.Id) { chatId = selected.Id; messages.Clear(); permissionsJson = ""; } };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
-        var output = new ItemsControl { ItemsSource = messages, ItemTemplate = new FuncDataTemplate<Message>((message, _) => new MessageView { Message = message, Margin = new Thickness(8) }) };
-        var scroll = new ScrollViewer { Content = output, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled }; Grid.SetColumn(scroll, 2); split.Children.Add(scroll);
+        var output = new ListBox { ItemsSource = messages, Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
+        Grid.SetColumn(output, 2); split.Children.Add(output);
+        var earlier = new IconButton { Icon = "chevron-up", Label = "Earlier messages" }; var latest = new IconButton { Icon = "latest", Label = "Return to latest messages" };
+        var history = new StackPanel { Orientation = Orientation.Horizontal, Children = { earlier, latest } }; top.Children.Add(history);
+        earlier.Click += async (_, _) => { if (chatId is null || messages.Count == 0) return; var id = chatId; var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["before"] = messages[0].Sequence }); if (result is not null && id == chatId && result["messages"]!.AsArray().Count > 0) { viewingHistory = true; messages.Clear(); ApplyMessages(result["messages"]!.AsArray()); output.ScrollIntoView(0); } };
+        latest.Click += (_, _) => { viewingHistory = false; messages.Clear(); };
         Grid.SetRow(approvals, 2); panel.Children.Add(approvals);
         var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(composer);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 }; input.Children.Add(actions);
@@ -114,15 +119,11 @@ public sealed class RemoteView : UserControl, IDisposable
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
                     }
                 }
-                var follow = scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 80;
-                foreach (var row in result["messages"]!.AsArray())
-                {
-                    var messageId = row!["id"]!.GetValue<string>(); var existing = messages.FirstOrDefault(m => m.Id == messageId);
-                    if (existing is null) { existing = new Message { Id = messageId, Role = row["role"]!.GetValue<string>() }; messages.Add(existing); }
-                    existing.Text = row["text"]!.GetValue<string>();
-                }
+                var scroll = output.Scroll;
+                var follow = scroll is null || scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 80;
+                if (!viewingHistory) ApplyMessages(result["messages"]!.AsArray());
                 if (++polls % 20 == 0) await RefreshList();
-                if (follow) Dispatcher.UIThread.Post(scroll.ScrollToEnd);
+                if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() => output.ScrollIntoView(messages[^1]));
                 var permissionText = result["permissions"]!.ToJsonString();
                 if (permissionsJson != permissionText)
                 {
@@ -143,20 +144,30 @@ public sealed class RemoteView : UserControl, IDisposable
         timer.Start();
         AttachedToVisualTree += async (_, _) => await Connect();
     }
+    private void ApplyMessages(JsonArray rows)
+    {
+        foreach (var row in rows)
+        {
+            var id = row!["id"]!.GetValue<string>(); var message = messages.FirstOrDefault(m => m.Id == id);
+            if (message is null) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); }
+            message.Text = row["text"]!.GetValue<string>();
+        }
+        while (messages.Count > Chat.HistoryPageSize) messages.RemoveAt(0);
+    }
     private async Task Connect()
     {
         connection?.Dispose(); connection = null;
         RemoteConnection? candidate = null;
-        try { candidate = new RemoteConnection(host, passphrase.Text); await candidate.Connect(lifetime.Token); connection = candidate; passphrase.Text = ""; passphrase.IsVisible = false; status.Text = "Connected"; await RefreshList(); }
+        try { var password = passphrase.Text; candidate = await Task.Run(() => new RemoteConnection(host, password)); await candidate.Connect(lifetime.Token); connection = candidate; passphrase.Text = ""; passphrase.IsVisible = false; status.Text = "Connected"; await RefreshList(); }
         catch (Exception error) { status.Text = error.Message + (candidate?.ObservedFingerprint is { } pin ? "\nObserved host fingerprint: " + pin + "\nVerify it on the host before changing the saved fingerprint." : ""); candidate?.Dispose(); }
     }
     private async Task RefreshList()
     {
         var result = await Call(new() { ["method"] = "list" }); if (result is null) return;
         CatalogChanged?.Invoke(result.DeepClone());
+        chatRows = result["chats"]!.AsArray();
         var selected = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         refreshing = true;
-        chatRows = result["chats"]!.AsArray();
         workspaces.ItemsSource = result["workspaces"]!.AsArray().Select(w => new RemoteItem(w!["id"]!.GetValue<string>(), w["name"]!.GetValue<string>())).ToArray();
         workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == selected) ?? workspaces.Items.OfType<RemoteItem>().FirstOrDefault();
         refreshing = false;

@@ -9,8 +9,7 @@ public static class HeadlessHost
     public static void Run(string[] args)
     {
         AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
-        using var store = new Store(); var workspaces = store.Workspaces(); var chats = store.Chats();
-        foreach (var chat in chats) store.LoadMessages(chat);
+        using var store = new Store(backgroundWrites: true); var workspaces = store.Workspaces(); var chats = store.Chats();
         var runtimes = new Dictionary<string, ChatRuntime>(); SessionService service = null!;
         ChatRuntime Runtime(Chat chat, Workspace workspace)
         {
@@ -30,7 +29,7 @@ public static class HeadlessHost
             if (stopping) return; stopping = true;
             await server.DisposeAsync(); foreach (var runtime in runtimes.Values) await runtime.DisposeAsync();
             foreach (var chat in chats) { store.Save(chat); foreach (var message in chat.Messages) store.SaveMessage(chat, message); }
-            stopped.Cancel();
+            await store.FlushAsync(); stopped.Cancel();
         }
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; Dispatcher.UIThread.Post(Stop); };
         using var signal = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, context => { context.Cancel = true; Dispatcher.UIThread.Post(Stop); });

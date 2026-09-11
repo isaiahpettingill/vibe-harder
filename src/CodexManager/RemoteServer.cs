@@ -22,7 +22,7 @@ public sealed class RemoteServer : IAsyncDisposable
         loop = Read();
         async Task Read()
         {
-            while (await process.StandardOutput.ReadLineAsync() is { } line)
+            while (await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line)
             {
                 var message = JsonNode.Parse(line)!.AsObject();
                 if (message["ready"]?.GetValue<bool>() == true) { Fingerprint = message["fingerprint"]!.GetValue<string>(); continue; }
@@ -33,7 +33,7 @@ public sealed class RemoteServer : IAsyncDisposable
         {
             var request = message["request"]!.AsObject();
             var response = new JsonObject { ["id"] = request["id"]?.DeepClone() };
-            try { response["result"] = await Dispatcher.UIThread.InvokeAsync(() => handle(request)); }
+            try { response["result"] = await Dispatcher.UIThread.InvokeAsync(() => handle(request)).ConfigureAwait(false); }
             catch (Exception error) { response["error"] = error.Message; }
             await writer.WaitAsync();
             try { if (!process.HasExited) await process.StandardInput.WriteLineAsync(new JsonObject { ["channel"] = message["channel"]?.DeepClone(), ["response"] = response }.ToJsonString()); }

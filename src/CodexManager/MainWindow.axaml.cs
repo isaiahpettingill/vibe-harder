@@ -19,11 +19,12 @@ namespace CodexManager;
 
 public partial class MainWindow : Window
 {
-    private readonly Store store = new();
+    private readonly Store store;
     private SessionService remoteSessions = null!;
     private RemoteServer? remoteServer;
     private RemoteView? remoteView;
     private readonly Dictionary<string, StackPanel> remoteSections = [];
+    private readonly Dictionary<string, Chat> remoteActivity = [];
     private async Task ConfigureRemoteServer()
     {
         if (remoteServer is not null) { await remoteServer.DisposeAsync(); remoteServer = null; }
@@ -44,12 +45,20 @@ public partial class MainWindow : Window
             section.Children.Clear();
             foreach (var workspace in catalog["workspaces"]!.AsArray())
             {
-                section.Children.Add(new TextBlock { Text = host.Name + " / " + workspace!["name"]!.GetValue<string>(), Margin = new Thickness(4, 8, 0, 4), FontWeight = FontWeight.SemiBold });
+                var ownerId = workspace!["id"]!.GetValue<string>(); var key = "collapsed:remote:" + host.Address + ":" + ownerId;
+                var group = new StackPanel { IsVisible = store.Setting(key) != "1" };
+                var heading = new Button { Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+                heading.Click += (_, _) => { group.IsVisible = !group.IsVisible; store.Setting(key, group.IsVisible ? "0" : "1"); heading.Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(); };
+                section.Children.Add(heading); section.Children.Add(group);
                 foreach (var chat in catalog["chats"]!.AsArray().Where(c => c!["workspaceId"]!.GetValue<string>() == workspace["id"]!.GetValue<string>() && !c["archived"]!.GetValue<bool>()))
                 {
                     var id = chat!["id"]!.GetValue<string>();
-                    var choose = new Button { Content = new TextBlock { Text = chat["title"]!.GetValue<string>(), TextTrimming = TextTrimming.CharacterEllipsis }, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-                    choose.Click += (_, _) => { if (remoteView != view) OpenRemoteHost(host); remoteView!.SelectChat(id); }; section.Children.Add(choose);
+                    var activityKey = host.Address + ":" + id;
+                    if (!remoteActivity.TryGetValue(activityKey, out var activity)) remoteActivity[activityKey] = activity = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(chat["provider"]!.GetValue<string>()) };
+                    activity.Busy = chat["busy"]!.GetValue<bool>(); activity.HasUnreadCompletion = chat["unread"]?.GetValue<bool>() == true;
+                    var row = new Grid { ColumnDefinitions = new("22,*") }; row.Children.Add(new ChatActivityIndicator(activity)); var title = new TextBlock { Text = chat["title"]!.GetValue<string>(), TextTrimming = TextTrimming.CharacterEllipsis }; Grid.SetColumn(title, 1); row.Children.Add(title);
+                    var choose = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
+                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView != view) OpenRemoteHost(host); remoteView!.SelectChat(id); }; group.Children.Add(choose);
                 }
             }
         };
@@ -77,8 +86,14 @@ public partial class MainWindow : Window
     private readonly Dictionary<string, ListBox> workspaceLists = [];
     private readonly HashSet<Task> workspaceClosures = [];
     private readonly ListBox emptyChatList = new();
+    private readonly ScrollViewer emptyTranscriptScroll = new();
+    private ScrollViewer TranscriptScroll => MessageList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault() ?? emptyTranscriptScroll;
     private ListBox ChatList => workspace is null ? emptyChatList : workspaceLists.GetValueOrDefault(workspace.Id) ?? emptyChatList;
     private bool refreshingChats;
+    private CancellationTokenSource? pageLoad;
+    private bool viewingHistory;
+    private HashSet<string> searchMatches = [];
+    private CancellationTokenSource? searchCancellation;
     private Chat? configChat;
     private int configVersion = -1;
     private DateTimeOffset lastEscape;
@@ -89,16 +104,17 @@ public partial class MainWindow : Window
     private double? resizeY;
     private double resizeHeight;
 
-    public MainWindow()
+    public MainWindow() : this(new Store()) { }
+    public MainWindow(Store store, List<Workspace>? loadedWorkspaces = null, List<Chat>? loadedChats = null)
     {
+        this.store = store;
         InitializeComponent();
         FontSettings.Apply(store); AppTheme.Apply(store);
         if (double.TryParse(store.Setting("terminalWidth"), System.Globalization.CultureInfo.InvariantCulture, out var terminalWidth)) TerminalDrawer.Width = Math.Clamp(terminalWidth, 220, 800);
         RootPanes.ColumnDefinitions[0].MinWidth = 170; RootPanes.ColumnDefinitions[0].MaxWidth = 600;
         RootPanes.ColumnDefinitions[2].MinWidth = 420;
         if (double.TryParse(store.Setting("sidebarWidth"), System.Globalization.CultureInfo.InvariantCulture, out var sidebarWidth)) RootPanes.ColumnDefinitions[0].Width = new GridLength(Math.Clamp(sidebarWidth, 170, 600));
-        workspaces = new(store.Workspaces().Where(w => store.Setting("closed:" + w.Id) != "1")); chats = store.Chats();
-        foreach (var chat in chats) store.LoadMessages(chat);
+        workspaces = new((loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = loadedChats ?? store.Chats();
         remoteSessions = new SessionService(store, workspaces, chats, Runtime);
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
@@ -125,7 +141,7 @@ public partial class MainWindow : Window
             if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
             { e.Handled = true; PaletteClick(this, new()); }
         }, RoutingStrategies.Tunnel);
-        saveTimer.Tick += (_, _) => SaveAll(); saveTimer.Start();
+        saveTimer.Tick += async (_, _) => { try { SaveAll(); await store.FlushAsync(); } catch (Exception error) { StatusText.Text = "Could not save: " + error.Message; } }; saveTimer.Start();
         Closing += OnClosing;
         ConfigureTray();
         Opened += async (_, _) =>
@@ -229,21 +245,29 @@ public partial class MainWindow : Window
             return message;
         }
     }
-    private void SearchChanged(object? sender, TextChangedEventArgs e) { if (chats is not null) RefreshChats(); }
+    private async void SearchChanged(object? sender, TextChangedEventArgs e)
+    {
+        if (chats is null) return;
+        searchCancellation?.Cancel(); var cancellation = searchCancellation = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
+        searchMatches.Clear(); RefreshChats(); var query = SearchBox.Text ?? ""; if (query.Length == 0) return;
+        try { await Task.Delay(150, cancellation.Token); var matches = await store.SearchChatIdsAsync(query, cancellation.Token); if (!cancellation.IsCancellationRequested) { searchMatches = matches; RefreshChats(); } }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { StatusText.Text = "Search failed: " + error.Message; }
+    }
     private void BuildWorkspaceTree()
     {
         WorkspaceTree.Children.Clear(); workspaceLists.Clear();
         foreach (var owner in workspaces)
         {
-            var header = new Grid { ColumnDefinitions = new("*,Auto,Auto") };
+            var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
             var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
             title.Click += (_, _) => SelectWorkspace(owner, true);
             var create = new Button { Name = "NewChat_" + owner.Id, Content = "＋", Padding = new(5, 2) };
-            ToolTip.SetTip(create, "New chat"); Grid.SetColumn(create, 1);
+            ToolTip.SetTip(create, "New chat"); Grid.SetColumn(create, 2);
             create.Flyout = ProviderMenu(owner);
             var close = new Button { Name = "CloseWorkspace_" + owner.Id, Content = "×", Padding = new(5, 2) };
-            ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 2);
+            ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 3);
             close.Click += async (_, _) =>
             {
                 close.IsEnabled = false;
@@ -253,11 +277,15 @@ public partial class MainWindow : Window
             };
             header.Children.Add(title); header.Children.Add(create); header.Children.Add(close);
             var list = new ListBox { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
+            list.IsVisible = store.Setting("collapsed:" + owner.Id) != "1";
+            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
+            collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; store.Setting("collapsed:" + owner.Id, list.IsVisible ? "0" : "1"); };
+            Grid.SetColumn(title, 1); header.Children.Add(collapse);
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) =>
             {
                 if (chat is null) return null;
                 var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4) };
-                row.Children.Add(new Image { Source = BrandAssets.Provider(chat!.Provider), Width = 14, Height = 14, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
+                row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
                 var details = new StackPanel { Spacing = 3 };
                 var name = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis };
                 name.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Title, source: chat));
@@ -271,7 +299,7 @@ public partial class MainWindow : Window
                 rename.MinWidth = archive.MinWidth = 20; rename.MinHeight = archive.MinHeight = 20;
                 row.Background = Brushes.Transparent; row.Classes.Add("chatRow"); rename.Classes.Add("rowAction"); archive.Classes.Add("rowAction");
                 ToolTip.SetTip(row, chat.ProviderLabel); return row;
-            });
+            }, false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             WorkspaceTree.Children.Add(new StackPanel { Children = { header, list } });
         }
@@ -318,7 +346,7 @@ public partial class MainWindow : Window
         foreach (var (id, list) in workspaceLists)
         {
             var selected = list.SelectedItem;
-            list.ItemsSource = chats.Where(c => c.WorkspaceId == id && c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || c.Messages.Any(m => m.Text.Contains(query, StringComparison.OrdinalIgnoreCase)))).OrderByDescending(c => c.Updated).ToArray();
+            list.ItemsSource = chats.Where(c => c.WorkspaceId == id && c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).OrderByDescending(c => c.Updated).ToArray();
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
         }
         refreshingChats = false;
@@ -346,13 +374,26 @@ public partial class MainWindow : Window
         foreach (var list in workspaceLists.Values.Where(l => l != sender)) list.SelectedItem = null;
         refreshingChats = false;
         if (current is not null) { current.Draft = Composer.Text ?? ""; store.Save(current); }
+        chat.HasUnreadCompletion = false; store.Save(chat);
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
         store.Setting("lastProvider", chat.Provider.ToString());
         MessageList.ItemsSource = chat.Messages; AttachmentList.ItemsSource = chat.Attachments;
         UpdateControls(); Composer.Focus();
-        Dispatcher.UIThread.Post(() => TranscriptScroll.ScrollToEnd(), DispatcherPriority.Background);
-        if (chat.SessionId is not null && chat.Messages.Count == 0 && workspace is not null)
+        Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
+        viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
+        if (!chat.HistoryLoaded && !chat.Busy)
+        {
+            try
+            {
+                var page = await store.ReadPageAsync(chat, token: pageLoad.Token);
+                if (closing || chat.Busy || chat.Archived != showArchived || !ReferenceEquals(current, chat)) return;
+                store.ApplyRecentPage(chat, page); ScrollTranscriptToEnd();
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; return; }
+        }
+        if (chat.SessionId is not null && (chat.Messages.Count == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") && workspace is not null)
             await Runtime(chat, workspace).LoadHistory();
         else if (chat.SessionId is not null && workspace is not null && Runtime(chat, workspace) is { IsConnected: false, IsReconnecting: false } runtime)
             await runtime.Reconnect();
@@ -432,6 +473,7 @@ public partial class MainWindow : Window
     }
     private void UpdateControls()
     {
+        UpdateTray();
         UpdateSlashCommands();
         UpdateQueue();
         ConfigOptionsPanel.IsEnabled = current is { Busy: false } && runtimes.GetValueOrDefault(current.Id) is not { IsConfiguring: true } and not { IsReconnecting: true };
@@ -462,7 +504,7 @@ public partial class MainWindow : Window
         WelcomeHeading.Text = workspace is null ? "Open a folder to start" : "Start a chat in " + workspace.Name;
         WelcomeHint.Text = workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
         WelcomeOpenButton.IsVisible = workspace is null;
-        MessageList.IsVisible = current is not null;
+        MessageList.IsVisible = current is not null; HistoryNavigation.IsVisible = current is not null;
         ComposerBorder.IsEnabled = current is not null;
         ImportChatsButton.IsEnabled = workspace is not null;
         LoginButton.IsEnabled = workspace is not null;
@@ -486,7 +528,7 @@ public partial class MainWindow : Window
         StopButton.IsVisible = current is not null && runtimes.GetValueOrDefault(current.Id) is { } stopping && (stopping.IsPrompting || stopping.IsRecovering);
         ResumeChatButton.IsVisible = current?.InterruptedInput is not null && current.Busy == false && runtimes.GetValueOrDefault(current.Id) is not { IsRecovering: true };
         if (current is not null && runtimes.GetValueOrDefault(current.Id)?.IsRecovering == true) SendButton.IsEnabled = false;
-        ArchiveChatButton.IsEnabled = current is { Busy: false };
+        ArchiveChatButton.IsEnabled = current is not null;
         ArchiveChatButton.Label = current?.Archived == true ? "Restore chat" : "Archive chat";
         DeleteChatButton.IsEnabled = current is { Busy: false };
         StatusText.Text = current is null ? "Ready — open a workspace to begin" : $"{workspace?.Host}  ·  {current.Status}";
@@ -499,13 +541,14 @@ public partial class MainWindow : Window
     private async void CopyChatClick(object? sender, RoutedEventArgs e)
     {
         if (current is null || Clipboard is null) return;
-        var html = new System.Text.StringBuilder();
-        foreach (var message in current.Messages)
+        var chat = current;
+        try
         {
-            var view = new ChatMarkdown { Text = message.Text };
-            html.Append("<h3>").Append(System.Net.WebUtility.HtmlEncode(message.Label)).Append("</h3>").Append(view.ExportHtml());
+            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+            var content = await store.ExportChatAsync(chat);
+            await RichClipboard.Set(Clipboard, content.Plain, content.Html);
         }
-        await RichClipboard.Set(Clipboard, string.Join("\n\n", current.Messages.Select(m => m.Label + "\n" + m.Text)), html.ToString());
+        catch (Exception error) { StatusText.Text = "Could not copy chat: " + error.Message; }
     }
     private async Task Send()
     {
@@ -534,10 +577,11 @@ public partial class MainWindow : Window
             runtime.Changed += () =>
             {
                 if (closing) return;
+                store.TrimHistory(chat);
                 if (ReferenceEquals(chat, current) && runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
                 UpdateControls();
-                if (ReferenceEquals(chat, current) && TranscriptScroll.Offset.Y + TranscriptScroll.Viewport.Height >= TranscriptScroll.Extent.Height - 150)
-                    Dispatcher.UIThread.Post(() => TranscriptScroll.ScrollToEnd(), DispatcherPriority.Background);
+                if (ReferenceEquals(chat, current) && !viewingHistory && TranscriptScroll.Offset.Y + TranscriptScroll.Viewport.Height >= TranscriptScroll.Extent.Height - 150)
+                    Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
             };
             runtimes[chat.Id] = runtime;
         }
@@ -901,6 +945,24 @@ public partial class MainWindow : Window
     private void TerminalResizeEnd(object? sender, PointerReleasedEventArgs e) { resizeY = null; e.Pointer.Capture(null); }
     private void SaveAll()
     { store.Setting("sidebarWidth", RootPanes.ColumnDefinitions[0].ActualWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)); store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)); foreach (var c in chats) { if (runtimes.GetValueOrDefault(c.Id)?.IsLoadingHistory == true) continue; store.Save(c); foreach (var m in c.Messages) store.SaveMessage(c, m); } }
+    private async Task BrowseHistory(bool newer)
+    {
+        if (current is not { } chat) return;
+        pageLoad?.Cancel(); var cancellation = pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
+        var visible = MessageList.Items.OfType<Message>().ToArray(); if (visible.Length == 0) return;
+        try
+        {
+            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, token: cancellation.Token, newer: newer);
+            if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
+            viewingHistory = true; MessageList.ItemsSource = page; MessageList.ScrollIntoView(0);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; }
+    }
+    private async void EarlierMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(false);
+    private async void NewerMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(true);
+    private void LatestMessagesClick(object? sender, RoutedEventArgs e) { pageLoad?.Cancel(); viewingHistory = false; MessageList.ItemsSource = current?.Messages; ScrollTranscriptToEnd(); }
+    private void ScrollTranscriptToEnd() { if (MessageList.ItemCount > 0) MessageList.ScrollIntoView(MessageList.ItemCount - 1); TranscriptScroll.ScrollToEnd(); }
     private void ClearChat()
     {
         if (current is not null && chats.Contains(current)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
@@ -927,11 +989,13 @@ public partial class MainWindow : Window
     }
     private async Task ArchiveChat(Chat chat)
     {
-        if (chat.Busy) return;
+        if (ReferenceEquals(current, chat)) pageLoad?.Cancel();
         chat.Archived = !chat.Archived; store.Save(chat);
-        if (runtimes.Remove(chat.Id, out var runtime)) await runtime.DisposeAsync();
-        if (closing) return;
+        Task? cleanup = null;
+        if (chat.Archived && runtimes.Remove(chat.Id, out var runtime)) cleanup = runtime.DisposeAsync().AsTask();
         if (ReferenceEquals(current, chat)) SelectNextChat(); else { RefreshChats(); UpdateControls(); }
+        if (cleanup is not null) { workspaceClosures.Add(cleanup); try { await cleanup; } finally { workspaceClosures.Remove(cleanup); } }
+        if (chat.Archived) { chat.Messages.Clear(); chat.HistoryLoaded = false; chat.InterruptedInput = null; store.Setting("interrupted:" + chat.Id, ""); store.Save(chat); }
     }
     private async void DeleteChatClick(object? sender, RoutedEventArgs e)
     {
@@ -965,9 +1029,33 @@ public partial class MainWindow : Window
         if (store.Setting("runInTray") == "0") return;
         var show = new NativeMenuItem("Open Vibe Harder"); show.Click += (_, _) => ShowFromTray();
         var quit = new NativeMenuItem("Quit and interrupt agents"); quit.Click += (_, _) => RequestExit();
-        tray = new TrayIcon { Icon = Icon, ToolTipText = "Vibe Harder — agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
+        tray = new TrayIcon { Icon = Icon, ToolTipText = "Vibe Harder — no agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
+        UpdateTray();
         tray.Clicked += (_, _) => ShowFromTray();
         if (Application.Current is { } app) TrayIcon.SetIcons(app, new TrayIcons { tray });
+    }
+    private string trayState = "";
+    private void UpdateTray()
+    {
+        if (tray is null) return;
+        var active = chats.Where(c => runtimes.TryGetValue(c.Id, out var runtime) && runtime.IsPrompting).ToArray();
+        var signature = string.Join("|", active.Select(c => c.Id + c.Title + c.Status));
+        if (signature == trayState && tray.Menu?.Items.Count > 2) return;
+        trayState = signature;
+        tray.ToolTipText = active.Length == 0 ? "Vibe Harder — no agents running" : $"Vibe Harder — {active.Length} agent{(active.Length == 1 ? "" : "s")} running";
+        var menu = new NativeMenu();
+        var show = new NativeMenuItem("Open Vibe Harder"); show.Click += (_, _) => ShowFromTray(); menu.Items.Add(show);
+        menu.Items.Add(new NativeMenuItemSeparator());
+        if (active.Length == 0) menu.Items.Add(new NativeMenuItem("No agents running") { IsEnabled = false });
+        foreach (var chat in active)
+        {
+            var owner = workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId);
+            var item = new NativeMenuItem($"{AgentProviders.Get(chat.Provider).Name} · {owner?.Name} · {chat.Title} · {chat.Status}");
+            item.Click += (_, _) => { ShowFromTray(); if (owner is not null) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }; menu.Items.Add(item);
+        }
+        menu.Items.Add(new NativeMenuItemSeparator());
+        var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += (_, _) => RequestExit(); menu.Items.Add(quit);
+        tray.Menu = menu;
     }
     public void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); UpdateControls(); }
     public void RequestExit() { exitRequested = true; Close(); }
@@ -1043,7 +1131,7 @@ public partial class MainWindow : Window
         foreach (var terminal in terminals.Values.SelectMany(t => t)) terminal.Session.Dispose();
         foreach (var runtime in runtimes.Values) await runtime.DisposeAsync();
         // Flush final streamed content before releasing SQLite.
-        SaveAll(); tray?.Dispose(); store.Dispose(); Close();
+        SaveAll(); await store.FlushAsync(); tray?.Dispose(); store.Dispose(); Close();
     }
 }
 

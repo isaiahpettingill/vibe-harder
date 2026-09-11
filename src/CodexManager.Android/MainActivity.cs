@@ -19,10 +19,14 @@ public sealed class MainActivity : Activity
     private CancellationTokenSource? session;
     private FrameLayout root = null!;
     private ScrollView drawerContainer = null!;
-    private LinearLayout drawer = null!, transcript = null!, approvals = null!, configs = null!;
+    private LinearLayout drawer = null!, approvals = null!, configs = null!;
     private TextView status = null!;
     private EditText input = null!;
     private string? chatId, workspaceId;
+    private ListView transcript = null!;
+    private TranscriptAdapter transcriptAdapter = null!;
+    private int? historyBefore;
+    private int polls;
     private string rendered = "", approvalState = "", configState = "";
     private RemoteHost? host;
     private readonly List<JsonObject> attachments = [];
@@ -58,7 +62,11 @@ public sealed class MainActivity : Activity
             Apply(root); rendered = "";
         })!.Show()));
         status = Label("Connect to a host to view its workspaces and agents."); main.AddView(status);
-        transcript = Column(); var scroll = new ScrollView(this); scroll.AddView(transcript); main.AddView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        var history = new LinearLayout(this) { Orientation = Orientation.Horizontal };
+        history.AddView(Button("↑ Earlier", () => { if (transcriptAdapter.Rows.Length > 0) { historyBefore = transcriptAdapter.Rows[0].Sequence; rendered = ""; } }));
+        history.AddView(Button("↓ Latest", () => { historyBefore = null; rendered = ""; })); main.AddView(history);
+        transcriptAdapter = new TranscriptAdapter(this); transcript = new ListView(this) { DividerHeight = 0, ItemsCanFocus = true }; transcript.SetAdapter(transcriptAdapter);
+        main.AddView(transcript, new LinearLayout.LayoutParams(-1, 0, 1));
         approvals = Column(); main.AddView(approvals); configs = Column(); main.AddView(configs);
         input = new EditText(this) { Hint = "Message the agent…", TextSize = 16 }; input.SetMaxLines(5); input.SetMinLines(2); input.SetTextColor(Color.Rgb(205, 214, 244)); main.AddView(input);
         var actions = new HorizontalScrollView(this); var row = new LinearLayout(this) { Orientation = Orientation.Horizontal }; actions.AddView(row);
@@ -116,7 +124,7 @@ public sealed class MainActivity : Activity
     private async Task Connect(string? passphrase)
     {
         session?.Cancel(); connection?.Dispose(); session = new(); connection = null; RemoteConnection? candidate = null;
-        try { candidate = new RemoteConnection(host!, passphrase); await candidate.Connect(session.Token); connection = candidate; status.Text = "Connected to " + host!.Name; await RefreshDrawer(); _ = Poll(session.Token); }
+        try { candidate = await Task.Run(() => new RemoteConnection(host!, passphrase)); await candidate.Connect(session.Token); connection = candidate; status.Text = "Connected to " + host!.Name; await RefreshDrawer(); _ = Poll(session.Token); }
         catch (Exception error) { candidate?.Dispose(); status.Text = error.Message + "\nObserved fingerprint: " + candidate?.ObservedFingerprint; }
     }
     private async Task<JsonNode?> Call(JsonObject request)
@@ -131,10 +139,17 @@ public sealed class MainActivity : Activity
         drawer.RemoveAllViews(); drawer.AddView(Button("Close drawer", () => drawerContainer.Visibility = ViewStates.Gone));
         foreach (var workspace in result["workspaces"]!.AsArray())
         {
-            var id = workspace!["id"]!.GetValue<string>(); drawer.AddView(Label(workspace["name"]!.GetValue<string>()));
-            drawer.AddView(Button("＋ New chat", () => new AlertDialog.Builder(this)!.SetItems(new[] { "Codex", "Claude", "OpenCode" }, async (_, e) => { var created = await Call(new() { ["method"] = "create", ["workspaceId"] = id, ["provider"] = new[] { "Codex", "Claude", "OpenCode" }[e.Which] }); if (created is not null) { chatId = created["id"]!.GetValue<string>(); workspaceId = id; rendered = ""; drawerContainer.Visibility = ViewStates.Gone; await RefreshDrawer(); } })!.Show()));
+            var id = workspace!["id"]!.GetValue<string>();
+            var collapseKey = "collapsed:" + host?.Address + ":" + id; var group = Column(); group.Visibility = Preferences.GetBoolean(collapseKey, false) ? ViewStates.Gone : ViewStates.Visible;
+            var heading = Button((group.Visibility == ViewStates.Visible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(), () => { group.Visibility = group.Visibility == ViewStates.Gone ? ViewStates.Visible : ViewStates.Gone; Preferences.Edit()!.PutBoolean(collapseKey, group.Visibility == ViewStates.Gone)!.Apply(); _ = RefreshDrawer(); });
+            drawer.AddView(heading); drawer.AddView(group);
+            group.AddView(Button("＋ New chat", () => new AlertDialog.Builder(this)!.SetItems(new[] { "Codex", "Claude", "OpenCode" }, async (_, e) => { var created = await Call(new() { ["method"] = "create", ["workspaceId"] = id, ["provider"] = new[] { "Codex", "Claude", "OpenCode" }[e.Which] }); if (created is not null) { chatId = created["id"]!.GetValue<string>(); workspaceId = id; historyBefore = null; rendered = ""; drawerContainer.Visibility = ViewStates.Gone; await RefreshDrawer(); } })!.Show()));
             foreach (var chat in result["chats"]!.AsArray().Where(c => c!["workspaceId"]!.GetValue<string>() == id && !c["archived"]!.GetValue<bool>()))
-                drawer.AddView(Button(chat!["title"]!.GetValue<string>(), () => { chatId = chat["id"]!.GetValue<string>(); workspaceId = id; rendered = ""; drawerContainer.Visibility = ViewStates.Gone; }));
+            {
+                var row = new LinearLayout(this) { Orientation = Orientation.Horizontal }; row.SetGravity(GravityFlags.CenterVertical);
+                if (chat!["busy"]!.GetValue<bool>()) row.AddView(new ProgressBar(this) { Indeterminate = true }, new LinearLayout.LayoutParams(Dp(18), Dp(18)));
+                row.AddView(Button((chat["unread"]?.GetValue<bool>() == true ? "● " : "") + chat["title"]!.GetValue<string>(), async () => { chatId = chat["id"]!.GetValue<string>(); workspaceId = id; historyBefore = null; rendered = ""; drawerContainer.Visibility = ViewStates.Gone; await Call(new() { ["method"] = "read", ["chatId"] = chatId }); })); group.AddView(row);
+            }
         }
         if (chatId is null) drawerContainer.Visibility = ViewStates.Visible;
     }
@@ -145,24 +160,19 @@ public sealed class MainActivity : Activity
             while (!token.IsCancellationRequested && connection is not null)
             {
                 await Task.Delay(350, token); if (chatId is null) continue; var id = chatId;
-                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id }); if (result is null || chatId != id) continue;
+                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["before"] = historyBefore }); if (result is null || chatId != id) continue;
                 status.Text = result["status"]!.GetValue<string>() + " · " + result["queued"] + " queued";
                 var text = result["messages"]!.ToJsonString();
                 if (text != rendered)
                 {
-                    rendered = text; transcript.RemoveAllViews();
-                    foreach (var message in result["messages"]!.AsArray())
-                    {
-                        var role = message!["role"]!.GetValue<string>(); var body = Label(message["text"]!.GetValue<string>(), role is "tool" or "thought");
-                        if (role is "tool" or "thought") { body.Visibility = ViewStates.Gone; transcript.AddView(Button(role + " ▾", () => body.Visibility = body.Visibility == ViewStates.Gone ? ViewStates.Visible : ViewStates.Gone)); }
-                        if (role is not ("tool" or "thought"))
-                        {
-                            body.TextFormatted = global::Android.Text.Html.FromHtml(Markdig.Markdown.ToHtml(message["text"]!.GetValue<string>(), new Markdig.MarkdownPipelineBuilder().DisableHtml().Build()), global::Android.Text.FromHtmlOptions.ModeCompact);
-                            body.MovementMethod = global::Android.Text.Method.LinkMovementMethod.Instance;
-                        }
-                        transcript.AddView(body);
-                    }
+                    var rows = result["messages"]!.AsArray();
+                    var prepared = await Task.Run(() => rows.Select(message => new TranscriptRow(message!["id"]!.GetValue<string>(), message["role"]!.GetValue<string>(), message["text"]!.GetValue<string>(), Markdig.Markdown.ToHtml(message["text"]!.GetValue<string>(), new Markdig.MarkdownPipelineBuilder().DisableHtml().Build()), message["sequence"]?.GetValue<int>() ?? 0)).ToArray(), token);
+                    if (chatId != id) continue;
+                    var follow = transcriptAdapter.Count == 0 || transcript.LastVisiblePosition >= transcriptAdapter.Count - 2;
+                    rendered = text; transcriptAdapter.Rows = prepared; transcriptAdapter.NotifyDataSetChanged();
+                    if (follow && historyBefore is null && prepared.Length > 0) transcript.SetSelection(prepared.Length - 1);
                 }
+                if (++polls % 12 == 0) await RefreshDrawer();
                 var pending = result["permissions"]!.ToJsonString();
                 if (pending != approvalState)
                 {
@@ -185,6 +195,27 @@ public sealed class MainActivity : Activity
             }
         }
         catch (OperationCanceledException) { }
+    }
+    private sealed record TranscriptRow(string Id, string Role, string Text, string Html, int Sequence);
+    private sealed class TranscriptAdapter(MainActivity activity) : BaseAdapter
+    {
+        public TranscriptRow[] Rows { get; set; } = [];
+        private readonly HashSet<string> expanded = [];
+        public override int Count => Rows.Length;
+        public override Java.Lang.Object? GetItem(int position) => null;
+        public override long GetItemId(int position) => position;
+        public override View GetView(int position, View? convertView, ViewGroup? parent)
+        {
+            var row = Rows[position]; var container = activity.Column(); var output = row.Role is "tool" or "thought";
+            var body = activity.Label(output && !expanded.Contains(row.Id) ? "" : row.Text, output);
+            if (output)
+            {
+                body.Visibility = expanded.Contains(row.Id) ? ViewStates.Visible : ViewStates.Gone;
+                container.AddView(activity.Button(row.Role + " ▾", () => { if (!expanded.Add(row.Id)) expanded.Remove(row.Id); body.Text = expanded.Contains(row.Id) ? row.Text : ""; body.Visibility = expanded.Contains(row.Id) ? ViewStates.Visible : ViewStates.Gone; }));
+            }
+            else { body.TextFormatted = global::Android.Text.Html.FromHtml(row.Html, global::Android.Text.FromHtmlOptions.ModeCompact); body.MovementMethod = global::Android.Text.Method.LinkMovementMethod.Instance; }
+            container.AddView(body); return container;
+        }
     }
     protected override void OnDestroy() { session?.Cancel(); connection?.Dispose(); base.OnDestroy(); }
     private sealed class InsetsListener : Java.Lang.Object, View.IOnApplyWindowInsetsListener

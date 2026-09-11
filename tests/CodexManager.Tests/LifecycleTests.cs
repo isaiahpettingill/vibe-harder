@@ -40,6 +40,7 @@ public class LifecycleTests
             }
             await Wait(() => window.OwnedWindows.Any(w => w.Title == "Resume interrupted chats"));
             var recovered = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
+            await Wait(() => recovered.HistoryLoaded);
             Assert.Single(recovered.Messages, m => m.Role == "user");
             var dialog = window.OwnedWindows.Single(w => w.Title == "Resume interrupted chats");
             dialog.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "KeepInterruptedDrafts").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

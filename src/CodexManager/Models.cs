@@ -25,6 +25,9 @@ public sealed record Workspace(string Id, string Name, string Path, string? Dist
 
 public sealed class Chat : Observable
 {
+    public const int HistoryPageSize = 200;
+    public int NextSequence { get; set; }
+    public bool HistoryLoaded { get; set; }
     public IReadOnlyList<SessionConfig> ConfigOptions { get; set; } = [];
     public int ConfigVersion { get; set; }
     public IReadOnlyList<SlashCommand> Commands { get; set; } = [];
@@ -52,7 +55,10 @@ public sealed class Chat : Observable
     }
     public ObservableCollection<Attachment> Attachments { get; } = [];
     public ObservableCollection<Message> Messages { get; } = [];
-    public bool Busy { get; set; }
+    private bool busy;
+    public bool Busy { get => busy; set => Set(ref busy, value); }
+    private bool hasUnreadCompletion;
+    public bool HasUnreadCompletion { get => hasUnreadCompletion; set => Set(ref hasUnreadCompletion, value); }
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;
     public override string ToString() => Title;
 }
@@ -61,6 +67,9 @@ public sealed record PendingInput(string Text, Attachment[] Attachments);
 
 public sealed class Message : Observable
 {
+    public int Sequence { get; set; } = -1;
+    public int Revision { get; private set; }
+    public bool OutputExpanded { get; set; }
     public AgentProvider Provider { get; init; }
     public ObservableCollection<Attachment> Attachments { get; } = [];
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
@@ -68,7 +77,7 @@ public sealed class Message : Observable
     public string? ToolId { get; init; }
     public string ToolInput { get; set; } = "";
     private string text = "";
-    public string Text { get => text; set => Set(ref text, value); }
+    public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }
     public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };
 }
 

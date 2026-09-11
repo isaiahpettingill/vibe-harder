@@ -111,3 +111,13 @@ Limits: macOS runtime behavior was not tested. The Windows computer-use executio
 - Eight focused remote authentication/disconnect, lifecycle, settings/font, and terminal appearance tests passed after branding. Earlier isolated Debian zsh clear/resize testing passed with one live prompt.
 - Android Release compiled successfully and an emulator launch was checked. Android owns no agents; desktop/headless hosts retain them when clients disconnect.
 - Remote tests use fake agents. Real provider billing, arbitrary shell configurations, actual operating-system restarts, and physical Android devices have not been exhaustively tested.
+
+
+## Responsiveness update
+
+- Locked-database test confirms UI-side saves return without waiting, and flushes preserve ordering.
+- A 1,500-message fixture remains bounded to 200 recent messages; older/newer pages and full-history copy are verified.
+- Visible transcript row count stays bounded while scrolling. Recycled message controls detach event subscriptions.
+- A hanging history loader is cancelled by Archive; the sidebar updates immediately and the tray does not misreport history loading as a running agent.
+- Completion flags persist; explicit cancellation does not create an unread completion.
+- Fifteen focused recovery, paging, lifecycle, and chat interaction tests passed during integration.

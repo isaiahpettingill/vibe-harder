@@ -153,7 +153,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             connected = false;
             if (!chat.Busy && !chat.NeedsLogin) _ = Reconnect(true);
         });
-        client.UpdateAsync = async update => await Dispatcher.UIThread.InvokeAsync(() => Update(update));
+        client.UpdateAsync = async update => await Dispatcher.UIThread.InvokeAsync(() => Update(update), DispatcherPriority.Background);
         client.PermissionRequested = async (request, token) =>
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, turn?.Token ?? lifetime.Token);
@@ -199,12 +199,18 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     {
         chat.Busy = true; IsLoadingHistory = true; chat.Status = "Loading history…"; Changed?.Invoke();
         var previous = chat.Messages.ToArray();
+        store.Setting("historyIncomplete:" + chat.Id, "1"); store.ClearHistory(chat);
         try
         {
             await ConnectWithRecovery(true, lifetime.Token);
-            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-            chat.Status = "Ready";
+            for (var i = 0; i < chat.Messages.Count; i++)
+            {
+                lifetime.Token.ThrowIfCancellationRequested(); store.SaveMessage(chat, chat.Messages[i]);
+                if (i % 64 == 0) await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
+            }
+            store.Setting("historyIncomplete:" + chat.Id, "0"); await store.FlushAsync(); chat.HistoryLoaded = true; chat.Status = "Ready";
         }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { chat.Status = "Ready"; }
         catch (Exception error)
         {
             chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error);
@@ -217,7 +223,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private async Task SendCore(string text, Attachment[] attachments)
     {
         if (chat.Busy) return;
-        chat.Busy = true; chat.Status = "Connecting…"; Changed?.Invoke();
+        chat.HasUnreadCompletion = false; chat.Busy = true; chat.Status = "Connecting…"; Changed?.Invoke();
         turn = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         chat.PendingInput = new(text, attachments); store.Save(chat);
         store.Setting("interrupted:" + chat.Id, JsonSerializer.Serialize(chat.PendingInput, StoreJsonContext.Default.PendingInput));
@@ -225,6 +231,8 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         var completed = false;
         try
         {
+            if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, token: turn.Token));
+            await store.FlushAsync();
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             turn.Token.ThrowIfCancellationRequested();
             var user = new Message { Role = "user", Provider = chat.Provider, Text = text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
@@ -238,8 +246,8 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;
-            if (completed) chat.InterruptedInput = null;
-            if (!lifetime.IsCancellationRequested && !detachedTurn) store.Setting("interrupted:" + chat.Id, "");
+            if (completed) { chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }
+
         }
         catch (OperationCanceledException)
         {
@@ -258,10 +266,17 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         }
         finally
         {
-            chat.Busy = detachedTurn; chat.Updated = DateTimeOffset.UtcNow;
+            chat.Updated = DateTimeOffset.UtcNow;
             chat.PendingInput = null;
             foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-            store.Save(chat); turn.Dispose(); turn = null; Changed?.Invoke();
+            store.Save(chat); turn.Dispose(); turn = null;
+            try
+            {
+                await store.FlushAsync();
+                if (completed && !lifetime.IsCancellationRequested && !detachedTurn) { store.Setting("interrupted:" + chat.Id, ""); await store.FlushAsync(); }
+            }
+            catch (Exception error) { completed = false; chat.Status = "Could not save completed turn: " + error.Message; }
+            chat.Busy = detachedTurn; Changed?.Invoke();
             if (recoverConnection && !lifetime.IsCancellationRequested && !IsRecovering)
                 Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && chat.InterruptedInput is { } input) recoveryTask = RecoverConnection(input); });
             if (completed && !IsSteering && !lifetime.IsCancellationRequested && chat.QueuedInputs.FirstOrDefault() is { } next)
@@ -330,8 +345,12 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         else if (client is not null) await client.DisposeAsync();
     }
     private void Add(string role, string text, string? toolId = null)
-    { var m = new Message { Role = role, Provider = chat.Provider, Text = text, ToolId = toolId }; chat.Messages.Add(m); if (!replaying) store.SaveMessage(chat, m); }
-    private void Update(JsonElement update)
+    {
+        if (replaying && chat.Messages.LastOrDefault() is { } previous) store.SaveMessage(chat, previous);
+        var m = new Message { Role = role, Provider = chat.Provider, Text = text, ToolId = toolId, Sequence = chat.NextSequence++ };
+        chat.Messages.Add(m); store.TrimHistory(chat); if (!replaying) store.SaveMessage(chat, m);
+    }
+    private async Task Update(JsonElement update)
     {
         if (update.TryGetProperty("sessionUpdate", out var commandKind) && commandKind.GetString() == "available_commands_update")
         { chat.Commands = SlashCommand.Read(update); Changed?.Invoke(); return; }
@@ -351,6 +370,8 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         {
             var id = update.GetProperty("toolCallId").GetString();
             var message = chat.Messages.LastOrDefault(m => m.ToolId == id);
+            if (message is null && id is not null) message = (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token, toolId: id)).FirstOrDefault();
+            if (lifetime.IsCancellationRequested) return;
             if (message is null) { Add("tool", "", id); message = chat.Messages.Last(); }
             var title = update.TryGetProperty("title", out var t) ? t.GetString() : message.Text.Split('\n')[0];
             var status = update.TryGetProperty("status", out var s) ? s.GetString() : "running";

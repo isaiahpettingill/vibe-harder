@@ -14,12 +14,13 @@ public sealed class MessageView : UserControl
     private readonly TextBlock title = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, FontSize = 11 };
     private readonly ScrollViewer details;
     private bool expanded;
+    private bool attached;
     public bool IsExpandedOutput => IsOutput && expanded;
     private bool IsOutput => Message?.Role is "tool" or "thought";
     static MessageView() => MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
     public MessageView()
     {
-        toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; Refresh(); };
+        toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; if (Message is not null) Message.OutputExpanded = expanded; Refresh(); };
         var copy = new IconButton { Label = "Copy complete message with formatting" };
         ToolTip.SetTip(copy, "Copy complete message with formatting");
         copy.Click += async (_, _) => { body.Text = Message?.Text ?? ""; await body.Copy(); };
@@ -30,11 +31,15 @@ public sealed class MessageView : UserControl
     private void Change(Message? old)
     {
         if (old is not null) old.PropertyChanged -= MessageChanged;
-        if (Message is not null) Message.PropertyChanged += MessageChanged;
-        expanded = !IsOutput; Refresh();
+        if (attached && Message is not null) Message.PropertyChanged += MessageChanged;
+        expanded = !IsOutput || Message?.OutputExpanded == true; Refresh();
     }
+    protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+    { base.OnAttachedToVisualTree(e); attached = true; if (Message is not null) Message.PropertyChanged += MessageChanged; Refresh(); }
+    protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+    { attached = false; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
     private void MessageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Refresh();
-    public void Collapse() { if (IsOutput) { expanded = false; Refresh(); } }
+    public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; Refresh(); } }
     private void Refresh()
     {
         body.Muted = IsOutput;

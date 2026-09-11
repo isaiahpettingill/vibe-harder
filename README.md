@@ -28,6 +28,14 @@ dotnet run --project src/CodexManager
 
 On Windows, `./run.ps1` builds and launches the app. A prepared Windows build is at `artifacts/publish/win-x64-aot/VibeHarder.exe` after publishing.
 
+## Responsiveness and activity
+
+Workspace chevrons collapse chat lists without stopping agents. A spinner shows busy chats; a dot marks a completed reply until you open that chat. The tray tooltip reports the actual number of running local agents, and its menu lists their provider, workspace, title, and status.
+
+The transcript virtualizes rendered rows and keeps a 200-message window. The up/down history controls fetch earlier/newer pages asynchronously; the latest control returns to the live conversation. Older history stays in SQLite, including during provider replay. Full-chat copy and history search run against the saved history in background work.
+
+Archiving hides the chat immediately and cancels its active history loader or turn. Database writes use an ordered background writer with durable flushes before starting a provider prompt. The recovery marker is cleared only after the completed transcript is saved.
+
 ## Workflow
 
 - The workspace-name selector shows searchable folder history, including workspaces you closed. Remove an entry with **×**; its saved chats remain intact. Missing folders disappear from history automatically when the selector opens. Unavailable WSL distributions retain their entries. Opening an empty workspace starts the last-used chat provider.

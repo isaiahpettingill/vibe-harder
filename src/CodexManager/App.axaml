@@ -34,6 +34,8 @@
     <Style Selector="TextBox#Composer:focus /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
     <Style Selector="edit|TextEditor"><Setter Property="FontFamily" Value="{DynamicResource CodeFont}"/></Style>
     <Style Selector="Button.accent"><Setter Property="Background" Value="{DynamicResource AppAccent}"/><Setter Property="Foreground" Value="{DynamicResource AppOnAccent}"/></Style>
+    <Style Selector="Button.accent Path"><Setter Property="Stroke" Value="{DynamicResource AppOnAccent}"/><Setter Property="StrokeThickness" Value="1.8"/></Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter, Button.accent:pressed /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppAccent}"/></Style>
     <Style Selector="Expander"><Setter Property="Padding" Value="4"/></Style>
     <Style Selector="Expander /template/ ToggleButton"><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="6,3"/></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource AppMuted}"/></Style>

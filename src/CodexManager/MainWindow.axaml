@@ -24,22 +24,22 @@
             <ContentControl Name="LoginTerminalHost" IsVisible="False" Height="220"/>
           </StackPanel>
         </Border>
-        <ScrollViewer Grid.Row="2" Name="TranscriptScroll" HorizontalScrollBarVisibility="Disabled">
-          <Grid Margin="14,0,14,10">
-            <StackPanel Name="Welcome" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Spacing="10" Margin="16,32">
+        <Grid Grid.Row="2" Margin="14,0,14,10" RowDefinitions="Auto,*">
+            <StackPanel Name="HistoryNavigation" Orientation="Horizontal" HorizontalAlignment="Right"><local:IconButton Icon="chevron-up" Label="Earlier messages" Click="EarlierMessagesClick"/><local:IconButton Icon="chevron-down" Label="Newer messages" Click="NewerMessagesClick"/><local:IconButton Icon="latest" Label="Return to latest messages" Click="LatestMessagesClick"/></StackPanel>
+            <StackPanel Grid.Row="1" Name="Welcome" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Spacing="10" Margin="16,32">
               <TextBlock Name="WelcomeHeading" Text="Open a folder to start" FontSize="16" TextWrapping="Wrap"/>
               <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
               <Button Name="WelcomeOpenButton" Content="Open workspace" Click="OpenWorkspaceClick"/>
             </StackPanel>
-            <ItemsControl Name="MessageList">
-              <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Message">
+            <ListBox Grid.Row="1" Name="MessageList" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+              <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style><Style Selector="ListBoxItem /template/ ContentPresenter"><Setter Property="Background" Value="Transparent"/></Style></ListBox.Styles>
+              <ListBox.ItemTemplate><DataTemplate x:DataType="local:Message">
                 <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
                   <StackPanel Spacing="6"><local:MessageView Message="{Binding}"/><ItemsControl ItemsSource="{Binding Attachments}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Expander Header="{Binding Name}" IsVisible="{Binding IsImage}" IsExpanded="False" HorizontalAlignment="Stretch"><Image Source="{Binding Thumbnail}" MaxHeight="220" HorizontalAlignment="Left" Stretch="Uniform"/></Expander></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel>
                 </Border>
-              </DataTemplate></ItemsControl.ItemTemplate>
-            </ItemsControl>
-          </Grid>
-        </ScrollViewer>
+              </DataTemplate></ListBox.ItemTemplate>
+            </ListBox>
+        </Grid>
       </Grid>
       <Border Grid.Row="2" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
         <StackPanel Spacing="6">

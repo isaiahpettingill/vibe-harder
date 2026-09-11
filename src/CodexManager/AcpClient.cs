@@ -100,7 +100,7 @@ public sealed class AcpClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { await reader; return; }
         lifetime.Cancel();
-        try { process.StandardInput.Close(); if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { }
+        await Task.Run(() => { try { process.StandardInput.Close(); if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { } });
         await reader;
         process.Dispose();
     }

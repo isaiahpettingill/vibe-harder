@@ -19,7 +19,8 @@ public class TerminalAppearanceTests
         var terminal = new ThemedTerminalControl { Model = model, FontFamily = FontSettings.Family(FontSettings.DefaultName), FontSize = 13, Height = 180 };
         var picker = AppTheme.Picker(store);
         var markdown = new ChatMarkdown { Text = "Chat with `inline code`\n\n```sh\nprintf 'hello'\n```" };
-        var window = new Window { Width = 600, Height = 550, Content = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { picker, markdown, terminal } } }; window.Show();
+        var send = new IconButton { Icon = "send", Label = "Send", Classes = { "accent" }, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
+        var window = new Window { Width = 600, Height = 550, Content = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { picker, markdown, terminal, send } } }; window.Show();
         model.Feed("Default text\r\n\u001b[31mRed \u001b[32mGreen \u001b[34mBlue\u001b[0m");
         Assert.Equal(1, model.Terminal.Buffer.Lines[1]![0].Attributes.GetFgColor());
         var original = Application.Current!.Resources["SvcSystems.UI.TerminalColor0"];

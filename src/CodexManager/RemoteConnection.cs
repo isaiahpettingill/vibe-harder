@@ -32,7 +32,7 @@ public sealed class RemoteConnection : IDisposable
     }
     public async Task Connect(CancellationToken token)
     {
-        await client.ConnectAsync(token);
+        await client.ConnectAsync(token).ConfigureAwait(false);
         command = client.CreateCommand("codex-manager-rpc");
         execution = command.ExecuteAsync(token);
         writer = new StreamWriter(command.CreateInputStream(), new System.Text.UTF8Encoding(false)) { AutoFlush = true };
@@ -40,12 +40,12 @@ public sealed class RemoteConnection : IDisposable
     }
     public async Task<JsonNode?> Request(JsonObject request, CancellationToken token)
     {
-        await gate.WaitAsync(token);
+        await gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
             request["id"] = Guid.NewGuid().ToString("N");
-            await writer!.WriteLineAsync(request.ToJsonString().AsMemory(), token);
-            var line = await reader!.ReadLineAsync(token) ?? throw new IOException("Remote host disconnected. Its agents continue running.");
+            await writer!.WriteLineAsync(request.ToJsonString().AsMemory(), token).ConfigureAwait(false);
+            var line = await reader!.ReadLineAsync(token).ConfigureAwait(false) ?? throw new IOException("Remote host disconnected. Its agents continue running.");
             var result = JsonNode.Parse(line)!;
             if (result["id"]?.GetValue<string>() != request["id"]!.GetValue<string>()) throw new IOException("Unexpected remote response.");
             if (result["error"] is { } error) throw new RemoteOperationException(error.GetValue<string>());

@@ -30,6 +30,9 @@ public class ComposerUiTests
         {
             composer.Text = "hang"; window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
+            var tray = (TrayIcon)typeof(MainWindow).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            Assert.Contains("1 agent running", tray.ToolTipText);
+            Assert.Contains(tray.Menu!.Items.OfType<NativeMenuItem>(), item => item.Header?.Contains("Codex · Composer ·") == true);
             composer.Text = "queued next"; composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             Assert.Single(chat.QueuedInputs); Assert.True(window.FindControl<Expander>("QueuePanel")!.IsVisible);
             composer.Text = "steer now";
@@ -37,7 +40,7 @@ public class ComposerUiTests
             await Wait(() => chat.Messages.Any(m => m.Text == "steer now"));
             Assert.True(chat.Busy);
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
-            await Wait(() => !chat.Busy); Assert.Single(chat.QueuedInputs);
+            await Wait(() => !chat.Busy); Assert.Single(chat.QueuedInputs); Assert.Contains("no agents running", tray.ToolTipText);
             UiTests.Named<Button>(window, "Rename_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var dialog = window.OwnedWindows.Single();
             var input = dialog.GetVisualDescendants().OfType<TextBox>().Single(); input.Text = "Renamed";

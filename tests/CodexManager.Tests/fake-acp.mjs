@@ -27,6 +27,7 @@ createInterface({input:process.stdin}).on('line',line=>{
    if (!m.params.cursor) { response(m.id,{sessions:[{sessionId:'wrong-folder',cwd:m.params.cwd+'/child',title:'Excluded'}],nextCursor:'page2'}); break; }
    response(m.id,{sessions:[{sessionId:'imported-session',cwd:m.params.cwd,title:'Imported conversation',updatedAt:'2026-09-10T12:00:00Z'},{sessionId:'imported-session',cwd:m.params.cwd,title:'Duplicate'}]});break;
   case 'session/load':
+   if(process.argv.includes('--load-hang')) { update('Loading a long history'); break; }
    if(m.params.sessionId==='missing-empty') { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'Internal error',data:{details:'no rollout found for thread id missing-empty'}}}); break; }
    if(recoveryFile) appendFileSync(recoveryFile,'loaded\n');
    if (m.params.sessionId==='imported-session') {

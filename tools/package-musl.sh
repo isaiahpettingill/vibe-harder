@@ -7,7 +7,7 @@ case "$rid" in linux-musl-x64|linux-musl-arm64) ;; *) exit 2;; esac
 case "$mode" in aot) aot=true; bundled=true;; bundled) aot=false; bundled=true;; framework) aot=false; bundled=false;; *) exit 2;; esac
 publish="artifacts/publish/$rid-$mode"
 mkdir -p "$publish" artifacts/packages
-dotnet publish src/CodexManager -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -o "$publish"
+dotnet publish src/CodexManager -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -p:Version="$version" -o "$publish"
 find "$publish" -maxdepth 1 -type f \( -name '*.pdb' -o -name '*.dbg' \) -delete
 printf '%s' '{"private":true,"dependencies":{"ssh2":"1.17.0"}}' > "$publish/package.json"
 (cd "$publish" && npm install ssh2@1.17.0 --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund)
