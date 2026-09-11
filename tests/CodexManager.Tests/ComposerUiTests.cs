@@ -13,6 +13,7 @@ public class ComposerUiTests
     [AvaloniaFact]
     public async Task QueueEscapeSidebarAndPanePersistence()
     {
+        Directory.CreateDirectory(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")));
         var directory = Path.Combine(Path.GetTempPath(), "codex-composer", Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
         using (var store = new Store(directory))

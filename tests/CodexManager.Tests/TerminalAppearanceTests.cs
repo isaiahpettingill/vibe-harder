@@ -12,6 +12,7 @@ public class TerminalAppearanceTests
     [AvaloniaFact]
     public async Task PalettesUpdateAnOpenTerminalAndPersistSelection()
     {
+        Directory.CreateDirectory(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")));
         using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-themes", Guid.NewGuid().ToString("N")));
         FontSettings.Apply(store); AppTheme.Apply(store);
         var model = new TerminalControlModel();

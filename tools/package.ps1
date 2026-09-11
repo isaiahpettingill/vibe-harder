@@ -20,7 +20,14 @@ foreach ($obsolete in @('CodexManager.exe','CodexManager.dll','CodexManager.deps
 if ($isAot -and (($Runtime.StartsWith('osx') -and !$IsMacOS) -or ($Runtime.StartsWith('win') -and !$IsWindows) -or ($Runtime.StartsWith('linux') -and !$IsLinux))) {
     throw 'Native AOT requires building on the target OS. Use its CI runner, or explicitly pass -Managed for a managed cross-build.'
 }
-dotnet publish (Join-Path $repo 'src/CodexManager') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" -p:StripSymbols=true -o $publish
+$nativeOptions = @()
+if ($Runtime -eq 'win-arm64' -and $isAot) {
+    $linker = Get-Command lld-link -ErrorAction SilentlyContinue
+    $linkerPath = if ($linker) { $linker.Source } else { Join-Path $env:ProgramFiles 'LLVM/bin/lld-link.exe' }
+    if (!(Test-Path -LiteralPath $linkerPath)) { throw 'Windows ARM64 AOT requires LLVM lld-link. Install LLVM and add it to PATH.' }
+    $nativeOptions += "-p:CppLinker=$linkerPath"
+}
+dotnet publish @nativeOptions (Join-Path $repo 'src/CodexManager') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" -p:StripSymbols=true -o $publish
 if ($LASTEXITCODE) { throw 'Publish failed' }
 # Symbols stay in the build tree, not in distributed packages.
 Get-ChildItem -LiteralPath $publish -File | Where-Object { $_.Extension -in '.pdb', '.dbg' } | Remove-Item
@@ -58,7 +65,9 @@ if ($extension -eq 'zip') {
 }
 # The app-only SSH server uses pure JS ssh2 (optional native helpers are omitted).
 Set-Content -LiteralPath (Join-Path $publish 'package.json') -Value '{"private":true,"dependencies":{"ssh2":"1.17.0"}}'
-npm install --prefix $publish --omit=dev --ignore-scripts --no-audit --no-fund
+Push-Location $publish
+try { npm install ssh2@1.17.0 --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund }
+finally { Pop-Location }
 if ($LASTEXITCODE) { throw 'SSH server dependency installation failed' }
 Copy-Item -LiteralPath (Join-Path $repo 'packaging/README.md') -Destination (Join-Path $publish 'INSTALL.md')
 if (Test-Path (Join-Path $repo 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $publish }
