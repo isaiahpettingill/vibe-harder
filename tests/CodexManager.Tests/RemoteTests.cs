@@ -14,7 +14,7 @@ public class RemoteTests
     public async Task PairedClientPersistsAcrossRestartsAndRejectsWrongIdentity(bool restartHost)
     {
         var directory = Path.Combine(Path.GetTempPath(), "codex-remote-test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
-        using var store = new Store(directory); var workspace = new Workspace("w", "Remote test", directory); store.Save(workspace);
+        using var store = new Store(directory, backgroundWrites: true); var workspace = new Workspace("w", "Remote test", directory); store.Save(workspace);
         var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
         await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
         var service = new SessionService(store, new List<Workspace> { workspace }, new List<Chat> { chat }, (_, _) => runtime);

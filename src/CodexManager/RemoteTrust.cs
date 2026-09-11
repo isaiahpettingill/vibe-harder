@@ -22,7 +22,7 @@ public static class RemoteTrust
                 using var certificate = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(30));
                 RemoteKey.WritePrivate(path, certificate.Export(X509ContentType.Pfx));
             }
-            return X509CertificateLoader.LoadPkcs12FromFile(path, null, OperatingSystem.IsWindows() ? X509KeyStorageFlags.UserKeySet : X509KeyStorageFlags.EphemeralKeySet);
+            return X509CertificateLoader.LoadPkcs12FromFile(path, null, OperatingSystem.IsLinux() ? X509KeyStorageFlags.EphemeralKeySet : X509KeyStorageFlags.UserKeySet);
         }
     }
     public static string Fingerprint(X509Certificate2 certificate) => "SHA256:" + Convert.ToBase64String(SHA256.HashData(certificate.RawData)).TrimEnd('=');

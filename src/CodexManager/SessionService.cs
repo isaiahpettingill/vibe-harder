@@ -23,6 +23,13 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     }
     public async Task<JsonNode?> Handle(JsonObject request)
     {
+        var result = await HandleCore(request);
+        // A successful mutation reply must survive an immediate host restart.
+        if (request["method"]?.GetValue<string>() is not ("list" or "chat")) await store.FlushAsync();
+        return result;
+    }
+    private async Task<JsonNode?> HandleCore(JsonObject request)
+    {
         string Text(string key) => request[key]?.GetValue<string>() ?? "";
         var method = Text("method");
         if (method == "list") return new JsonObject

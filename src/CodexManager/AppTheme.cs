@@ -9,11 +9,21 @@ namespace CodexManager;
 public static class AppTheme
 {
     public static event Action? Changed;
+    public static bool SyntaxHighlightingEnabled { get; private set; } = true;
+    public static void SetSyntaxHighlighting(bool enabled)
+    {
+        if (SyntaxHighlightingEnabled == enabled) return;
+        SyntaxHighlightingEnabled = enabled; Changed?.Invoke();
+    }
     public static ThemePalette Current { get; private set; } = null!;
     // Palette provenance: catppuccin/catppuccin, ethan schoonover/solarized,
     // morhetz/gruvbox, and the classic Monokai palette.
     public static readonly ThemePalette[] All = ThemeCatalog.All;
-    public static void Apply(Store store) => Apply(All.FirstOrDefault(t => t.Name == store.Setting("theme")) ?? All[0]);
+    public static void Apply(Store store)
+    {
+        SyntaxHighlightingEnabled = store.Setting("syntaxHighlighting") != "0";
+        Apply(All.FirstOrDefault(t => t.Name == store.Setting("theme")) ?? All[0]);
+    }
     public static void Apply(ThemePalette palette)
     {
         var app = Application.Current!;

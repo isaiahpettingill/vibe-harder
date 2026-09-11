@@ -785,6 +785,9 @@ public partial class MainWindow : Window
     {
         var dialog = new Window { Title = "Settings", Width = 680, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
+        var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
+        syntax.IsCheckedChanged += (_, _) => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); };
+        panel.Children.Add(syntax);
         var traySetting = new CheckBox { Name = "RunInTray", Content = "Keep agents running in the system tray when the window closes", IsChecked = store.Setting("runInTray") != "0" };
         traySetting.IsCheckedChanged += (_, _) => { store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray(); };
         panel.Children.Add(traySetting);

@@ -14,6 +14,24 @@ namespace CodexManager.Tests;
 public class ChatPresentationTests
 {
     [AvaloniaFact]
+    public async Task HighlightingCanBeDisabledAndRestoredOnVisibleCode()
+    {
+        var view = new ChatMarkdown { Text = "```csharp\nvar value = 123;\n```" };
+        var window = new Window { Content = view }; window.Show();
+        try
+        {
+            await Task.Delay(150); window.UpdateLayout();
+            var editor = view.GetVisualDescendants().OfType<TextEditor>().Single();
+            Assert.NotNull(editor.SyntaxHighlighting);
+            AppTheme.SetSyntaxHighlighting(false);
+            Assert.Null(editor.SyntaxHighlighting);
+            Assert.Equal("var value = 123;", editor.Text.Trim());
+            AppTheme.SetSyntaxHighlighting(true);
+            Assert.NotNull(editor.SyntaxHighlighting);
+        }
+        finally { AppTheme.SetSyntaxHighlighting(true); window.Close(); }
+    }
+    [AvaloniaFact]
     public async Task StyledSelectionAndCodeCopyKeepTextAndCodeFits()
     {
         var view = new ChatMarkdown { Text = "**bold** and *italic*\n\n```sh\ncargo run --release\n```" };

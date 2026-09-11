@@ -19,6 +19,7 @@ namespace CodexManager;
 
 public sealed class ChatMarkdown : MarkdownScrollViewer
 {
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextEditor, AvaloniaEdit.Highlighting.IHighlightingDefinition> syntaxDefinitions = new();
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CTextBlock, object> decoratedBlocks = new();
     public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
     public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
@@ -30,9 +31,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     public ChatMarkdown()
     {
         SelectionEnabled = true; Focusable = true;
-        AttachedToVisualTree += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(Decorate);
+        AttachedToVisualTree += (_, _) => ScheduleDecoration();
         AttachedToVisualTree += (_, _) => AppTheme.Changed += RefreshSyntax;
-        DetachedFromVisualTree += (_, _) => AppTheme.Changed -= RefreshSyntax;
+        DetachedFromVisualTree += (_, _) => { AppTheme.Changed -= RefreshSyntax; LayoutUpdated -= DecorateAfterLayout; };
         AddHandler(KeyDownEvent, async (_, e) =>
         {
             if (e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
@@ -46,7 +47,17 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         Markdown = Text;
         Decorate();
-        Avalonia.Threading.Dispatcher.UIThread.Post(Decorate);
+        ScheduleDecoration();
+    }
+    private void ScheduleDecoration()
+    {
+        LayoutUpdated -= DecorateAfterLayout;
+        LayoutUpdated += DecorateAfterLayout;
+    }
+    private void DecorateAfterLayout(object? sender, EventArgs e)
+    {
+        LayoutUpdated -= DecorateAfterLayout;
+        Decorate();
     }
     private void Decorate()
     {
@@ -72,8 +83,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             editor.Bind(TextEditor.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
             editor.Bind(TextEditor.BackgroundProperty, this.GetResourceObservable("AppSurface"));
             border.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppSurface"));
-            if (Muted) editor.SyntaxHighlighting = null;
-            else AppTheme.StyleSyntax(editor.SyntaxHighlighting);
+            ApplyHighlighting(editor);
             editor.Padding = new Thickness(8);
             editor.WordWrap = true;
             editor.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
@@ -88,10 +98,17 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             grid.Children.Add(header); Grid.SetRow(editor, 1); grid.Children.Add(editor); border.Child = grid;
         }
     }
+    private void ApplyHighlighting(TextEditor editor)
+    {
+        if (editor.SyntaxHighlighting is { } definition && !syntaxDefinitions.TryGetValue(editor, out _)) syntaxDefinitions.Add(editor, definition);
+        if (Muted || !AppTheme.SyntaxHighlightingEnabled) editor.SyntaxHighlighting = null;
+        else if (syntaxDefinitions.TryGetValue(editor, out var saved)) { AppTheme.StyleSyntax(saved); editor.SyntaxHighlighting = saved; }
+    }
     private void RefreshSyntax()
     {
+        ScheduleDecoration();
         foreach (var editor in this.GetVisualDescendants().OfType<TextEditor>())
-        { AppTheme.StyleSyntax(editor.SyntaxHighlighting); editor.TextArea.TextView.Redraw(); }
+        { ApplyHighlighting(editor); editor.TextArea.TextView.Redraw(); }
     }
     private void StyleInlineCode(IEnumerable<CInline> inlines)
     {

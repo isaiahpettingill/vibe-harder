@@ -64,7 +64,7 @@ Folders, chats, selected folder/chat, drafts, attachments, ACP session IDs, and 
 ```text
 Codex ACP: npx -y @agentclientprotocol/codex-acp@1.11.0
 Claude:    npx -y @agentclientprotocol/claude-agent-acp@0.76.0
-OpenCode:  npx -y opencode-ai@1.18.30 acp
+OpenCode:  opencode acp
 Codex CLI: npx -y @openai/codex@0.154.0
 ```
 

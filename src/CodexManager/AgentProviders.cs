@@ -13,7 +13,7 @@ public static class AgentProviders
     public static IReadOnlyList<AgentOption> All { get; } = [
         new(AgentProvider.Codex, "Codex", "◇", Hosts.DefaultAdapter),
         new(AgentProvider.Claude, "Claude", "✳", "npx -y @agentclientprotocol/claude-agent-acp@0.76.0"),
-        new(AgentProvider.OpenCode, "OpenCode", "▣", "npx -y opencode-ai@1.18.30 acp")
+        new(AgentProvider.OpenCode, "OpenCode", "▣", "opencode acp")
     ];
     public static AgentOption Get(AgentProvider provider) => All.Single(p => p.Provider == provider);
     public static string CommandKey(AgentProvider provider, bool wsl) =>
@@ -26,7 +26,7 @@ public static class AgentProviders
         {
             AgentProvider.Codex => (store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand") ?? ChatHistory.DefaultCodexCommand) + " login",
             AgentProvider.Claude => "npx -y @anthropic-ai/claude-code@2.1.268 auth login",
-            AgentProvider.OpenCode => "npx -y opencode-ai@1.18.30 auth login",
+            AgentProvider.OpenCode => "opencode auth login",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
     public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login" }

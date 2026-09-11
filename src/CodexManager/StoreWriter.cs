@@ -39,8 +39,8 @@ internal sealed class StoreWriter
     public async Task Flush()
     {
         var barrier = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        if (!queue.Writer.TryWrite((static _ => { }, barrier))) { await worker; return; }
-        var finished = await Task.WhenAny(barrier.Task, worker); await finished;
+        if (!queue.Writer.TryWrite((static _ => { }, barrier))) { await worker.ConfigureAwait(false); return; }
+        var finished = await Task.WhenAny(barrier.Task, worker).ConfigureAwait(false); await finished.ConfigureAwait(false);
     }
-    public async Task Close() { queue.Writer.TryComplete(); await worker; }
+    public async Task Close() { queue.Writer.TryComplete(); await worker.ConfigureAwait(false); }
 }

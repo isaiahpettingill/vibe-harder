@@ -19,7 +19,7 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 2. Open a local folder, WSL workspace, or [pair a remote computer](REMOTE.md).
 3. Configure an installed provider adapter and sign in when prompted.
 
-Provider adapters are separate programs. The default `npx` commands require Node.js in the workspace's environment; Vibe Harder itself and its remote server do not.
+Providers are installed separately. Codex and Claude use `npx` and require your own Node.js 22+ installation. OpenCode uses `opencode acp` directly. Vibe Harder bundles neither Node.js nor agents.
 
 ### Build
 
