@@ -15,7 +15,7 @@ public sealed class RemoteServer : IAsyncDisposable
     public RemoteServer(string directory, string address, int port, Func<JsonObject, Task<JsonNode?>> handle)
     {
         var start = new ProcessStartInfo("node") { UseShellExecute = false, CreateNoWindow = true, RedirectStandardInput = true, RedirectStandardOutput = true, RedirectStandardError = true };
-        start.ArgumentList.Add(Path.Combine(AppContext.BaseDirectory, "remote-server.cjs"));
+        start.ArgumentList.Add(Path.Combine(Hosts.ResourceDirectory, "remote-server.cjs"));
         start.ArgumentList.Add(directory); start.ArgumentList.Add(address); start.ArgumentList.Add(port.ToString());
         process = Process.Start(start) ?? throw new IOException("Could not start SSH service.");
         process.ErrorDataReceived += (_, e) => { if (e.Data is { } error) Error = error; }; process.BeginErrorReadLine();

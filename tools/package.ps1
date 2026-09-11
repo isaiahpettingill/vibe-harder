@@ -88,11 +88,18 @@ if ($Runtime.StartsWith('win')) {
     if ($LASTEXITCODE) { throw 'App bundle copy failed' }
     Copy-Item -LiteralPath (Join-Path $repo 'src/CodexManager/Assets/app.icns') -Destination (Join-Path $resources 'app.icns')
     (Get-Content -LiteralPath (Join-Path $repo 'packaging/Info.plist') -Raw).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $bundle 'Contents/Info.plist')
+    # Scripts and npm data belong in Resources, outside codesign's nested-code locations.
+    foreach ($resource in @('node_modules', 'runtime', 'remote-server.cjs', 'package.json', 'package-lock.json')) {
+        $sourceResource = Join-Path $macos $resource
+        if (Test-Path -LiteralPath $sourceResource) { Move-Item -LiteralPath $sourceResource -Destination $resources }
+    }
     chmod +x (Join-Path $macos 'VibeHarder')
     # Ad-hoc signing makes a local bundle runnable. Distributors may set a Developer ID.
     $output = Join-Path $packages "VibeHarder-$Version-$Runtime-$mode.zip"
     if ($IsMacOS) {
         $identity = if ($env:CODEX_MANAGER_SIGN_IDENTITY) { $env:CODEX_MANAGER_SIGN_IDENTITY } else { '-' }
+        codesign --force --sign $identity (Join-Path $resources 'runtime/node/bin/node')
+        if ($LASTEXITCODE) { throw 'Node signing failed' }
         codesign --force --deep --sign $identity $bundle
         if ($LASTEXITCODE) { throw 'App signing failed' }
         codesign --verify --deep --strict $bundle

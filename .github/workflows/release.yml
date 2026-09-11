@@ -63,14 +63,14 @@ jobs:
           - { os: ubuntu-24.04-arm, rid: linux-musl-arm64 }
         mode: [aot, bundled, framework]
     runs-on: ${{ matrix.platform.os }}
-    container: mcr.microsoft.com/dotnet/sdk:11.0-alpine
     steps:
-      - run: apk add --no-cache gcompat libstdc++
       - uses: actions/checkout@v4
-      - run: apk add --no-cache clang build-base zlib-dev nodejs npm icu-libs
       - env:
           RELEASE_VERSION: ${{ inputs.version }}
-        run: sh tools/package-musl.sh '${{ matrix.platform.rid }}' '${{ matrix.mode }}' "$RELEASE_VERSION"
+          RELEASE_RID: ${{ matrix.platform.rid }}
+          RELEASE_MODE: ${{ matrix.mode }}
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo -e RELEASE_VERSION -e RELEASE_RID -e RELEASE_MODE mcr.microsoft.com/dotnet/sdk:11.0-alpine sh -c 'apk add --no-cache clang build-base zlib-dev nodejs npm icu-libs && sh tools/package-musl.sh "$RELEASE_RID" "$RELEASE_MODE" "$RELEASE_VERSION"'
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}
