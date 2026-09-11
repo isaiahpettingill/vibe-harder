@@ -72,7 +72,7 @@ public sealed class RemoteView : UserControl, IDisposable
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (chats.SelectedItem is RemoteItem selected && chatId != selected.Id) { chatId = selected.Id; messages.Clear(); permissionsJson = ""; } };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
-        var output = new ListBox { ItemsSource = messages, Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
+        var output = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
         Grid.SetColumn(output, 2); split.Children.Add(output);
         var earlier = new IconButton { Icon = "chevron-up", Label = "Earlier messages" }; var latest = new IconButton { Icon = "latest", Label = "Return to latest messages" };
         var history = new StackPanel { Orientation = Orientation.Horizontal, Children = { earlier, latest } }; top.Children.Add(history);

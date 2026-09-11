@@ -19,6 +19,7 @@ namespace CodexManager;
 
 public sealed class ChatMarkdown : MarkdownScrollViewer
 {
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CTextBlock, object> decoratedBlocks = new();
     public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
     public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public bool Muted { get; set; }
@@ -51,6 +52,8 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         foreach (var block in this.GetVisualDescendants().OfType<CTextBlock>())
         {
+            if (decoratedBlocks.TryGetValue(block, out _)) continue;
+            decoratedBlocks.Add(block, new object());
             block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
             block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "ChatFontSize"));
             StyleInlineCode(block.Content);

@@ -378,7 +378,7 @@ public partial class MainWindow : Window
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
         store.Setting("lastProvider", chat.Provider.ToString());
-        MessageList.ItemsSource = chat.Messages; AttachmentList.ItemsSource = chat.Attachments;
+        MessageList.ItemsSource = runtimes.TryGetValue(chat.Id, out var loadingRuntime) && loadingRuntime.IsLoadingHistory ? chat.Messages.ToArray() : chat.Messages; AttachmentList.ItemsSource = chat.Attachments;
         UpdateControls(); Composer.Focus();
         Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
         viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
@@ -580,8 +580,22 @@ public partial class MainWindow : Window
                 store.TrimHistory(chat);
                 if (ReferenceEquals(chat, current) && runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
                 UpdateControls();
-                if (ReferenceEquals(chat, current) && !viewingHistory && TranscriptScroll.Offset.Y + TranscriptScroll.Viewport.Height >= TranscriptScroll.Extent.Height - 150)
-                    Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
+                if (ReferenceEquals(chat, current) && !viewingHistory)
+                {
+                    if (runtime.IsLoadingHistory)
+                    {
+                        // Replay can replace hundreds of rows a second. Keep the visible
+                        // page stable until replay finishes instead of laying out each chunk.
+                        if (ReferenceEquals(MessageList.ItemsSource, chat.Messages)) MessageList.ItemsSource = chat.Messages.ToArray();
+                    }
+                    else if (!ReferenceEquals(MessageList.ItemsSource, chat.Messages))
+                    {
+                        MessageList.ItemsSource = chat.Messages;
+                        ScrollTranscriptToEnd();
+                    }
+                    else if (TranscriptScroll.Offset.Y + TranscriptScroll.Viewport.Height >= TranscriptScroll.Extent.Height - 150)
+                        ScrollTranscriptToEnd();
+                }
             };
             runtimes[chat.Id] = runtime;
         }
@@ -962,7 +976,20 @@ public partial class MainWindow : Window
     private async void EarlierMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(false);
     private async void NewerMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(true);
     private void LatestMessagesClick(object? sender, RoutedEventArgs e) { pageLoad?.Cancel(); viewingHistory = false; MessageList.ItemsSource = current?.Messages; ScrollTranscriptToEnd(); }
-    private void ScrollTranscriptToEnd() { if (MessageList.ItemCount > 0) MessageList.ScrollIntoView(MessageList.ItemCount - 1); TranscriptScroll.ScrollToEnd(); }
+    private bool transcriptScrollPending;
+    private void ScrollTranscriptToEnd()
+    {
+        if (transcriptScrollPending) return;
+        transcriptScrollPending = true;
+        var chat = current;
+        Dispatcher.UIThread.Post(() =>
+        {
+            transcriptScrollPending = false;
+            if (closing || viewingHistory || !ReferenceEquals(current, chat) ||
+                (chat is not null && runtimes.TryGetValue(chat.Id, out var runtime) && runtime.IsLoadingHistory)) return;
+            MessageList.ScrollIntoView(MessageList.ItemCount - 1);
+        }, DispatcherPriority.Background);
+    }
     private void ClearChat()
     {
         if (current is not null && chats.Contains(current)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
@@ -1134,4 +1161,7 @@ public partial class MainWindow : Window
         SaveAll(); await store.FlushAsync(); tray?.Dispose(); store.Dispose(); Close();
     }
 }
+
+
+
 

@@ -121,3 +121,9 @@ Limits: macOS runtime behavior was not tested. The Windows computer-use executio
 - A hanging history loader is cancelled by Archive; the sidebar updates immediately and the tray does not misreport history loading as a running agent.
 - Completion flags persist; explicit cancellation does not create an unread completion.
 - Fifteen focused recovery, paging, lifecycle, and chat interaction tests passed during integration.
+
+## Transcript scrolling fix (v1.0.2)
+
+- History replay keeps the visible page unchanged until completion. The pixel-based virtual transcript panel explicitly anchors the bottom instead of changing average-height estimates.
+- Eleven focused tests passed, including a 900-message replay, bounded visible controls, stable bottom offsets, streaming text growth, scrolling up during growth, resize settling, archive cancellation, and remote behavior.
+- The stripped Windows native build remained responsive during an isolated large replay; CPU use settled after loading. OS-level pointer interaction was not automated.

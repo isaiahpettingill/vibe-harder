@@ -27,6 +27,13 @@ createInterface({input:process.stdin}).on('line',line=>{
    if (!m.params.cursor) { response(m.id,{sessions:[{sessionId:'wrong-folder',cwd:m.params.cwd+'/child',title:'Excluded'}],nextCursor:'page2'}); break; }
    response(m.id,{sessions:[{sessionId:'imported-session',cwd:m.params.cwd,title:'Imported conversation',updatedAt:'2026-09-10T12:00:00Z'},{sessionId:'imported-session',cwd:m.params.cwd,title:'Duplicate'}]});break;
   case 'session/load':
+   if(process.argv.includes('--load-many')) {
+    for(let i=0;i<450;i++) {
+     emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:m.params.sessionId,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}}});
+     update('Answer '+i+'\n\n'+('Variable height **markdown** content.\n\n'.repeat(i%9+1)));
+    }
+    setTimeout(()=>response(m.id,{}),1500); break;
+   }
    if(process.argv.includes('--load-hang')) { update('Loading a long history'); break; }
    if(m.params.sessionId==='missing-empty') { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'Internal error',data:{details:'no rollout found for thread id missing-empty'}}}); break; }
    if(recoveryFile) appendFileSync(recoveryFile,'loaded\n');

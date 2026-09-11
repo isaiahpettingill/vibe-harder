@@ -9,6 +9,55 @@ namespace CodexManager.Tests;
 
 public class ResponsivenessTests
 {
+    [AvaloniaFact]
+    public async Task HistoryReplayKeepsVisiblePageStableAndSettlesAfterCompletion()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vibe-replay-layout", Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        using (var store = new Store(directory))
+        {
+            store.Save(new Workspace("w", "Replay", directory));
+            store.Save(new Chat { Id = "c", WorkspaceId = "w", SessionId = "many" });
+            foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --load-many");
+        }
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
+            var list = UiTests.Named<ListBox>(window, "MessageList");
+            var deadline = DateTime.UtcNow.AddSeconds(15);
+            while (chat.Messages.Count < 100 && DateTime.UtcNow < deadline) await Task.Delay(20);
+            Assert.True(chat.Busy);
+            Assert.NotSame(chat.Messages, list.ItemsSource);
+            Assert.Empty(list.Items);
+            while (chat.Busy && DateTime.UtcNow < deadline) await Task.Delay(20);
+            Assert.False(chat.Busy); Assert.Same(chat.Messages, list.ItemsSource);
+            Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
+            for (var frame = 0; frame < 25; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
+            var offsets = new List<double>();
+            for (var i = 0; i < 10; i++) { await Task.Delay(50); window.UpdateLayout(); offsets.Add(scroll.Offset.Y); }
+            Assert.True(offsets.Max() - offsets.Min() < 1, string.Join(",", offsets));
+            Assert.True(list.GetVisualDescendants().OfType<MessageView>().Any(v => v.Message == chat.Messages[^1]), "Last " + chat.Messages[^1].Sequence + " visible " + string.Join(",", list.GetVisualDescendants().OfType<MessageView>().Select(v => v.Message?.Sequence)));
+            Assert.InRange(list.GetVisualDescendants().OfType<MessageView>().Count(), 1, 40);
+            chat.Messages[^1].Text += string.Concat(Enumerable.Repeat("\n\nStreaming another paragraph.", 20));
+            for (var frame = 0; frame < 10; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            Assert.InRange(Math.Abs(scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y), 0, 1);
+            scroll.Offset = new Vector(0, Math.Max(0, scroll.Offset.Y - 600));
+            for (var frame = 0; frame < 10; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            var readingOffset = scroll.Offset.Y;
+            chat.Messages[^1].Text += "\n\nAnother streamed paragraph while reading earlier text.";
+            for (var frame = 0; frame < 10; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            Assert.InRange(Math.Abs(scroll.Offset.Y - readingOffset), 0, 1);
+            window.Width = 450;
+            for (var frame = 0; frame < 10; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            var settled = scroll.Offset.Y;
+            for (var frame = 0; frame < 10; frame++) { window.UpdateLayout(); await Task.Delay(20); }
+            Assert.InRange(Math.Abs(scroll.Offset.Y - settled), 0, 1);
+        }
+        finally { window.RequestExit(); await Task.Delay(200); }
+    }
+
     [Fact]
     public async Task BackgroundWritesRemainOrderedAndDoNotBlockOnLockedDatabase()
     {
@@ -33,14 +82,15 @@ public class ResponsivenessTests
     public async Task LongTranscriptRealizesOnlyVisibleMessagesAndRecyclesWhileScrolling()
     {
         var messages = Enumerable.Range(0, Chat.HistoryPageSize).Select(i => new Message { Text = "Message " + i + "\n\nSome **formatted** content." }).ToArray();
-        var list = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()), ItemTemplate = new FuncDataTemplate<Message>((m, _) => { var view = new MessageView(); view.Bind(MessageView.MessageProperty, new Avalonia.Data.Binding()); return view; }, true) };
+        var list = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), ItemTemplate = new FuncDataTemplate<Message>((m, _) => { var view = new MessageView(); view.Bind(MessageView.MessageProperty, new Avalonia.Data.Binding()); return view; }, true) };
 
         var window = new Window { Width = 600, Height = 400, Content = list }; window.Show();
         try
         {
             window.UpdateLayout(); await Task.Delay(100);
             Assert.InRange(list.GetVisualDescendants().OfType<MessageView>().Count(), 1, 40);
-            for (var i = 0; i < 5; i++) { list.ScrollIntoView(messages[^1]); window.UpdateLayout(); list.GetVisualDescendants().OfType<ScrollViewer>().First().ScrollToEnd(); await Task.Delay(50); }
+            list.ScrollIntoView(messages[^1]);
+            for (var frame = 0; frame < 25; frame++) { window.UpdateLayout(); await Task.Delay(20); }
             Assert.True(list.GetVisualDescendants().OfType<MessageView>().Any(v => v.Message == messages[^1]), "Visible " + string.Join(",", list.GetVisualDescendants().OfType<MessageView>().Select(v => Array.IndexOf(messages, v.Message))));
             Assert.InRange(list.GetVisualDescendants().OfType<MessageView>().Count(), 1, 40);
         }
@@ -101,3 +151,10 @@ public class ResponsivenessTests
     }
 
 }
+
+
+
+
+
+
+

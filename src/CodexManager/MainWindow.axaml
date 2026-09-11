@@ -31,7 +31,8 @@
               <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
               <Button Name="WelcomeOpenButton" Content="Open workspace" Click="OpenWorkspaceClick"/>
             </StackPanel>
-            <ListBox Grid.Row="1" Name="MessageList" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox Grid.Row="1" Name="MessageList" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+              <ListBox.ItemsPanel><ItemsPanelTemplate><local:TranscriptPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
               <ListBox.Styles><Style Selector="ListBoxItem"><Setter Property="Padding" Value="0"/><Setter Property="HorizontalContentAlignment" Value="Stretch"/></Style><Style Selector="ListBoxItem /template/ ContentPresenter"><Setter Property="Background" Value="Transparent"/></Style></ListBox.Styles>
               <ListBox.ItemTemplate><DataTemplate x:DataType="local:Message">
                 <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
@@ -62,8 +63,3 @@
     <Border Grid.Row="1" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
   </Grid>
 </Window>
-
-
-
-
-
