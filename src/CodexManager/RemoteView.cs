@@ -11,6 +11,7 @@ namespace CodexManager;
 public sealed class RemoteView : UserControl, IDisposable
 {
     private readonly RemoteHost host;
+    public RemoteHost Host => host;
     private RemoteConnection? connection;
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };

@@ -63,7 +63,7 @@ public partial class MainWindow : Window
                     activity.Busy = chat["busy"]!.GetValue<bool>(); activity.HasUnreadCompletion = chat["unread"]?.GetValue<bool>() == true;
                     var row = new Grid { ColumnDefinitions = new("22,*") }; row.Children.Add(new ChatActivityIndicator(activity)); var title = new TextBlock { Text = chat["title"]!.GetValue<string>(), TextTrimming = TextTrimming.CharacterEllipsis }; Grid.SetColumn(title, 1); row.Children.Add(title);
                     var choose = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView != view) OpenRemoteHost(host); remoteView!.SelectChat(id); }; group.Children.Add(choose);
+                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView?.Host != host) OpenRemoteHost(host); remoteView!.SelectChat(id); }; group.Children.Add(choose);
                 }
             }
         };
