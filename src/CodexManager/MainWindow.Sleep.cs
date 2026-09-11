@@ -13,6 +13,8 @@ public partial class MainWindow
     private IDisposable? pendingSleep;
     private RenderTargetBitmap? sleepingFrame;
     private bool uiSleeping;
+    private int? sleepingPageEnd;
+    private Vector sleepingScrollOffset;
     public bool IsPresentationSleeping => uiSleeping;
     private void InitializePresentationSleep()
     {
@@ -50,9 +52,12 @@ public partial class MainWindow
     {
         if (closing || sleeping == uiSleeping) return;
         uiSleeping = sleeping;
+        System.Diagnostics.Trace.WriteLine(sleeping ? "Presentation sleeping" : "Presentation awake");
         if (sleeping)
         {
             SaveAll(); pageLoad?.Cancel();
+            sleepingPageEnd = viewingHistory ? MessageList.Items.OfType<Message>().LastOrDefault()?.Sequence : null;
+            sleepingScrollOffset = TranscriptScroll.Offset;
             if (IsVisible && RootPanes.Bounds.Width > 0 && RootPanes.Bounds.Height > 0)
             {
                 try
@@ -76,7 +81,19 @@ public partial class MainWindow
         {
             KeepHistory(selected); AttachmentList.ItemsSource = selected.Attachments;
             MessageList.ItemsSource = selected.Messages;
-            try { await RestoreVisibleHistory(selected, discoveryLifetime.Token); }
+            try
+            {
+                if (sleepingPageEnd is { } end)
+                {
+                    var page = await store.ReadPageAsync(selected, before: end + 1, token: discoveryLifetime.Token);
+                    if (!uiSleeping && ReferenceEquals(current, selected))
+                    {
+                        MessageList.ItemsSource = page;
+                        Dispatcher.UIThread.Post(() => { if (!uiSleeping && ReferenceEquals(current, selected) && viewingHistory) TranscriptScroll.Offset = sleepingScrollOffset; }, DispatcherPriority.Background);
+                    }
+                }
+                else await RestoreVisibleHistory(selected, discoveryLifetime.Token);
+            }
             catch (OperationCanceledException) { }
             catch (Exception error) { StatusText.Text = "Could not reload history: " + error.Message; }
         }

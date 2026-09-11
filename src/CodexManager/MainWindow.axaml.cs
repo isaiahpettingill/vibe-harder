@@ -1000,7 +1000,14 @@ public partial class MainWindow : Window
     }
     private async void EarlierMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(false);
     private async void NewerMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(true);
-    private void LatestMessagesClick(object? sender, RoutedEventArgs e) { pageLoad?.Cancel(); viewingHistory = false; MessageList.ItemsSource = current?.Messages; ScrollTranscriptToEnd(); }
+    private async void LatestMessagesClick(object? sender, RoutedEventArgs e)
+    {
+        pageLoad?.Cancel(); viewingHistory = false; MessageList.ItemsSource = current?.Messages;
+        try { if (current is { HistoryLoaded: false } chat) await RestoreVisibleHistory(chat, discoveryLifetime.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { StatusText.Text = "Could not reload history: " + error.Message; }
+        ScrollTranscriptToEnd();
+    }
     private bool transcriptScrollPending;
     private void ScrollTranscriptToEnd()
     {

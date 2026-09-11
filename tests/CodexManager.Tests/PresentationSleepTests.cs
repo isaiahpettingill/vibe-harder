@@ -64,6 +64,24 @@ public class PresentationSleepTests
         finally { window.RequestExit(); await Task.Delay(200); }
     }
     [AvaloniaFact]
+    public async Task SleepKeepsTheOlderPageBeingReadAndLatestCanReload()
+    {
+        Seed(); var window = new MainWindow(); window.Show();
+        try
+        {
+            var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
+            var list = UiTests.Named<ListBox>(window, "MessageList");
+            await Wait(() => chat.HistoryLoaded);
+            window.GetVisualDescendants().OfType<IconButton>().Single(b => ToolTip.GetTip(b)?.ToString() == "Earlier messages").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => list.Items.OfType<Message>().LastOrDefault()?.Sequence == 35);
+            await window.SetPresentationSleeping(true); await window.SetPresentationSleeping(false);
+            Assert.Equal(35, list.Items.OfType<Message>().Last().Sequence);
+            window.GetVisualDescendants().OfType<IconButton>().Single(b => ToolTip.GetTip(b)?.ToString() == "Return to latest messages").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => list.Items.OfType<Message>().LastOrDefault()?.Sequence == 99);
+        }
+        finally { window.RequestExit(); await Task.Delay(200); }
+    }
+    [AvaloniaFact]
     public async Task SleepingUnloadsTranscriptWhileAgentRunsAndWakeRestoresIt()
     {
         Seed(); var window = new MainWindow(); window.Show();
