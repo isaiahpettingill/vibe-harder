@@ -53,7 +53,8 @@ public sealed class MainActivity : Activity
         var main = Column(); root.AddView(main, new FrameLayout.LayoutParams(-1, -1));
         var header = new LinearLayout(this) { Orientation = Orientation.Horizontal };
         header.AddView(Button("☰ Chats", () => drawerContainer.Visibility = ViewStates.Visible));
-        header.AddView(Button("Connect", ConnectionDialog)); main.AddView(header);
+        header.AddView(Button("Reconnect", () => { if (host is null) ConnectionDialog(); else _ = Connect(); }));
+        header.AddView(Button("Pair", ConnectionDialog)); main.AddView(header);
         header.AddView(Button("Theme", () => new AlertDialog.Builder(this)!.SetItems(ThemeCatalog.All.Select(p => p.Name).ToArray(), (_, e) =>
         {
             Preferences.Edit()!.PutString("theme", ThemeCatalog.All[e.Which].Name)!.Apply();
@@ -77,7 +78,13 @@ public sealed class MainActivity : Activity
         drawer = Column(); drawer.SetBackgroundColor(Color.ParseColor(ThemeColors.Surface)); drawerContainer = new ScrollView(this); drawerContainer.AddView(drawer);
         root.AddView(drawerContainer, new FrameLayout.LayoutParams(Dp(300), -1, GravityFlags.Left)); drawerContainer.Visibility = ViewStates.Gone;
         SetContentView(root);
-        ConnectionDialog();
+        var savedAddress = Preferences.GetString("address", null);
+        if (savedAddress is not null && File.Exists(KeyFile) && int.TryParse(Preferences.GetString("port", "2222"), out var savedPort))
+        {
+            host = new RemoteHost(savedAddress, savedAddress, savedPort, KeyFile, Preferences.GetString("fingerprint", "")!);
+            _ = Connect();
+        }
+        else ConnectionDialog();
     }
     private void Pick(int code)
     {
@@ -91,8 +98,6 @@ public sealed class MainActivity : Activity
             await using var stream = ContentResolver!.OpenInputStream(data.Data)!; using var bytes = new MemoryStream();
             var buffer = new byte[8192]; int count;
             while ((count = await stream.ReadAsync(buffer)) > 0) { if (bytes.Length + count > 20 * 1024 * 1024) throw new IOException("File exceeds 20 MB."); bytes.Write(buffer, 0, count); }
-            if (requestCode == 1) { File.WriteAllBytes(KeyFile, bytes.ToArray()); File.Delete(KeyFile + ".pub"); status.Text = "Private key imported into app-private storage."; }
-            else
             {
                 var mime = ContentResolver.GetType(data.Data) ?? "text/plain";
                 attachments.Add(new() { ["Name"] = "Attachment " + (attachments.Count + 1), ["MimeType"] = mime, ["Data"] = mime.StartsWith("image/") ? Convert.ToBase64String(bytes.ToArray()) : System.Text.Encoding.UTF8.GetString(bytes.ToArray()), ["SourcePath"] = "file:///attachment" }); status.Text = $"{attachments.Count} attachments ready";
@@ -103,28 +108,22 @@ public sealed class MainActivity : Activity
     private void ConnectionDialog()
     {
         var form = Column(); form.SetPadding(Dp(16), 0, Dp(16), 0);
-        var address = new EditText(this) { Hint = "Host address", Text = Preferences.GetString("address", "") }; var port = new EditText(this) { Hint = "Port", Text = Preferences.GetString("port", "2222"), InputType = global::Android.Text.InputTypes.ClassNumber };
-        var pin = new EditText(this) { Hint = "SHA256: fingerprint from host settings", Text = Preferences.GetString("fingerprint", "") };
-        var password = new EditText(this) { Hint = "Key passphrase (optional)", InputType = global::Android.Text.InputTypes.ClassText | global::Android.Text.InputTypes.TextVariationPassword };
-        foreach (var view in new View[] { address, port, pin, password }) form.AddView(view);
-        form.AddView(Button("Import private key", () => Pick(1)));
-        form.AddView(Button("Generate key / copy public key", () =>
+        var code = new EditText(this) { Hint = "Paste the host's connection code" }; form.AddView(code);
+        new AlertDialog.Builder(this)!.SetTitle("Pair with a computer")!.SetView(form)!.SetNegativeButton("Cancel", (_, _) => { })!.SetPositiveButton("Pair", async (_, _) =>
         {
-            if (!File.Exists(KeyFile)) RemoteKey.Generate(KeyFile);
-            if (!File.Exists(KeyFile + ".pub")) { status.Text = "For an imported private key, add its matching public key on the host."; return; }
-            ((ClipboardManager)GetSystemService(ClipboardService)!).PrimaryClip = ClipData.NewPlainText("Public key", File.ReadAllText(KeyFile + ".pub")); status.Text = "Public key copied. Add it in the host's Remote settings.";
-        }));
-        new AlertDialog.Builder(this)!.SetTitle("Remote host")!.SetView(form)!.SetNegativeButton("Cancel", (_, _) => { })!.SetPositiveButton("Connect", async (_, _) =>
-        {
-            if (!int.TryParse(port.Text, out var number) || number is < 1 or > 65535 || !File.Exists(KeyFile) || pin.Text?.StartsWith("SHA256:") != true) { status.Text = "Enter a valid port and fingerprint, and import or generate a key."; return; }
-            Preferences.Edit()!.PutString("address", address.Text)!.PutString("port", port.Text)!.PutString("fingerprint", pin.Text)!.Apply();
-            host = new RemoteHost(address.Text!, address.Text!, number, KeyFile, pin.Text!.Trim()); await Connect(password.Text);
+            try
+            {
+                host = await RemoteConnection.Pair(code.Text ?? "", KeyFile, global::Android.OS.Build.Model ?? "Android", CancellationToken.None);
+                Preferences.Edit()!.PutString("address", host.Address)!.PutString("port", host.Port.ToString())!.PutString("fingerprint", host.Fingerprint)!.Apply();
+                await Connect();
+            }
+            catch (Exception error) { status.Text = error.Message; }
         })!.Show();
     }
-    private async Task Connect(string? passphrase)
+    private async Task Connect()
     {
         session?.Cancel(); connection?.Dispose(); session = new(); connection = null; RemoteConnection? candidate = null;
-        try { candidate = await Task.Run(() => new RemoteConnection(host!, passphrase)); await candidate.Connect(session.Token); connection = candidate; status.Text = "Connected to " + host!.Name; await RefreshDrawer(); _ = Poll(session.Token); }
+        try { candidate = await Task.Run(() => new RemoteConnection(host!)); await candidate.Connect(session.Token); connection = candidate; status.Text = "Connected to " + host!.Name; await RefreshDrawer(); _ = Poll(session.Token); }
         catch (Exception error) { candidate?.Dispose(); status.Text = error.Message + "\nObserved fingerprint: " + candidate?.ObservedFingerprint; }
     }
     private async Task<JsonNode?> Call(JsonObject request)

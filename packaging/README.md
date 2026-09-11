@@ -9,14 +9,13 @@ The default desktop package is stripped Native AOT. `bundled` packages contain
 the .NET runtime; `framework` packages require .NET 11 installed separately.
 macOS releases provide both managed modes and exclude AOT.
 
-Node.js/npm are bundled on Windows, macOS, and glibc Linux. Musl Linux uses system
-Node.js/npm: install with `apk add nodejs npm`. WSL distros need their own Node.js.
-Agent adapters download on first use and authenticate in the workspace's own
-environment. Uninstallation preserves saved sessions and settings.
+The app and remote server do not bundle or require Node.js. Install your chosen
+provider adapter separately; default npx-based adapters require Node.js in the
+workspace environment (including each WSL distro). Uninstallation preserves data.
 
 ## Build
 
-Install the .NET 11 SDK pinned in `global.json`, Node.js, and PowerShell 7. Windows
+Install the .NET 11 SDK pinned in `global.json` and PowerShell 7. Windows
 installers additionally require NSIS on PATH. AOT builds run on their target OS.
 
 ```powershell
@@ -26,7 +25,7 @@ installers additionally require NSIS on PATH. AOT builds run on their target OS.
 ```
 
 Alpine/musl builds use `sh tools/package-musl.sh linux-musl-x64 aot 1.0.0` inside
-an Alpine .NET SDK environment with clang, build-base, zlib-dev, Node.js, and npm.
+an Alpine .NET SDK environment with clang, build-base, zlib-dev, and icu-libs.
 
 ## GitHub releases
 
@@ -42,4 +41,4 @@ Choose **Actions → Release → Run workflow**, supply a numeric `major.minor.p
 version, and wait for all builds. Only after every platform succeeds does the
 workflow publish a release with all assets and `SHA256SUMS.txt`.
 
-See [remote and headless setup](../REMOTE.md) for SSH access and Android pairing.
+See [remote and headless setup](../REMOTE.md) for persistent pairing and Android access.

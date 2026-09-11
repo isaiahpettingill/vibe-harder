@@ -15,8 +15,6 @@ internal static class Program
         }));
         if (Environment.GetEnvironmentVariable("CODEX_MANAGER_TRACE") == "1")
             System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.TextWriterTraceListener(Console.Error));
-        var node = Hosts.BundledNodeDirectory;
-        if (Directory.Exists(node)) Environment.SetEnvironmentVariable("PATH", node + Path.PathSeparator + Environment.GetEnvironmentVariable("PATH"));
         if (args.Contains("--headless")) { HeadlessHost.Run(args); return; }
         void Interrupt() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
         {

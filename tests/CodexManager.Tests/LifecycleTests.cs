@@ -26,7 +26,8 @@ public class LifecycleTests
         window.FindControl<TextBox>("Composer")!.Text = "hang";
         window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
-        var closed = false; window.Closed += (_, _) => closed = true; window.Close(); await Wait(() => closed);
+        var closed = false; window.Closed += (_, _) => closed = true;
+        window.Hide(); window.RequestExit(); await Wait(() => closed);
         using (var store = new Store(directory)) Assert.NotNull(store.Chats().Single().InterruptedInput);
         window = new MainWindow(); window.Show();
         try

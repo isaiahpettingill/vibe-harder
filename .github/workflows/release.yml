@@ -33,9 +33,6 @@ jobs:
         with:
           global-json-file: global.json
           dotnet-quality: preview
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
       - if: runner.os == 'Windows'
@@ -70,7 +67,7 @@ jobs:
           RELEASE_RID: ${{ matrix.platform.rid }}
           RELEASE_MODE: ${{ matrix.mode }}
         run: |
-          docker run --rm -v "$PWD:/repo" -w /repo -e RELEASE_VERSION -e RELEASE_RID -e RELEASE_MODE mcr.microsoft.com/dotnet/sdk:11.0-alpine sh -c 'apk add --no-cache clang build-base zlib-dev nodejs npm icu-libs && sh tools/package-musl.sh "$RELEASE_RID" "$RELEASE_MODE" "$RELEASE_VERSION"'
+          docker run --rm -v "$PWD:/repo" -w /repo -e RELEASE_VERSION -e RELEASE_RID -e RELEASE_MODE mcr.microsoft.com/dotnet/sdk:11.0-alpine sh -c 'apk add --no-cache clang build-base zlib-dev icu-libs && sh tools/package-musl.sh "$RELEASE_RID" "$RELEASE_MODE" "$RELEASE_VERSION"'
       - uses: actions/upload-artifact@v4
         with:
           name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}

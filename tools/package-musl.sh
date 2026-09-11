@@ -9,8 +9,6 @@ publish="artifacts/publish/$rid-$mode"
 mkdir -p "$publish" artifacts/packages
 dotnet publish src/CodexManager -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -p:Version="$version" -o "$publish"
 find "$publish" -maxdepth 1 -type f \( -name '*.pdb' -o -name '*.dbg' \) -delete
-printf '%s' '{"private":true,"dependencies":{"ssh2":"1.17.0"}}' > "$publish/package.json"
-(cd "$publish" && npm install ssh2@1.17.0 --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund)
 cp packaging/install-linux.sh "$publish/install.sh"
 cp packaging/README.md "$publish/INSTALL.md"
 cp LICENSE "$publish/LICENSE"

@@ -12,6 +12,10 @@ $isAot = $mode -eq 'aot'
 $publish = Join-Path $repo "artifacts/publish/$Runtime-$mode"
 $packages = Join-Path $repo 'artifacts/packages'
 $cache = Join-Path $repo 'artifacts/downloads'
+$publishRoot = [IO.Path]::GetFullPath((Join-Path $repo 'artifacts/publish')) + [IO.Path]::DirectorySeparatorChar
+$resolvedPublish = [IO.Path]::GetFullPath($publish)
+if (!$resolvedPublish.StartsWith($publishRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Publish path outside artifacts/publish' }
+if (Test-Path -LiteralPath $resolvedPublish) { Remove-Item -LiteralPath $resolvedPublish -Recurse -Force }
 New-Item -ItemType Directory -Force $publish, $packages, $cache | Out-Null
 foreach ($obsolete in @('CodexManager.exe','CodexManager.dll','CodexManager.deps.json','CodexManager.runtimeconfig.json')) {
     $oldFile = Join-Path $publish $obsolete
@@ -32,43 +36,6 @@ if ($LASTEXITCODE) { throw 'Publish failed' }
 # Symbols stay in the build tree, not in distributed packages.
 Get-ChildItem -LiteralPath $publish -File | Where-Object { $_.Extension -in '.pdb', '.dbg' } | Remove-Item
 
-# Ship the official Node distribution, including npm/npx and its license.
-# Its SHA256 is verified before extraction; no global install or PATH changes.
-$nodeVersion = 'v22.23.2'
-$nodePlatform = if ($Runtime.StartsWith('osx')) { 'darwin' } elseif ($Runtime.StartsWith('win')) { 'win' } else { 'linux' }
-$arch = $Runtime.Split('-')[-1]
-$stem = "node-$nodeVersion-$nodePlatform-$arch"
-$extension = if ($nodePlatform -eq 'win') { 'zip' } else { 'tar.gz' }
-$archiveName = "$stem.$extension"
-$archive = Join-Path $cache $archiveName
-$baseUrl = "https://nodejs.org/dist/$nodeVersion"
-if (!$Runtime.Contains('musl')) {
-$checksums = (Invoke-WebRequest "$baseUrl/SHASUMS256.txt").Content
-$line = ($checksums -split "`n" | Where-Object { $_.Trim().EndsWith(" $archiveName", [StringComparison]::Ordinal) })
-if (@($line).Count -ne 1) { throw "Missing checksum for $archiveName" }
-$expected = ($line.Trim() -split '\s+')[0]
-if (!(Test-Path -LiteralPath $archive) -or (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) {
-    Invoke-WebRequest "$baseUrl/$archiveName" -OutFile $archive
-}
-if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash -ne $expected) { throw 'Node checksum mismatch' }
-$node = Join-Path $publish 'runtime/node'
-New-Item -ItemType Directory -Force $node | Out-Null
-if ($extension -eq 'zip') {
-    $extracted = Join-Path $cache $stem
-    Expand-Archive -LiteralPath $archive -DestinationPath $cache -Force
-    Copy-Item -Path (Join-Path $extracted '*') -Destination $node -Recurse -Force
-} else {
-    # Preserve npm/npx's relative symlinks; Copy-Item dereferences them.
-    tar -xzf $archive --strip-components=1 -C $node
-    if ($LASTEXITCODE) { throw 'Node extraction failed' }
-}
-}
-# The app-only SSH server uses pure JS ssh2 (optional native helpers are omitted).
-Set-Content -LiteralPath (Join-Path $publish 'package.json') -Value '{"private":true,"dependencies":{"ssh2":"1.17.0"}}'
-Push-Location $publish
-try { npm install ssh2@1.17.0 --omit=dev --omit=optional --ignore-scripts --no-audit --no-fund }
-finally { Pop-Location }
-if ($LASTEXITCODE) { throw 'SSH server dependency installation failed' }
 Copy-Item -LiteralPath (Join-Path $repo 'packaging/README.md') -Destination (Join-Path $publish 'INSTALL.md')
 if (Test-Path (Join-Path $repo 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $publish }
 Set-Content -LiteralPath (Join-Path $publish 'runtime.txt') -Value $Runtime -NoNewline
@@ -97,18 +64,11 @@ if ($Runtime.StartsWith('win')) {
     if ($LASTEXITCODE) { throw 'App bundle copy failed' }
     Copy-Item -LiteralPath (Join-Path $repo 'src/CodexManager/Assets/app.icns') -Destination (Join-Path $resources 'app.icns')
     (Get-Content -LiteralPath (Join-Path $repo 'packaging/Info.plist') -Raw).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $bundle 'Contents/Info.plist')
-    # Scripts and npm data belong in Resources, outside codesign's nested-code locations.
-    foreach ($resource in @('node_modules', 'runtime', 'remote-server.cjs', 'package.json', 'package-lock.json')) {
-        $sourceResource = Join-Path $macos $resource
-        if (Test-Path -LiteralPath $sourceResource) { Move-Item -LiteralPath $sourceResource -Destination $resources }
-    }
     chmod +x (Join-Path $macos 'VibeHarder')
     # Ad-hoc signing makes a local bundle runnable. Distributors may set a Developer ID.
     $output = Join-Path $packages "VibeHarder-$Version-$Runtime-$mode.zip"
     if ($IsMacOS) {
         $identity = if ($env:CODEX_MANAGER_SIGN_IDENTITY) { $env:CODEX_MANAGER_SIGN_IDENTITY } else { '-' }
-        codesign --force --sign $identity (Join-Path $resources 'runtime/node/bin/node')
-        if ($LASTEXITCODE) { throw 'Node signing failed' }
         codesign --force --deep --sign $identity $bundle
         if ($LASTEXITCODE) { throw 'App signing failed' }
         codesign --verify --deep --strict $bundle

@@ -25,7 +25,7 @@ public sealed record Workspace(string Id, string Name, string Path, string? Dist
 
 public sealed class Chat : Observable
 {
-    public const int HistoryPageSize = 200;
+    public const int HistoryPageSize = 64;
     public int NextSequence { get; set; }
     public bool HistoryLoaded { get; set; }
     public IReadOnlyList<SessionConfig> ConfigOptions { get; set; } = [];
@@ -83,14 +83,20 @@ public sealed class Message : Observable
 
 public sealed record Attachment(string Name, string MimeType, string Data, string? SourcePath = null, string? Reference = null)
 {
-    private Bitmap? thumbnail;
+    private WeakReference<Bitmap>? thumbnail;
     [JsonIgnore]
     public Bitmap? Thumbnail
     {
         get
         {
             if (!IsImage) return null;
-            try { return thumbnail ??= Bitmap.DecodeToWidth(new MemoryStream(Convert.FromBase64String(Data)), 320); }
+            try
+            {
+                if (thumbnail?.TryGetTarget(out var cached) == true) return cached;
+                using var stream = new MemoryStream(Convert.FromBase64String(Data));
+                var bitmap = Bitmap.DecodeToWidth(stream, 320);
+                thumbnail = new(bitmap); return bitmap;
+            }
             catch { return null; }
         }
     }

@@ -1,5 +1,10 @@
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json.Nodes;
-using Renci.SshNet;
+using System.Buffers.Binary;
 
 namespace CodexManager;
 
@@ -8,35 +13,44 @@ public sealed record RemoteHost(string Name, string Address, int Port, string Ke
     public override string ToString() => Name;
 }
 public sealed class RemoteOperationException(string message) : Exception(message);
+
 public sealed class RemoteConnection : IDisposable
 {
-    private readonly SshClient client;
-    private SshCommand? command;
-    private StreamWriter? writer;
-    private StreamReader? reader;
-    private Task? execution;
+    private readonly RemoteHost host;
+    private readonly TcpClient client = new();
+    private SslStream? stream;
     private readonly SemaphoreSlim gate = new(1);
-    private readonly PrivateKeyFile key;
     public string? ObservedFingerprint { get; private set; }
-    public RemoteConnection(RemoteHost host, string? passphrase = null)
+    public RemoteConnection(RemoteHost host) => this.host = host;
+    private async Task Open(CancellationToken token)
     {
-        key = string.IsNullOrEmpty(passphrase) ? new PrivateKeyFile(host.KeyPath) : new PrivateKeyFile(host.KeyPath, passphrase);
-        client = new SshClient(host.Address, host.Port, "codex-manager", key);
-        client.ConnectionInfo.Timeout = TimeSpan.FromSeconds(15);
-        client.KeepAliveInterval = TimeSpan.FromSeconds(15);
-        client.HostKeyReceived += (_, e) =>
+        await client.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
+        stream = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
         {
-            ObservedFingerprint = "SHA256:" + e.FingerPrintSHA256.TrimEnd('=');
-            e.CanTrust = string.Equals(host.Fingerprint, ObservedFingerprint, StringComparison.Ordinal);
-        };
+            if (certificate is null) return false;
+            ObservedFingerprint = "SHA256:" + Convert.ToBase64String(SHA256.HashData(certificate.GetRawCertData())).TrimEnd('=');
+            return string.Equals(host.Fingerprint, ObservedFingerprint, StringComparison.Ordinal);
+        });
+        await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = host.Address, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, token).ConfigureAwait(false);
     }
     public async Task Connect(CancellationToken token)
     {
-        await client.ConnectAsync(token).ConfigureAwait(false);
-        command = client.CreateCommand("codex-manager-rpc");
-        execution = command.ExecuteAsync(token);
-        writer = new StreamWriter(command.CreateInputStream(), new System.Text.UTF8Encoding(false)) { AutoFlush = true };
-        reader = new StreamReader(command.OutputStream);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
+        await Open(timeout.Token).ConfigureAwait(false);
+        var credential = JsonNode.Parse(await File.ReadAllTextAsync(host.KeyPath, timeout.Token).ConfigureAwait(false))?.AsObject() ?? throw new IOException("Pair this host again in Remote settings.");
+        credential["method"] = "auth";
+        await Request(credential, timeout.Token).ConfigureAwait(false);
+    }
+    public static async Task<RemoteHost> Pair(string code, string credentialPath, string deviceName, CancellationToken token)
+    {
+        var invite = RemoteKey.ParseCode(code);
+        var host = new RemoteHost(invite["name"]!.GetValue<string>(), invite["address"]!.GetValue<string>(), invite["port"]!.GetValue<int>(), credentialPath, invite["fingerprint"]!.GetValue<string>());
+        using var client = new RemoteConnection(host);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(20));
+        await client.Open(timeout.Token).ConfigureAwait(false);
+        var credential = await client.Request(new() { ["method"] = "pair", ["code"] = invite["code"]!.DeepClone(), ["name"] = deviceName }, timeout.Token).ConfigureAwait(false);
+        await Task.Run(() => RemoteKey.WritePrivate(credentialPath, Encoding.UTF8.GetBytes(credential!.ToJsonString())), timeout.Token).ConfigureAwait(false);
+        return host;
     }
     public async Task<JsonNode?> Request(JsonObject request, CancellationToken token)
     {
@@ -44,16 +58,35 @@ public sealed class RemoteConnection : IDisposable
         try
         {
             request["id"] = Guid.NewGuid().ToString("N");
-            await writer!.WriteLineAsync(request.ToJsonString().AsMemory(), token).ConfigureAwait(false);
-            var line = await reader!.ReadLineAsync(token).ConfigureAwait(false) ?? throw new IOException("Remote host disconnected. Its agents continue running.");
-            var result = JsonNode.Parse(line)!;
-            if (result["id"]?.GetValue<string>() != request["id"]!.GetValue<string>()) throw new IOException("Unexpected remote response.");
-            if (result["error"] is { } error) throw new RemoteOperationException(error.GetValue<string>());
-            return result["result"]?.DeepClone();
+            await RemoteWire.Write(stream!, request, token).ConfigureAwait(false);
+            var response = await RemoteWire.Read(stream!, token).ConfigureAwait(false);
+            if (response["id"]?.GetValue<string>() != request["id"]!.GetValue<string>()) throw new IOException("Unexpected remote response.");
+            if (response["error"] is { } error) throw new RemoteOperationException(error.GetValue<string>());
+            return response["result"]?.DeepClone();
         }
         catch (RemoteOperationException) { throw; }
         catch { Dispose(); throw; }
         finally { gate.Release(); }
     }
-    public void Dispose() { client.Dispose(); command?.Dispose(); key.Dispose(); }
+    public void Dispose() { stream?.Dispose(); client.Dispose(); }
+}
+
+public static class RemoteWire
+{
+    public const int MaximumFrame = 32 * 1024 * 1024;
+    public static async Task<JsonObject> Read(Stream stream, CancellationToken token, int maximum = MaximumFrame)
+    {
+        var header = new byte[4]; await stream.ReadExactlyAsync(header, token).ConfigureAwait(false);
+        var length = BinaryPrimitives.ReadInt32BigEndian(header);
+        if (length < 2 || length > maximum) throw new IOException("Invalid remote message size.");
+        var bytes = new byte[length]; await stream.ReadExactlyAsync(bytes, token).ConfigureAwait(false);
+        return JsonNode.Parse(bytes)?.AsObject() ?? throw new IOException("Invalid remote message.");
+    }
+    public static async Task Write(Stream stream, JsonNode value, CancellationToken token)
+    {
+        var bytes = Encoding.UTF8.GetBytes(value.ToJsonString());
+        if (bytes.Length > MaximumFrame) throw new IOException("Remote message is too large.");
+        var header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, bytes.Length);
+        await stream.WriteAsync(header, token).ConfigureAwait(false); await stream.WriteAsync(bytes, token).ConfigureAwait(false);
+    }
 }

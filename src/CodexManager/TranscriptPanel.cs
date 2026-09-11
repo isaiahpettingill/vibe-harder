@@ -69,7 +69,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         }
         var anchor = At(offset.Y);
         var within = offset.Y - Top(anchor);
-        var start = bottom ? Items.Count - 1 : At(Math.Max(0, offset.Y - viewport.Height));
+        var start = bottom ? Items.Count - 1 : At(Math.Max(0, offset.Y - viewport.Height * 0.2));
         var end = start;
         double measured = 0;
         if (bottom)
@@ -80,7 +80,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
                 var control = Realize(i); control.Measure(new(viewport.Width, double.PositiveInfinity));
                 heights[Items[i]!] = Math.Max(1, control.DesiredSize.Height);
                 measured += HeightAt(i); start = i;
-                if (measured >= viewport.Height * 2) break;
+                if (measured >= viewport.Height * 1.2) break;
             }
         }
         else
@@ -90,7 +90,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
                 var control = Realize(i); control.Measure(new(viewport.Width, double.PositiveInfinity));
                 heights[Items[i]!] = Math.Max(1, control.DesiredSize.Height);
                 measured += HeightAt(i); end = i;
-                if (measured >= viewport.Height * 3) break;
+                if (measured >= viewport.Height * 1.4) break;
             }
         }
         foreach (var index in realized.Keys.Where(i => i < start || i > end).ToArray()) Release(index);

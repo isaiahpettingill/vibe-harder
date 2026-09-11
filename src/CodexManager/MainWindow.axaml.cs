@@ -30,7 +30,12 @@ public partial class MainWindow : Window
         if (remoteServer is not null) { await remoteServer.DisposeAsync(); remoteServer = null; }
         if (store.Setting("remoteEnabled") == "1")
         {
-            try { remoteServer = new RemoteServer(RemoteServer.DirectoryPath, store.Setting("remoteAddress") ?? "127.0.0.1", int.TryParse(store.Setting("remotePort"), out var port) ? port : 2222, remoteSessions.Handle); }
+            try
+            {
+                remoteServer = new RemoteServer(RemoteServer.DirectoryPath, store.Setting("remoteAddress") ?? "127.0.0.1", int.TryParse(store.Setting("remotePort"), out var port) ? port : 2222, remoteSessions.Handle);
+                while (remoteServer.Fingerprint is null && remoteServer.Error is null && !closing) await Task.Delay(25, discoveryLifetime.Token);
+                if (remoteServer.Error is { } error) StatusText.Text = "Remote server: " + error;
+            }
             catch (Exception error) { StatusText.Text = "Remote server: " + error.Message; }
         }
     }
@@ -381,6 +386,7 @@ public partial class MainWindow : Window
         refreshingChats = false;
         if (current is not null) { current.Draft = Composer.Text ?? ""; store.Save(current); }
         chat.HasUnreadCompletion = false; store.Save(chat);
+        if (current is not null && !ReferenceEquals(current, chat)) store.ReleaseHistory(current);
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
         store.Setting("lastProvider", chat.Provider.ToString());
@@ -584,6 +590,7 @@ public partial class MainWindow : Window
             {
                 if (closing) return;
                 store.TrimHistory(chat);
+                if (!ReferenceEquals(chat, current)) store.ReleaseHistory(chat);
                 if (ReferenceEquals(chat, current) && runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
                 UpdateControls();
                 if (ReferenceEquals(chat, current) && !viewingHistory)
@@ -1151,20 +1158,46 @@ public partial class MainWindow : Window
         foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
         await runtime.Send("Continue the interrupted request below. First inspect the saved conversation and current workspace state; do not repeat actions already completed.\n\n" + input.Text, input.Attachments);
     }
+    private bool shutdownComplete;
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
         { e.Cancel = true; SaveAll(); Hide(); return; }
-        if (closing) return; e.Cancel = true; closing = true; discoveryLifetime.Cancel(); saveTimer.Stop(); SaveAll();
-        CloseRemoteView(); if (remoteServer is not null) await remoteServer.DisposeAsync();
-        await Task.WhenAll(discoveries.Values);
-        await Task.WhenAll(workspaceClosures.ToArray());
-        if (historyOperation is not null) await historyOperation;
-        foreach (var login in loginSessions.Values) login.Session.Dispose();
-        foreach (var terminal in terminals.Values.SelectMany(t => t)) terminal.Session.Dispose();
-        foreach (var runtime in runtimes.Values) await runtime.DisposeAsync();
-        // Flush final streamed content before releasing SQLite.
-        SaveAll(); await store.FlushAsync(); tray?.Dispose(); store.Dispose(); Close();
+        if (closing) { e.Cancel = !shutdownComplete; return; }
+        e.Cancel = true; closing = true; discoveryLifetime.Cancel(); saveTimer.Stop();
+        var errors = new List<Exception>();
+        async Task Cleanup(Func<Task> action)
+        {
+            try { await action(); } catch (OperationCanceledException) { } catch (Exception error) { errors.Add(error); }
+        }
+        try
+        {
+            await Cleanup(() => { SaveAll(); return Task.CompletedTask; });
+            CloseRemoteView();
+            // Cancel providers before waiting for operations that depend on them.
+            var stoppingAgents = runtimes.Values.Select(runtime => Cleanup(() => runtime.DisposeAsync().AsTask())).ToArray();
+            foreach (var login in loginSessions.Values) await Cleanup(() => Task.Run(login.Session.Dispose));
+            foreach (var terminal in terminals.Values.SelectMany(t => t)) await Cleanup(() => Task.Run(terminal.Session.Dispose));
+            if (remoteServer is not null) await Cleanup(() => remoteServer.DisposeAsync().AsTask());
+            await Task.WhenAll(stoppingAgents);
+            await Cleanup(() => Task.WhenAll(discoveries.Values));
+            await Cleanup(() => Task.WhenAll(workspaceClosures.ToArray()));
+            if (historyOperation is not null) await Cleanup(() => historyOperation);
+            await Cleanup(async () => { SaveAll(); await store.FlushAsync(); });
+            await Cleanup(() => Task.Run(store.Dispose));
+        }
+        finally
+        {
+            tray?.Dispose(); tray = null;
+            if (Application.Current is { } app) TrayIcon.SetIcons(app, new TrayIcons());
+            remoteSessions.Changed -= BuildWorkspaceTree;
+            MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
+            runtimes.Clear(); terminals.Clear(); loginSessions.Clear(); discoveries.Clear(); workspaceClosures.Clear();
+            foreach (var owned in OwnedWindows.ToArray()) owned.Close();
+            if (errors.Count > 0) System.Diagnostics.Trace.WriteLine(new AggregateException("Shutdown cleanup errors", errors));
+            shutdownComplete = true; Close();
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && ReferenceEquals(desktop.MainWindow, this)) desktop.Shutdown();
+        }
     }
 }
 

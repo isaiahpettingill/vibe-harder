@@ -23,13 +23,21 @@ public static class HeadlessHost
         service = new(store, workspaces, chats, Runtime);
         string Arg(string key, string fallback) { var index = Array.IndexOf(args, key); return index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback; }
         var server = new RemoteServer(RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteAddress") ?? "127.0.0.1"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), service.Handle);
+        if (args.Contains("--pair"))
+            Console.WriteLine(RemoteTrust.Invite(RemoteServer.DirectoryPath, Arg("--pair", "127.0.0.1"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), Environment.MachineName));
         using var stopped = new CancellationTokenSource(); bool stopping = false;
         async void Stop()
         {
             if (stopping) return; stopping = true;
-            await server.DisposeAsync(); foreach (var runtime in runtimes.Values) await runtime.DisposeAsync();
-            foreach (var chat in chats) { store.Save(chat); foreach (var message in chat.Messages) store.SaveMessage(chat, message); }
-            await store.FlushAsync(); stopped.Cancel();
+            try
+            {
+                var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
+                await server.DisposeAsync(); await Task.WhenAll(shutdowns);
+                foreach (var chat in chats) { store.Save(chat); foreach (var message in chat.Messages) store.SaveMessage(chat, message); }
+                await store.FlushAsync();
+            }
+            catch (Exception error) { System.Diagnostics.Trace.WriteLine(error); }
+            finally { stopped.Cancel(); }
         }
         Console.CancelKeyPress += (_, e) => { e.Cancel = true; Dispatcher.UIThread.Post(Stop); };
         using var signal = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, context => { context.Cancel = true; Dispatcher.UIThread.Post(Stop); });

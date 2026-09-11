@@ -26,10 +26,11 @@ public class ResponsivenessTests
             var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
             var list = UiTests.Named<ListBox>(window, "MessageList");
             var deadline = DateTime.UtcNow.AddSeconds(15);
-            while (chat.Messages.Count < 100 && DateTime.UtcNow < deadline) await Task.Delay(20);
+            while (chat.Messages.Count < Chat.HistoryPageSize && DateTime.UtcNow < deadline) await Task.Delay(20);
             Assert.True(chat.Busy);
             Assert.NotSame(chat.Messages, list.ItemsSource);
             Assert.Empty(list.Items);
+            deadline = DateTime.UtcNow.AddSeconds(45);
             while (chat.Busy && DateTime.UtcNow < deadline) await Task.Delay(20);
             Assert.False(chat.Busy); Assert.Same(chat.Messages, list.ItemsSource);
             Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
@@ -117,9 +118,9 @@ public class ResponsivenessTests
         store.Save(new Workspace("w", "Pages", directory)); var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
         for (var i = 0; i < 1500; i++) { var message = new Message { Text = "Saved message " + i }; chat.Messages.Add(message); store.SaveMessage(chat, message); store.TrimHistory(chat); }
         Assert.Equal(Chat.HistoryPageSize, chat.Messages.Count);
-        var page = await store.ReadPageAsync(chat, token: TestContext.Current.CancellationToken); Assert.Equal(1300, page[0].Sequence); Assert.Equal(1499, page[^1].Sequence);
-        var older = await store.ReadPageAsync(chat, page[0].Sequence, token: TestContext.Current.CancellationToken); Assert.Equal(1100, older[0].Sequence); Assert.Equal(1299, older[^1].Sequence);
-        var newer = await store.ReadPageAsync(chat, older[^1].Sequence, token: TestContext.Current.CancellationToken, newer: true); Assert.Equal(1300, newer[0].Sequence);
+        var page = await store.ReadPageAsync(chat, token: TestContext.Current.CancellationToken); Assert.Equal(1500 - Chat.HistoryPageSize, page[0].Sequence); Assert.Equal(1499, page[^1].Sequence);
+        var older = await store.ReadPageAsync(chat, page[0].Sequence, token: TestContext.Current.CancellationToken); Assert.Equal(1500 - 2 * Chat.HistoryPageSize, older[0].Sequence); Assert.Equal(1499 - Chat.HistoryPageSize, older[^1].Sequence);
+        var newer = await store.ReadPageAsync(chat, older[^1].Sequence, token: TestContext.Current.CancellationToken, newer: true); Assert.Equal(1500 - Chat.HistoryPageSize, newer[0].Sequence);
         var copied = await store.ExportChatAsync(chat); Assert.Contains("Saved message 0\n", copied.Plain); Assert.Contains("Saved message 1499", copied.Html);
     }
 

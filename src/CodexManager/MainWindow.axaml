@@ -35,7 +35,7 @@
               <ListBox.ItemsPanel><ItemsPanelTemplate><local:TranscriptPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
               <ListBox.ItemTemplate><DataTemplate x:DataType="local:Message">
                 <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
-                  <StackPanel Spacing="6"><local:MessageView Message="{Binding}"/><ItemsControl ItemsSource="{Binding Attachments}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Expander Header="{Binding Name}" IsVisible="{Binding IsImage}" IsExpanded="False" HorizontalAlignment="Stretch"><Image Source="{Binding Thumbnail}" MaxHeight="220" HorizontalAlignment="Left" Stretch="Uniform"/></Expander></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel>
+                  <StackPanel Spacing="6"><local:MessageView Message="{Binding}"/><ItemsControl ItemsSource="{Binding Attachments}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><local:AttachmentPreview Attachment="{Binding}"/></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel>
                 </Border>
               </DataTemplate></ListBox.ItemTemplate>
             </ListBox>

@@ -19,7 +19,6 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly ListBox chats = new();
     private readonly ComboBox workspaces = new();
     private readonly ObservableCollection<Message> messages = [];
-    private readonly TextBox passphrase = new() { PasswordChar = '●', PlaceholderText = "Private key passphrase (if encrypted)" };
     private string? chatId;
     private bool polling;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -43,7 +42,7 @@ public sealed class RemoteView : UserControl, IDisposable
         this.host = host;
         var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
         var top = new StackPanel { Spacing = 6 }; top.Children.Add(new TextBlock { Text = host.Name + " · " + host.Address }); top.Children.Add(status);
-        var connect = new Button { Content = "Connect / reconnect" }; connect.Click += async (_, _) => await Connect(); top.Children.Add(passphrase); top.Children.Add(connect);
+        var connect = new Button { Content = "Connect / reconnect" }; connect.Click += async (_, _) => await Connect(); top.Children.Add(connect);
         var select = new Grid { ColumnDefinitions = new("*,Auto") }; workspaces.HorizontalAlignment = HorizontalAlignment.Stretch; select.Children.Add(workspaces);
         workspaces.SelectionChanged += (_, _) => FilterChats();
         var folder = new Button { Content = "Open folder on host…" }; top.Children.Add(folder);
@@ -161,7 +160,7 @@ public sealed class RemoteView : UserControl, IDisposable
     {
         connection?.Dispose(); connection = null;
         RemoteConnection? candidate = null;
-        try { var password = passphrase.Text; candidate = await Task.Run(() => new RemoteConnection(host, password)); await candidate.Connect(lifetime.Token); connection = candidate; passphrase.Text = ""; passphrase.IsVisible = false; status.Text = "Connected"; await RefreshList(); }
+        try { candidate = new RemoteConnection(host); await candidate.Connect(lifetime.Token); lifetime.Token.ThrowIfCancellationRequested(); connection = candidate; status.Text = "Connected"; await RefreshList(); }
         catch (Exception error) { status.Text = error.Message + (candidate?.ObservedFingerprint is { } pin ? "\nObserved host fingerprint: " + pin + "\nVerify it on the host before changing the saved fingerprint." : ""); candidate?.Dispose(); }
     }
     private async Task RefreshList()
@@ -192,6 +191,6 @@ public sealed class RemoteView : UserControl, IDisposable
         catch (RemoteOperationException error) { status.Text = error.Message; return null; }
         catch (Exception error) { status.Text = "Disconnected: " + error.Message + " Agents remain on the host. Reconnect to continue."; client.Dispose(); if (ReferenceEquals(connection, client)) connection = null; return null; }
     }
-    public void Dispose() { timer.Stop(); lifetime.Cancel(); connection?.Dispose(); }
+    public void Dispose() { timer.Stop(); lifetime.Cancel(); connection?.Dispose(); connection = null; CatalogChanged = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }
     private sealed record RemoteItem(string Id, string Name) { public override string ToString() => Name; }
 }

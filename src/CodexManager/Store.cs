@@ -109,7 +109,8 @@ public sealed class Store : IDisposable
         foreach (var m in chat.Messages)
         {
             foreach (var a in LoadAttachments(m.Id)) m.Attachments.Add(a);
-            savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
+            if (savedMessages.Count >= 2048) savedMessages.Clear();
+        savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
         }
     }
     public async Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false)
@@ -175,6 +176,12 @@ public sealed class Store : IDisposable
         chat.Messages.Clear(); foreach (var message in messages) { chat.Messages.Add(message); savedMessages[message.Id] = (new(message), message.Revision); }
         chat.HistoryLoaded = true; chat.NextSequence = messages.Length == 0 ? 0 : messages[^1].Sequence + 1;
     }
+    public void ReleaseHistory(Chat chat)
+    {
+        if (chat.Busy) return;
+        foreach (var message in chat.Messages) { SaveMessage(chat, message); savedMessages.Remove(message.Id); savedAttachments.Remove(message.Id); }
+        chat.Messages.Clear(); chat.HistoryLoaded = false;
+    }
     public void TrimHistory(Chat chat)
     {
         while (chat.Messages.Count > Chat.HistoryPageSize) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
@@ -195,6 +202,7 @@ public sealed class Store : IDisposable
         if (m.Sequence < 0) m.Sequence = c.NextSequence++;
         c.NextSequence = Math.Max(c.NextSequence, m.Sequence + 1);
         Execute("INSERT INTO messages VALUES($id,$chat,$role,$text,$tool,$seq) ON CONFLICT(id) DO UPDATE SET text=$text", ("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence));
+        if (savedMessages.Count >= 2048) savedMessages.Clear();
         savedMessages[m.Id] = (new(m), m.Revision);
         SaveAttachments(m.Id, m.Attachments);
     }
@@ -204,6 +212,7 @@ public sealed class Store : IDisposable
         if (savedAttachments.TryGetValue(id, out var cached) && cached.TryGetTarget(out var previous) && values.SequenceEqual(previous)) return;
         if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, "INSERT INTO attachments VALUES($id,$json) ON CONFLICT(owner_id) DO UPDATE SET json=$json WHERE json<>$json", ("$id", id), ("$json", JsonSerializer.Serialize(values, StoreJsonContext.Default.AttachmentArray))));
         else Execute("INSERT INTO attachments VALUES($id,$json) ON CONFLICT(owner_id) DO UPDATE SET json=$json WHERE json<>$json", ("$id", id), ("$json", JsonSerializer.Serialize(values, StoreJsonContext.Default.AttachmentArray)));
+        if (savedAttachments.Count >= 2048) savedAttachments.Clear();
         savedAttachments[id] = new(values);
     }
     private Attachment[] LoadAttachments(string id)

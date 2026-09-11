@@ -11,7 +11,6 @@
   "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@agentclientprotocol/codex-acp": "1.11.0",
-    "ssh2": "1.17.0"
+    "@agentclientprotocol/codex-acp": "1.11.0"
   }
 }

@@ -7,13 +7,11 @@ public static class Hosts
 {
     public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@1.11.0";
     public static string ResourceDirectory => OperatingSystem.IsMacOS() && Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) == "MacOS" && Directory.Exists(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) : AppContext.BaseDirectory;
-    public static string BundledNodeDirectory => Path.Combine(ResourceDirectory, "runtime", "node", OperatingSystem.IsWindows() ? "" : "bin");
     public static string WindowsShellCommand(string command) => command.StartsWith("npx ", StringComparison.Ordinal) ? "npx.cmd " + command[4..] : command;
     public static string LocalShellCommand(string command)
     {
         if (OperatingSystem.IsWindows()) return command;
         var paths = new List<string>();
-        if (Directory.Exists(BundledNodeDirectory)) paths.Add(BundledNodeDirectory);
         // Finder does not inherit an interactive shell's PATH.
         var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         paths.Add(Path.Combine(user, ".local", "bin"));
