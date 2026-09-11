@@ -10,6 +10,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private bool loading;
     private bool replaying;
     private bool connected;
+    private readonly Dictionary<string, string> activeToolInputs = [];
     private bool detachedTurn;
     private readonly CancellationTokenSource lifetime = new();
     private CancellationTokenSource? turn;
@@ -231,7 +232,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         var completed = false;
         try
         {
-            if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, token: turn.Token));
+            if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, limit: chat.RetainHistory ? Chat.HistoryPageSize : 1, token: turn.Token));
             await store.FlushAsync();
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             turn.Token.ThrowIfCancellationRequested();
@@ -276,7 +277,9 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
                 if (completed && !lifetime.IsCancellationRequested && !detachedTurn) { store.Setting("interrupted:" + chat.Id, ""); await store.FlushAsync(); }
             }
             catch (Exception error) { completed = false; chat.Status = "Could not save completed turn: " + error.Message; }
-            chat.Busy = detachedTurn; Changed?.Invoke();
+            chat.Busy = detachedTurn;
+            if (!chat.RetainHistory) store.ReleaseHistory(chat);
+            activeToolInputs.Clear(); Changed?.Invoke();
             if (recoverConnection && !lifetime.IsCancellationRequested && !IsRecovering)
                 Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && chat.InterruptedInput is { } input) recoveryTask = RecoverConnection(input); });
             if (completed && !IsSteering && !lifetime.IsCancellationRequested && chat.QueuedInputs.FirstOrDefault() is { } next)
@@ -373,10 +376,12 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             if (message is null && id is not null) message = (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token, toolId: id)).FirstOrDefault();
             if (lifetime.IsCancellationRequested) return;
             if (message is null) { Add("tool", "", id); message = chat.Messages.Last(); }
+            if (id is not null && activeToolInputs.TryGetValue(id, out var previousInput)) message.ToolInput = previousInput;
             var title = update.TryGetProperty("title", out var t) ? t.GetString() : message.Text.Split('\n')[0];
             var status = update.TryGetProperty("status", out var s) ? s.GetString() : "running";
             if (update.TryGetProperty("rawInput", out var input) && input.ValueKind is not JsonValueKind.Null)
                 message.ToolInput = "\n\n```\n" + (input.ValueKind == JsonValueKind.Object && input.TryGetProperty("command", out var commandInput) && commandInput.ValueKind == JsonValueKind.String ? commandInput.GetString() : input.GetRawText()) + "\n```";
+            if (id is not null && message.ToolInput.Length > 0) activeToolInputs[id] = message.ToolInput;
             var details = "";
             if (update.TryGetProperty("content", out var contents))
                 foreach (var item in contents.EnumerateArray())
@@ -385,6 +390,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
                     if (item.TryGetProperty("type", out var type) && type.GetString() == "diff") details += "\n\n```diff\n" + (item.TryGetProperty("oldText", out var old) ? "- " + old.GetString() : "") + "\n+ " + item.GetProperty("newText").GetString() + "\n```";
                 }
             message.Text = $"{title}\n\n*{status}*{message.ToolInput}{details}"; if (!replaying) store.SaveMessage(chat, message);
+            if (id is not null && status is "completed" or "failed") activeToolInputs.Remove(id);
         }
         else if (kind == "plan") Add("assistant", string.Join("\n", update.GetProperty("entries").EnumerateArray().Select(e => $"- [{(e.GetProperty("status").GetString() == "completed" ? "x" : " ")}] {e.GetProperty("content").GetString()}")));
         Changed?.Invoke();

@@ -28,6 +28,7 @@ public sealed class Chat : Observable
     public const int HistoryPageSize = 64;
     public int NextSequence { get; set; }
     public bool HistoryLoaded { get; set; }
+    public bool RetainHistory { get; set; } = true;
     public IReadOnlyList<SessionConfig> ConfigOptions { get; set; } = [];
     public int ConfigVersion { get; set; }
     public IReadOnlyList<SlashCommand> Commands { get; set; } = [];

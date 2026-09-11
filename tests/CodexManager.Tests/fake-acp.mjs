@@ -43,6 +43,15 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,{});break;
   case 'session/prompt':
+   if(m.params.prompt[0]?.text==='background-tools') {
+    const tool = value => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:value}});
+    tool({sessionUpdate:'tool_call',toolCallId:'one',title:'First command',status:'in_progress',rawInput:{command:'echo first'}});
+    tool({sessionUpdate:'tool_call',toolCallId:'two',title:'Second command',status:'in_progress',rawInput:{command:'echo second'}});
+    update('Work continued');
+    tool({sessionUpdate:'tool_call_update',toolCallId:'one',status:'completed'});
+    tool({sessionUpdate:'tool_call_update',toolCallId:'two',status:'completed'});
+    response(m.id,{stopReason:'end_turn'});break;
+   }
    if(m.params.prompt[0]?.text==='stream'){update('First partial answer');setTimeout(()=>{update(' and final answer');response(m.id,{stopReason:'end_turn'});},1200);break;}
    if(process.argv.includes('--commands')) { update(m.params.prompt[0].text); response(m.id,{stopReason:'end_turn'}); break; }
    if(recoveryFile) appendFileSync(recoveryFile,'prompt\n');

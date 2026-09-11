@@ -11,6 +11,7 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 - **Pair once:** paste a connection code; saved devices reconnect without host access.
 - **Tray and recovery:** keep working in the background; choose prompted or automatic resume.
 - **Comfortable chat:** collapsible tools, styled copying, resizable panes, themes, and separate fonts.
+- **UI sleep:** freeze inactive windows and unload inactive transcripts after a two-second grace period. Agents keep running.
 - **Small native app:** Native AOT on Windows/Linux. No bundled Node.js or browser engine.
 
 ### Start

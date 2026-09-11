@@ -49,7 +49,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
             if (!Enum.TryParse<AgentProvider>(Text("provider"), out var provider) || !Enum.IsDefined(provider)) throw new IOException("Unknown provider.");
-            var created = new Chat { WorkspaceId = owner.Id, Provider = provider }; chats.Add(created); store.Save(created); Changed?.Invoke(); return Summary(created);
+            var created = new Chat { WorkspaceId = owner.Id, Provider = provider, RetainHistory = false }; chats.Add(created); store.Save(created); Changed?.Invoke(); return Summary(created);
         }
         if (method == "import")
         {
@@ -71,10 +71,21 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var active = runtime(chat, workspaceOwner);
         if (method == "chat")
         {
-            if (!chat.HistoryLoaded && !chat.Busy) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat));
-            if ((chat.Messages.Count == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") && chat.SessionId is not null && !chat.Busy) _ = active.LoadHistory();
+            Message[] page;
+            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>());
+            else if (!chat.RetainHistory)
+            {
+                foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+                var saved = await store.ReadPageAsync(chat);
+                page = saved.Concat(chat.Messages).GroupBy(m => m.Id).Select(g => g.Last()).OrderBy(m => m.Sequence).TakeLast(Chat.HistoryPageSize).ToArray();
+            }
+            else
+            {
+                if (!chat.HistoryLoaded && !chat.Busy) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat));
+                page = chat.Messages.ToArray();
+            }
+            if ((page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") && chat.SessionId is not null && !chat.Busy) _ = active.LoadHistory();
             var result = Summary(chat);
-            var page = request["before"] is not null ? await store.ReadPageAsync(chat, request["before"]!.GetValue<int>()) : chat.Messages.ToArray();
             result["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["id"] = m.Id, ["sequence"] = m.Sequence, ["role"] = m.Role, ["text"] = m.Text, ["attachments"] = JsonSerializer.SerializeToNode(m.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray) }).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());

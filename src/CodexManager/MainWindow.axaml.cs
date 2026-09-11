@@ -44,6 +44,8 @@ public partial class MainWindow : Window
     private void OpenRemoteHost(RemoteHost host)
     {
         CloseRemoteView(); var view = new RemoteView(host); remoteView = view;
+        if (current is not null) DeferHistoryEviction(current);
+        MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
         view.CatalogChanged += catalog =>
         {
             if (!remoteSections.TryGetValue(host.Name, out var section)) return;
@@ -126,6 +128,8 @@ public partial class MainWindow : Window
         RootPanes.ColumnDefinitions[2].MinWidth = 420;
         if (double.TryParse(store.Setting("sidebarWidth"), System.Globalization.CultureInfo.InvariantCulture, out var sidebarWidth)) RootPanes.ColumnDefinitions[0].Width = new GridLength(Math.Clamp(sidebarWidth, 170, 600));
         workspaces = new((loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = loadedChats ?? store.Chats();
+        foreach (var savedChat in chats) savedChat.RetainHistory = false;
+        InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, Runtime);
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
@@ -386,7 +390,8 @@ public partial class MainWindow : Window
         refreshingChats = false;
         if (current is not null) { current.Draft = Composer.Text ?? ""; store.Save(current); }
         chat.HasUnreadCompletion = false; store.Save(chat);
-        if (current is not null && !ReferenceEquals(current, chat)) store.ReleaseHistory(current);
+        if (current is not null && !ReferenceEquals(current, chat)) DeferHistoryEviction(current);
+        KeepHistory(chat);
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
         store.Setting("lastProvider", chat.Provider.ToString());
@@ -394,13 +399,11 @@ public partial class MainWindow : Window
         UpdateControls(); Composer.Focus();
         Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
         viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
-        if (!chat.HistoryLoaded && !chat.Busy)
+        if (!chat.HistoryLoaded && runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory != true)
         {
             try
             {
-                var page = await store.ReadPageAsync(chat, token: pageLoad.Token);
-                if (closing || chat.Busy || chat.Archived != showArchived || !ReferenceEquals(current, chat)) return;
-                store.ApplyRecentPage(chat, page); ScrollTranscriptToEnd();
+                await RestoreVisibleHistory(chat, pageLoad.Token);
             }
             catch (OperationCanceledException) { return; }
             catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; return; }
@@ -485,6 +488,7 @@ public partial class MainWindow : Window
     }
     private void UpdateControls()
     {
+        if (uiSleeping) { UpdateTray(); return; }
         UpdateTray();
         UpdateSlashCommands();
         UpdateQueue();
@@ -590,10 +594,12 @@ public partial class MainWindow : Window
             {
                 if (closing) return;
                 store.TrimHistory(chat);
-                if (!ReferenceEquals(chat, current)) store.ReleaseHistory(chat);
+                if ((!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) && !chat.RetainHistory) store.ReleaseHistory(chat);
+                if (!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) { UpdateTray(); return; }
                 if (ReferenceEquals(chat, current) && runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
                 UpdateControls();
-                if (ReferenceEquals(chat, current) && !viewingHistory)
+                if (uiSleeping) return;
+                if (ReferenceEquals(chat, current) && remoteView is null && !viewingHistory)
                 {
                     if (runtime.IsLoadingHistory)
                     {
@@ -785,6 +791,9 @@ public partial class MainWindow : Window
     {
         var dialog = new Window { Title = "Settings", Width = 680, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
+        var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") != "0" };
+        sleep.IsCheckedChanged += (_, _) => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); };
+        panel.Children.Add(sleep);
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
         syntax.IsCheckedChanged += (_, _) => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); };
         panel.Children.Add(syntax);
@@ -995,7 +1004,7 @@ public partial class MainWindow : Window
     private bool transcriptScrollPending;
     private void ScrollTranscriptToEnd()
     {
-        if (transcriptScrollPending) return;
+        if (uiSleeping || transcriptScrollPending) return;
         transcriptScrollPending = true;
         var chat = current;
         Dispatcher.UIThread.Post(() =>
@@ -1009,6 +1018,7 @@ public partial class MainWindow : Window
     private void ClearChat()
     {
         if (current is not null && chats.Contains(current)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
+        if (current is not null) DeferHistoryEviction(current);
         current = null; Composer.Text = ""; MessageList.ItemsSource = null; AttachmentList.ItemsSource = null; UpdateControls();
     }
     private void SelectNextChat()
@@ -1167,7 +1177,7 @@ public partial class MainWindow : Window
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
         { e.Cancel = true; SaveAll(); Hide(); return; }
         if (closing) { e.Cancel = !shutdownComplete; return; }
-        e.Cancel = true; closing = true; discoveryLifetime.Cancel(); saveTimer.Stop();
+        e.Cancel = true; closing = true; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
         var errors = new List<Exception>();
         async Task Cleanup(Func<Task> action)
         {

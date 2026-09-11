@@ -184,7 +184,9 @@ public sealed class Store : IDisposable
     }
     public void TrimHistory(Chat chat)
     {
-        while (chat.Messages.Count > Chat.HistoryPageSize) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
+        var limit = chat.RetainHistory ? Chat.HistoryPageSize : 1;
+        if (!chat.RetainHistory) chat.HistoryLoaded = false;
+        while (chat.Messages.Count > limit) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
     }
     public void Save(Chat c)
     {

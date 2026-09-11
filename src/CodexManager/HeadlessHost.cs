@@ -10,6 +10,7 @@ public static class HeadlessHost
     {
         AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
         using var store = new Store(backgroundWrites: true); var workspaces = store.Workspaces(); var chats = store.Chats();
+        foreach (var chat in chats) chat.RetainHistory = false;
         var runtimes = new Dictionary<string, ChatRuntime>(); SessionService service = null!;
         ChatRuntime Runtime(Chat chat, Workspace workspace)
         {

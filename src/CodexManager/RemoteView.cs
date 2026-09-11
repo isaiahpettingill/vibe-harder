@@ -29,6 +29,9 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly List<Attachment> attachments = [];
     private JsonArray chatRows = [];
     private int polls;
+    private bool presentationSleeping;
+    public void SetPresentationSleeping(bool sleeping)
+    { presentationSleeping = sleeping; if (sleeping) { timer.Stop(); messages.Clear(); } else timer.Start(); }
     private bool refreshing;
     private bool viewingHistory;
     public event Action<JsonNode>? CatalogChanged;
@@ -106,11 +109,11 @@ public sealed class RemoteView : UserControl, IDisposable
         Content = panel;
         timer.Tick += async (_, _) =>
         {
-            if (polling || connection is null || chatId is null) return;
+            if (presentationSleeping || polling || connection is null || chatId is null) return;
             polling = true; var id = chatId;
             try
             {
-                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id }); if (result is null || id != chatId) return;
+                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id }); if (presentationSleeping || result is null || id != chatId) return;
                 status.Text = result["status"]?.GetValue<string>() + " · " + result["queued"] + " queued";
                 var configText = result["config"]!.ToJsonString();
                 if (configText != configJson)
@@ -149,6 +152,7 @@ public sealed class RemoteView : UserControl, IDisposable
     }
     private void ApplyMessages(JsonArray rows)
     {
+        if (presentationSleeping) return;
         foreach (var row in rows)
         {
             var id = row!["id"]!.GetValue<string>(); var message = messages.FirstOrDefault(m => m.Id == id);
