@@ -134,4 +134,3 @@ Model and thinking options use compact bottom-toolbar menus. Copy and collapse a
 - [NeoSpleen](https://github.com/mbwilding/NeoSpleen) Nerd Font Regular and Bold are embedded. Font licensing notices ship under `Assets/Fonts` in published builds.
 
 `node tools/acp-history-check.mjs <codex|claude|opencode> [workspace] [WSL-distro]` checks the real ACP handshake and paginated history without creating a session or sending a prompt.
-

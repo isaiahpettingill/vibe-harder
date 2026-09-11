@@ -33,6 +33,12 @@ jobs:
         run: Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
       - shell: pwsh
         run: ./tools/package.ps1 -Runtime ${{ matrix.rid }} -Mode ${{ runner.os == 'macOS' && 'bundled' || 'aot' }}
+      - name: Verify native remote pairing and restart
+        shell: pwsh
+        run: |
+          $mode = if ($IsMacOS) { 'bundled' } else { 'aot' }
+          $exe = if ($IsWindows) { 'VibeHarder.exe' } else { 'VibeHarder' }
+          python tools/check-headless.py "artifacts/publish/${{ matrix.rid }}-$mode/$exe"
       - if: runner.os == 'Linux'
         run: |
           sh tools/check-linux-package.sh artifacts/publish/linux-x64-aot
