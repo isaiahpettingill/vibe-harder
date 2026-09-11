@@ -791,7 +791,7 @@ public partial class MainWindow : Window
     {
         var dialog = new Window { Title = "Settings", Width = 680, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
-        var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") != "0" };
+        var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") == "1" };
         sleep.IsCheckedChanged += (_, _) => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); };
         panel.Children.Add(sleep);
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };

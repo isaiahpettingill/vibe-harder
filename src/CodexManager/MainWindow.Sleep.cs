@@ -18,9 +18,16 @@ public partial class MainWindow
     public bool IsPresentationSleeping => uiSleeping;
     private void InitializePresentationSleep()
     {
-        Activated += (_, _) => SchedulePresentationSleep();
+        Activated += (_, _) => WakePresentation();
         Deactivated += (_, _) => SchedulePresentationSleep();
+        AddHandler(PointerPressedEvent, (_, _) => WakePresentation(), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
+        AddHandler(KeyDownEvent, (_, _) => WakePresentation(), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty || e.Property == WindowStateProperty) SchedulePresentationSleep(); };
+    }
+    private void WakePresentation()
+    {
+        pendingSleep?.Dispose(); pendingSleep = null;
+        _ = SetPresentationSleeping(false);
     }
     private void KeepHistory(Chat chat)
     {
@@ -44,9 +51,14 @@ public partial class MainWindow
         pendingSleep?.Dispose(); pendingSleep = null;
         // Headless hosts have no desktop visibility and continue processing RPC.
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime) return;
-        if (store.Setting("presentationSleep") == "0" || IsVisible && IsActive && WindowState != WindowState.Minimized)
+        if (store.Setting("presentationSleep") != "1" || IsVisible && IsActive && WindowState != WindowState.Minimized)
         { _ = SetPresentationSleeping(false); return; }
-        pendingSleep = DispatcherTimer.RunOnce(async () => await SetPresentationSleeping(true), TimeSpan.FromSeconds(2));
+        pendingSleep = DispatcherTimer.RunOnce(async () =>
+        {
+            pendingSleep = null;
+            if (store.Setting("presentationSleep") == "1" && (!IsVisible || !IsActive || WindowState == WindowState.Minimized))
+                await SetPresentationSleeping(true);
+        }, TimeSpan.FromSeconds(2));
     }
     public async Task SetPresentationSleeping(bool sleeping)
     {

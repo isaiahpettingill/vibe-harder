@@ -8,6 +8,14 @@ public class AcpTests
 {
     private static string Fixture => Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs");
     [Fact]
+    public async Task CancellationInterruptsWritesToAnAgentThatNeverReads()
+    {
+        await using var client = new AcpClient(Hosts.Info("node", "-e", "setInterval(() => {}, 1000)"));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.Request("echo",
+            RpcJson.Object(("text", new string('x', 4 * 1024 * 1024))), timeout.Token).WaitAsync(TimeSpan.FromSeconds(5)));
+    }
+    [Fact]
     public async Task RpcCorrelatesConcurrentRequestsAndPropagatesExit()
     {
         await using var client = new AcpClient(Hosts.Info("node", Fixture));

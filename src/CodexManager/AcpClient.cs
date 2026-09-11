@@ -24,7 +24,7 @@ public sealed class AcpClient : IAsyncDisposable
     public AcpClient(ProcessStartInfo start)
     {
         process = Process.Start(start) ?? throw new IOException("Could not start the agent.");
-        reader = ReadLoop();
+        reader = Task.Run(ReadLoop);
         _ = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync(lifetime.Token) is { } line) diagnostics = (diagnostics + "\n" + line)[^Math.Min(4000, diagnostics.Length + line.Length + 1)..]; } catch (OperationCanceledException) { } });
     }
     public async Task<JsonElement> Request(string method, JsonObject parameters, CancellationToken cancellation = default)
@@ -34,14 +34,15 @@ public sealed class AcpClient : IAsyncDisposable
         pending[id] = completion;
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
         using var registration = linked.Token.Register(() => completion.TrySetCanceled(linked.Token));
-        try { await Write(RpcJson.Object(("jsonrpc", "2.0"), ("id", id), ("method", method), ("params", parameters))); return await completion.Task; }
+        try { await Write(RpcJson.Object(("jsonrpc", "2.0"), ("id", id), ("method", method), ("params", parameters)), linked.Token); return await completion.Task; }
         finally { pending.TryRemove(id, out _); }
     }
     public Task Notify(string method, JsonObject parameters) => Write(RpcJson.Object(("jsonrpc", "2.0"), ("method", method), ("params", parameters)));
-    private async Task Write(JsonObject message)
+    private async Task Write(JsonObject message, CancellationToken cancellation = default)
     {
-        await writes.WaitAsync(lifetime.Token);
-        try { await process.StandardInput.WriteLineAsync(message.ToJsonString()); await process.StandardInput.FlushAsync(); }
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
+        await writes.WaitAsync(linked.Token).ConfigureAwait(false);
+        try { await process.StandardInput.WriteLineAsync(message.ToJsonString().AsMemory(), linked.Token).ConfigureAwait(false); await process.StandardInput.FlushAsync(linked.Token).ConfigureAwait(false); }
         finally { writes.Release(); }
     }
     private async Task ReadLoop()

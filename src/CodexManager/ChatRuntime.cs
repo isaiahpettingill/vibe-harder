@@ -104,7 +104,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         {
             token.ThrowIfCancellationRequested();
             try { await Connect(replayHistory); return; }
-            catch (Exception error) when (attempt < 5 && !AgentProviders.IsAuthenticationError(error) && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
+            catch (Exception error) when (attempt < 5 && error is not OperationCanceledException && !AgentProviders.IsAuthenticationError(error) && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
             {
                 if (replayHistory) { chat.Messages.Clear(); foreach (var message in previous) chat.Messages.Add(message); }
                 chat.Status = $"Reconnecting ({attempt}/4)…"; Changed?.Invoke();
@@ -136,6 +136,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             chat.Busy = true; chat.Status = "Reconnecting…"; Changed?.Invoke();
             await ConnectWithRecovery(false, recoveryCancellation?.Token ?? lifetime.Token); chat.Status = "Ready";
         }
+        catch (OperationCanceledException) { chat.Status = lifetime.IsCancellationRequested ? "Disconnected" : "Reconnect timed out or was cancelled — try reconnecting"; }
         catch (Exception error) { chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error); chat.Status = "Reconnect failed: " + error.Message; }
         finally { chat.Busy = false; reconnecting = false; Changed?.Invoke(); }
     }

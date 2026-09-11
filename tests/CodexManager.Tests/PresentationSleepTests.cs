@@ -101,7 +101,9 @@ public class PresentationSleepTests
             Assert.Empty(window.GetVisualDescendants().OfType<MessageView>());
             await Task.Delay(150); Assert.True(chat.Busy);
             Assert.Equal(stoppedAngle, ((Avalonia.Media.RotateTransform)spinner.RenderTransform!).Angle);
-            await window.SetPresentationSleeping(false); window.UpdateLayout();
+            window.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Escape });
+            await Wait(() => !window.IsPresentationSleeping && chat.Messages.Count == Chat.HistoryPageSize);
+            window.UpdateLayout();
             Assert.False(window.IsPresentationSleeping); Assert.True(chat.Busy);
             Assert.Equal(Chat.HistoryPageSize, chat.Messages.Count);
             Assert.Contains(chat.Messages, m => m.Text == "Working");
