@@ -1,0 +1,44 @@
+<Application xmlns="https://github.com/avaloniaui" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:ct="clr-namespace:ColorTextBlock.Avalonia;assembly=ColorTextBlock.Avalonia" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit" x:Class="CodexManager.App" RequestedThemeVariant="Dark">
+  <Application.Resources>
+    <SolidColorBrush x:Key="AppBackground" Color="#14141C"/>
+    <SolidColorBrush x:Key="AppSurface" Color="#1C1B28"/>
+    <SolidColorBrush x:Key="AppBorder" Color="#3B354D"/>
+    <SolidColorBrush x:Key="AppText" Color="#E6E1F0"/>
+    <SolidColorBrush x:Key="AppMuted" Color="#9693AA"/>
+    <SolidColorBrush x:Key="AppAccent" Color="#B99AED"/>
+    <SolidColorBrush x:Key="AppOnAccent" Color="#14141C"/>
+    <FontFamily x:Key="TerminalFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <x:Double x:Key="TerminalFontSize">13</x:Double>
+    <x:Double x:Key="UIFontSize">13</x:Double><x:Double x:Key="ChatFontSize">13</x:Double><x:Double x:Key="CodeFontSize">13</x:Double><x:Double x:Key="ToolFontSize">11</x:Double>
+    <FontFamily x:Key="AppFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <FontFamily x:Key="UIFont">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
+    <FontFamily x:Key="ChatFont">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
+    <FontFamily x:Key="CodeFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <FontFamily x:Key="ContentControlThemeFontFamily">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
+  </Application.Resources>
+  <Application.Styles>
+    <FluentTheme />
+    <Style Selector="TemplatedControl"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
+    <Style Selector="TextBox, ComboBox, NumericUpDown, MenuFlyoutPresenter, ContextMenu"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
+    <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
+    <Style Selector="ct|CTextBlock"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
+    <Style Selector="Path"><Setter Property="Stroke" Value="{DynamicResource AppMuted}"/></Style>
+    <StyleInclude Source="avares://SvcSystems.UI.Terminal/Styles/Colors.axaml" />
+    <Style Selector="Window"><Setter Property="Foreground" Value="{DynamicResource AppText}"/><Setter Property="Background" Value="{DynamicResource AppBackground}"/><Setter Property="FontFamily" Value="{DynamicResource UIFont}"/><Setter Property="FontSize" Value="{DynamicResource UIFontSize}"/></Style>
+    <Style Selector="ct|CTextBlock"><Setter Property="FontFamily" Value="{DynamicResource ChatFont}"/></Style>
+    <Style Selector="Button"><Setter Property="CornerRadius" Value="3"/><Setter Property="Padding" Value="8,4"/><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
+    <Style Selector="TextBox"><Setter Property="CornerRadius" Value="4"/></Style>
+    <Style Selector="ListBoxItem"><Setter Property="Padding" Value="6,3"/></Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
+    <Style Selector="TextBox#Composer /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
+    <Style Selector="TextBox#Composer:focus /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
+    <Style Selector="edit|TextEditor"><Setter Property="FontFamily" Value="{DynamicResource CodeFont}"/></Style>
+    <Style Selector="Button.accent"><Setter Property="Background" Value="{DynamicResource AppAccent}"/><Setter Property="Foreground" Value="{DynamicResource AppOnAccent}"/></Style>
+    <Style Selector="Expander"><Setter Property="Padding" Value="4"/></Style>
+    <Style Selector="Expander /template/ ToggleButton"><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="6,3"/></Style>
+    <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource AppMuted}"/></Style>
+    <Style Selector="Grid.chatRow Button.rowAction"><Setter Property="Opacity" Value="0"/></Style>
+    <Style Selector="Grid.chatRow:pointerover Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Grid.chatRow:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
+  </Application.Styles>
+</Application>

@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0-android</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable><ImplicitUsings>enable</ImplicitUsings>
+    <SupportedOSPlatformVersion>24</SupportedOSPlatformVersion>
+    <ApplicationId>com.isaiahpettingill.vibeharder</ApplicationId>
+    <ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
+    <AndroidPackageFormats>apk</AndroidPackageFormats>
+    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Markdig" Version="1.3.2" />
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <Compile Include="../CodexManager/RemoteConnection.cs" Link="RemoteConnection.cs" />
+    <Compile Include="../CodexManager/RemoteKey.cs" Link="RemoteKey.cs" />
+    <Compile Include="../CodexManager/ThemeCatalog.cs" Link="ThemeCatalog.cs" />
+    <AndroidAsset Include="../CodexManager/Assets/Fonts/NotoSans-Regular.ttf" Link="NotoSans-Regular.ttf" />
+    <AndroidAsset Include="../CodexManager/Assets/Fonts/NeoSpleenNerdFont-Regular.ttf" Link="NeoSpleenNerdFont-Regular.ttf" />
+    <AndroidResource Include="../CodexManager/Assets/app.png" Link="Resources/drawable/app.png" />
+  </ItemGroup>
+</Project>

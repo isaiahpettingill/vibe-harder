@@ -1,0 +1,46 @@
+name: Build and test
+on: [push, pull_request]
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            rid: win-x64
+          - os: ubuntu-latest
+            rid: linux-x64
+          - os: macos-latest
+            rid: osx-arm64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-quality: preview
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci --ignore-scripts
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev xvfb imagemagick
+      - run: dotnet test tests/CodexManager.Tests --filter "FullyQualifiedName~StoreTests|FullyQualifiedName~AcpTests|FullyQualifiedName~UiTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~WorkspaceHistoryTests|FullyQualifiedName~SessionConfigTests|FullyQualifiedName~ChatPresentationTests|FullyQualifiedName~SettingsUiTests|FullyQualifiedName~RecoveryTests|FullyQualifiedName~RemoteTests|FullyQualifiedName~TerminalAppearanceTests|FullyQualifiedName~LifecycleTests"
+      - if: runner.os == 'Windows'
+        run: choco install nsis --no-progress -y
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
+      - shell: pwsh
+        run: ./tools/package.ps1 -Runtime ${{ matrix.rid }} -Mode ${{ runner.os == 'macOS' && 'bundled' || 'aot' }}
+      - if: runner.os == 'Linux'
+        run: |
+          sh tools/check-linux-package.sh artifacts/publish/linux-x64-aot
+          sh tools/check-native-linux.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VibeHarder-${{ matrix.rid }}
+          path: |
+            artifacts/packages/*.exe
+            artifacts/packages/*.tar.gz
+            artifacts/packages/*.zip

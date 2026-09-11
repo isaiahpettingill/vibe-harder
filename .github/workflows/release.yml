@@ -1,0 +1,128 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Release version (without v)
+        required: true
+        default: 1.0.0
+permissions:
+  contents: read
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: windows-11-arm, rid: win-arm64 }
+          - { os: ubuntu-24.04, rid: linux-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-arm64 }
+          - { os: macos-15-intel, rid: osx-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+        mode: [aot, bundled, framework]
+        exclude:
+          - platform: { os: macos-15-intel, rid: osx-x64 }
+            mode: aot
+          - platform: { os: macos-latest, rid: osx-arm64 }
+            mode: aot
+    runs-on: ${{ matrix.platform.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-quality: preview
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install nsis --no-progress -y
+          Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
+      - shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          if ($env:RELEASE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected numeric major.minor.patch version' }
+          ./tools/package.ps1 -Runtime '${{ matrix.platform.rid }}' -Mode '${{ matrix.mode }}' -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}
+          path: artifacts/packages/*
+          if-no-files-found: error
+  musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - { os: ubuntu-24.04, rid: linux-musl-x64 }
+          - { os: ubuntu-24.04-arm, rid: linux-musl-arm64 }
+        mode: [aot, bundled, framework]
+    runs-on: ${{ matrix.platform.os }}
+    container: mcr.microsoft.com/dotnet/sdk:11.0-alpine
+    steps:
+      - run: apk add --no-cache gcompat libstdc++
+      - uses: actions/checkout@v4
+      - run: apk add --no-cache clang build-base zlib-dev nodejs npm icu-libs
+      - env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: sh tools/package-musl.sh '${{ matrix.platform.rid }}' '${{ matrix.mode }}' "$RELEASE_VERSION"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}
+          path: artifacts/packages/*
+          if-no-files-found: error
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-quality: preview
+      - uses: actions/setup-java@v4
+        with:
+          distribution: microsoft
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+      - run: dotnet workload install android
+      - run: dotnet build src/CodexManager.Android -t:InstallAndroidDependencies -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AcceptAndroidSdkLicenses=True
+      - name: Sign APK with stable release identity
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          test -n "$KEYSTORE"
+          printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          dotnet publish src/CodexManager.Android -c Release -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore" -p:AndroidSigningKeyAlias=codexmanager -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:KEYSTORE_PASSWORD -p:ApplicationDisplayVersion="$RELEASE_VERSION" -p:ApplicationVersion="${{ github.run_number }}"
+          mkdir -p artifacts/packages
+          cp src/CodexManager.Android/bin/Release/net11.0-android/publish/*-Signed.apk artifacts/packages/VibeHarder-Android.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android
+          path: artifacts/packages/*.apk
+          if-no-files-found: error
+  publish:
+    needs: [desktop, musl, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+      - name: Publish release and checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          cd release
+          sha256sum * > SHA256SUMS.txt
+          gh release create "v$RELEASE_VERSION" --target '${{ github.sha }}' --title "Vibe Harder $RELEASE_VERSION" --generate-notes ./*

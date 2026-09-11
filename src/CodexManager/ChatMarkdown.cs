@@ -1,0 +1,172 @@
+using System.Net;
+using System.Reflection;
+using System.Text;
+using Avalonia;
+using Avalonia.Controls;
+using Avalonia.Controls.Primitives;
+using Avalonia.Input;
+using Avalonia.Input.Platform;
+using Avalonia.Interactivity;
+using Avalonia.Layout;
+using Avalonia.Media;
+using Avalonia.VisualTree;
+using AvaloniaEdit;
+using ColorDocument.Avalonia;
+using ColorTextBlock.Avalonia;
+using Markdown.Avalonia;
+
+namespace CodexManager;
+
+public sealed class ChatMarkdown : MarkdownScrollViewer
+{
+    public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
+    public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
+    public bool Muted { get; set; }
+    // The pinned renderer exposes selection only through its document. This
+    // assembly is explicitly rooted for AOT along with its reflection templates.
+    private DocumentElement? Document => typeof(MarkdownScrollViewer).GetField("_document", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(this) as DocumentElement;
+    static ChatMarkdown() => TextProperty.Changed.AddClassHandler<ChatMarkdown>((view, _) => view.Refresh());
+    public ChatMarkdown()
+    {
+        SelectionEnabled = true; Focusable = true;
+        AttachedToVisualTree += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(Decorate);
+        AttachedToVisualTree += (_, _) => AppTheme.Changed += RefreshSyntax;
+        DetachedFromVisualTree += (_, _) => AppTheme.Changed -= RefreshSyntax;
+        AddHandler(KeyDownEvent, async (_, e) =>
+        {
+            if (e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
+            { e.Handled = true; await Copy(true); }
+        }, RoutingStrategies.Tunnel);
+        var copy = new MenuItem { Header = "Copy selection with formatting" };
+        copy.Click += async (_, _) => await Copy(true);
+        ContextMenu = new ContextMenu { ItemsSource = new[] { copy } };
+    }
+    private void Refresh()
+    {
+        Markdown = Text;
+        Decorate();
+        Avalonia.Threading.Dispatcher.UIThread.Post(Decorate);
+    }
+    private void Decorate()
+    {
+        foreach (var block in this.GetVisualDescendants().OfType<CTextBlock>())
+        {
+            block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
+            block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "ChatFontSize"));
+            StyleInlineCode(block.Content);
+            block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
+        }
+        foreach (var border in this.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("CodeBlock")).ToArray())
+        {
+            if (border.Child is not Panel panel || panel is Grid) continue;
+            var editor = panel.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault();
+            if (editor is null) continue;
+            // Replace the upstream overlay panel: it arranges the editor below
+            // its origin without subtracting that offset, clipping the last line.
+            panel.Children.Remove(editor);
+            editor.Bind(TextEditor.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+            editor.Bind(TextEditor.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
+            editor.Bind(TextEditor.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
+            editor.Bind(TextEditor.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+            border.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+            if (Muted) editor.SyntaxHighlighting = null;
+            else AppTheme.StyleSyntax(editor.SyntaxHighlighting);
+            editor.Padding = new Thickness(8);
+            editor.WordWrap = true;
+            editor.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            editor.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            editor.MinHeight = 36;
+            var copy = new IconButton { Name = "CopyCode", Label = "Copy code", HorizontalAlignment = HorizontalAlignment.Right };
+            copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(editor.Text); };
+            var header = new Grid { ColumnDefinitions = new("*,Auto") };
+            header.Children.Add(new TextBlock { Text = editor.Tag as string, Margin = new Thickness(8, 4), FontSize = 11 });
+            Grid.SetColumn(copy, 1); header.Children.Add(copy);
+            var grid = new Grid { RowDefinitions = new("Auto,Auto") };
+            grid.Children.Add(header); Grid.SetRow(editor, 1); grid.Children.Add(editor); border.Child = grid;
+        }
+    }
+    private void RefreshSyntax()
+    {
+        foreach (var editor in this.GetVisualDescendants().OfType<TextEditor>())
+        { AppTheme.StyleSyntax(editor.SyntaxHighlighting); editor.TextArea.TextView.Redraw(); }
+    }
+    private void StyleInlineCode(IEnumerable<CInline> inlines)
+    {
+        foreach (var inline in inlines)
+        {
+            if (inline is CCode)
+            {
+                inline.Bind(CInline.ForegroundProperty, this.GetResourceObservable("AppAccent")); inline.Bind(CInline.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+                inline.FontWeight = FontWeight.Normal;
+                inline.Bind(CInline.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+            }
+            if (inline is CSpan span) StyleInlineCode(span.Content);
+        }
+    }
+    public async Task Copy(bool selection = false)
+    {
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || Document is not { } document) return;
+        var selected = selection ? document.GetSelectedText() : "";
+        if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));
+        var editorSelection = this.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault(e => e.SelectionLength > 0);
+        if (selection && editorSelection is not null)
+        { selected = editorSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
+        if (selection && string.IsNullOrEmpty(selected)) return;
+        await RichClipboard.Set(clipboard, selection ? selected : Text, Html(document, selection, selected));
+    }
+    public string ExportHtml() => Document is { } document ? Html(document, false, "") : "";
+    private static string Html(DocumentElement element, bool selection, string selected)
+    {
+        if (element.Control is CTextBlock block)
+        {
+            if (selection && block.Selection is null) return "";
+            var from = selection ? Math.Min(block.Selection!.From, block.Selection.To) : 0;
+            var to = selection ? Math.Max(block.Selection!.From, block.Selection.To) : int.MaxValue;
+            var offset = 0;
+            return $"<p style=\"font-family:{Encode(block.FontFamily.Name)};font-size:{block.FontSize}px\">" + string.Concat(block.Content.Select(i => Inline(i, from, to, ref offset))) + "</p>";
+        }
+        if (element.Control.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault() is { } editor && !element.Children.Any())
+            return !selection || selected.Contains(editor.Text, StringComparison.Ordinal) ? "<pre><code>" + Encode(editor.Text) + "</code></pre>" : "";
+        var body = string.Concat(element.Children.Select(c => Html(c, selection, selected)));
+        var tag = element.GetType().Name switch { "TableBlockElement" => "table", "TableCellElement" => "td", "ListBlockElement" => "ul", "ListItemElement" => "li", "BlockquoteElement" => "blockquote", _ => "div" };
+        return body.Length == 0 ? "" : $"<{tag}>{body}</{tag}>";
+    }
+    private static string Inline(CInline inline, int from, int to, ref int offset)
+    {
+        string body;
+        if (inline is CSpan span)
+        {
+            var result = new StringBuilder();
+            foreach (var child in span.Content) result.Append(Inline(child, from, to, ref offset));
+            body = result.ToString();
+        }
+        else
+        {
+            var text = inline.AsString(); var start = Math.Clamp(from - offset, 0, text.Length); var end = Math.Clamp(to - offset, 0, text.Length);
+            body = Encode(text[start..Math.Max(start, end)]); offset += text.Length;
+        }
+        if (inline is CHyperlink link && Uri.TryCreate(link.CommandParameter, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https") return $"<a href=\"{Encode(uri.AbsoluteUri)}\">{body}</a>";
+        var tag = inline switch { CBold => "strong", CItalic => "em", CCode => "code", CUnderline => "u", CStrikethrough => "s", _ => "span" };
+        return $"<{tag}>{body}</{tag}>";
+    }
+    private static string Encode(string? value) => WebUtility.HtmlEncode(value) ?? "";
+}
+
+public static class RichClipboard
+{
+    public static Task Set(Avalonia.Input.Platform.IClipboard clipboard, string text, string html)
+    {
+        var item = new DataTransferItem(); item.Set(DataFormat.Text, text);
+        item.Set(DataFormat.CreateBytesPlatformFormat(OperatingSystem.IsWindows() ? "HTML Format" : OperatingSystem.IsMacOS() ? "public.html" : "text/html"), Encoding.UTF8.GetBytes(OperatingSystem.IsWindows() ? WindowsHtml(html) : html));
+        var data = new DataTransfer(); data.Add(item); return clipboard.SetDataAsync(data);
+    }
+    public static string WindowsHtml(string fragment)
+    {
+        const string header = "Version:0.9\r\nStartHTML:{0:0000000000}\r\nEndHTML:{1:0000000000}\r\nStartFragment:{2:0000000000}\r\nEndFragment:{3:0000000000}\r\n";
+        const string start = "<html><body><!--StartFragment-->";
+        const string end = "<!--EndFragment--></body></html>";
+        var first = Encoding.UTF8.GetByteCount(string.Format(System.Globalization.CultureInfo.InvariantCulture, header, 0, 0, 0, 0));
+        var from = first + Encoding.UTF8.GetByteCount(start); var to = from + Encoding.UTF8.GetByteCount(fragment);
+        return string.Format(System.Globalization.CultureInfo.InvariantCulture, header, first, to + Encoding.UTF8.GetByteCount(end), from, to) + start + fragment + end + "\0";
+    }
+}

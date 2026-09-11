@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui" xmlns:local="using:CodexManager" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit" x:Class="CodexManager.MainWindow" Icon="/Assets/app.ico" Title="Vibe Harder" Width="1220" Height="840" MinWidth="840" MinHeight="620">
+  <Grid Name="RootPanes" ColumnDefinitions="250,5,*" RowDefinitions="*,28">
+    <Border Background="{DynamicResource AppBackground}" Padding="10" Grid.Row="0">
+      <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
+        <Grid ColumnDefinitions="24,*" Margin="2,4,0,12"><Image Source="/Assets/app.png" Width="24" Height="24"/><Button Grid.Column="1" Name="WorkspaceSelectorButton" Content="Workspaces ▾" Click="WorkspaceSelectorClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></Grid>
+        <Button Grid.Row="1" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="OpenWorkspaceClick"/>
+        <TextBox Grid.Row="2" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
+        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
+        <ScrollViewer Name="WorkspaceScroll" Grid.Row="4" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
+        <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><Button Content="⚙ Settings" Click="SettingsClick" HorizontalAlignment="Stretch"/><Button Name="CommandPaletteButton" Grid.Column="1" Content="⌘" Click="PaletteClick" ToolTip.Tip="Command palette (Ctrl+Shift+P)" Margin="4,0,0,0"/></Grid>
+      </Grid>
+    </Border>
+    <GridSplitter Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource AppBorder}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
+    <Grid Grid.Column="2" ColumnDefinitions="*,Auto">
+    <Grid Name="ChatPane" RowDefinitions="36,*,Auto">
+      <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="10,0"><Grid ColumnDefinitions="*,Auto,Auto"><TextBlock Name="WorkspaceHeading" Text="No workspace selected" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><Button Name="ToggleTerminalButton" Grid.Column="2" Content="▣  Terminal" Click="ToggleTerminal" VerticalAlignment="Center"/></Grid></Border>
+      <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="10,6,10,4"><Grid ColumnDefinitions="22,*"><Image Name="ChatProviderIcon" Width="16" Height="16" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Name="ChatHeading" Text="Select a chat" FontSize="14" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Name="ReconnectChatButton" Content="↻" ToolTip.Tip="Reconnect agent without resending messages" Click="ReconnectChatClick"/><local:IconButton Name="ResumeChatButton" Icon="send" Label="Resume interrupted chat" Click="ResumeChatClick" IsVisible="False"/></StackPanel><local:IconButton Grid.Column="2" Name="ArchiveChatButton" Icon="archive" Label="Archive chat" Click="ArchiveChatClick" Margin="8,0"/><local:IconButton Grid.Column="3" Name="DeleteChatButton" Icon="delete" Label="Delete chat" Click="DeleteChatClick"/></Grid>
+        <Border Grid.Row="1" Name="LoginPanel" IsVisible="False" Margin="14,6" Padding="12" BorderThickness="1" BorderBrush="{DynamicResource AppBorder}" CornerRadius="5">
+          <StackPanel Spacing="8">
+            <TextBlock Name="LoginHeading" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8"><Button Name="LoginButton" Content="Log in to Codex" Click="LoginClick" Classes="accent"/><Button Name="CheckLoginButton" Content="Already signed in? Check again" Click="CheckLoginClick"/></StackPanel>
+            <StackPanel Name="LoginLinkPanel" IsVisible="False" Spacing="6"><TextBox Name="LoginUrl" IsReadOnly="True"/><StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Open in browser" Click="OpenLoginLinkClick"/><local:IconButton Name="CopyLoginLinkButton" Label="Copy login link" Click="CopyLoginLinkClick"/></StackPanel></StackPanel>
+            <ContentControl Name="LoginTerminalHost" IsVisible="False" Height="220"/>
+          </StackPanel>
+        </Border>
+        <ScrollViewer Grid.Row="2" Name="TranscriptScroll" HorizontalScrollBarVisibility="Disabled">
+          <Grid Margin="14,0,14,10">
+            <StackPanel Name="Welcome" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Spacing="10" Margin="16,32">
+              <TextBlock Name="WelcomeHeading" Text="Open a folder to start" FontSize="16" TextWrapping="Wrap"/>
+              <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
+              <Button Name="WelcomeOpenButton" Content="Open workspace" Click="OpenWorkspaceClick"/>
+            </StackPanel>
+            <ItemsControl Name="MessageList">
+              <ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Message">
+                <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
+                  <StackPanel Spacing="6"><local:MessageView Message="{Binding}"/><ItemsControl ItemsSource="{Binding Attachments}"><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Expander Header="{Binding Name}" IsVisible="{Binding IsImage}" IsExpanded="False" HorizontalAlignment="Stretch"><Image Source="{Binding Thumbnail}" MaxHeight="220" HorizontalAlignment="Left" Stretch="Uniform"/></Expander></DataTemplate></ItemsControl.ItemTemplate></ItemsControl></StackPanel>
+                </Border>
+              </DataTemplate></ItemsControl.ItemTemplate>
+            </ItemsControl>
+          </Grid>
+        </ScrollViewer>
+      </Grid>
+      <Border Grid.Row="2" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
+        <StackPanel Spacing="6">
+          <ListBox Name="SlashCommands" IsVisible="False" MaxHeight="180" FontSize="11" PointerReleased="SlashCommandClicked"/>
+          <Expander Name="QueuePanel" IsVisible="False" IsExpanded="True" HorizontalAlignment="Stretch"><ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled"><StackPanel Name="QueueItems"/></ScrollViewer></Expander>
+          
+          
+          <ItemsControl Name="AttachmentList"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Button Tag="{Binding}" Click="RemoveAttachment" Margin="0,0,6,5" ToolTip.Tip="Remove attachment"><StackPanel Spacing="4"><Image Source="{Binding Thumbnail}" IsVisible="{Binding IsImage}" Width="80" Height="60" Stretch="Uniform"/><TextBlock Text="{Binding Name}" MaxWidth="150" TextTrimming="CharacterEllipsis" FontSize="11"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+          <TextBox FontFamily="{DynamicResource ChatFont}" Name="Composer" FontSize="{DynamicResource ChatFontSize}" PlaceholderText="Ask Codex… paste an image or drop a file" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48" MaxHeight="190" Padding="8,6" Background="Transparent" BorderThickness="0" TextChanged="DraftChanged"/>
+          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Label="Copy whole chat" Click="CopyChatClick"/><local:IconButton Name="StopButton" Icon="stop" Label="Stop" Click="StopClick" IsVisible="False"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
+        </StackPanel>
+      </Border>
+      </Grid>
+      <Grid Grid.Column="1" Name="TerminalDrawer" IsVisible="False" ColumnDefinitions="5,*" RowDefinitions="Auto,*" Width="380" MinWidth="220">
+        <Border Grid.RowSpan="2" Background="{DynamicResource AppBorder}" PointerPressed="TerminalResizeStart" PointerMoved="TerminalResizeMove" PointerReleased="TerminalResizeEnd" Cursor="SizeWestEast"/>
+        <Grid Grid.Column="1" ColumnDefinitions="*,Auto,Auto" Margin="8,4"><TextBlock Text="TERMINAL" Classes="muted" FontSize="11" VerticalAlignment="Center"/><Button Name="NewTerminalButton" Grid.Column="1" Content="＋ Terminal" Click="NewTerminalClick"/><Button Grid.Column="2" Content="Hide" Click="ToggleTerminal" Margin="8,0"/></Grid>
+        <TabControl Grid.Column="1" Grid.Row="1" Name="TerminalTabs" Margin="4,0,4,4"><TabControl.Styles><Style Selector="TabItem"><Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="6,2"/><Setter Property="FontSize" Value="11"/></Style></TabControl.Styles></TabControl>
+      </Grid>
+    </Grid>
+    <Border Grid.Row="1" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
+  </Grid>
+</Window>
+
+
+
+
+

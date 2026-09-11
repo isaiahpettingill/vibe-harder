@@ -1,0 +1,17 @@
+{
+  "name": "codex_manager",
+  "version": "1.0.0",
+  "description": "Pinned ACP adapter and integration probe for the Avalonia Vibe Harder",
+  "private": true,
+  "scripts": {
+    "probe": "node tools/acp-probe.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@agentclientprotocol/codex-acp": "1.11.0",
+    "ssh2": "1.17.0"
+  }
+}

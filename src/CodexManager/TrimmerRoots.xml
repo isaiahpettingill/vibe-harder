@@ -1,0 +1,8 @@
+<linker>
+  <!-- These controls use reflection bindings in their embedded templates and
+       discover plugins by name. Preserve their metadata until upstream ships
+       trimming annotations/compiled templates; the application stays trimmed. -->
+  <assembly fullname="Markdown.Avalonia" preserve="all" />
+  <assembly fullname="Markdown.Avalonia.SyntaxHigh" preserve="all" />
+  <assembly fullname="AvaloniaEdit" preserve="all" />
+</linker>
