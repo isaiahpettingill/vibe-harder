@@ -20,6 +20,7 @@ public sealed class RemoteConnection : IDisposable
     private readonly TcpClient client = new();
     private SslStream? stream;
     private readonly SemaphoreSlim gate = new(1);
+    private int disposed;
     public string? ObservedFingerprint { get; private set; }
     public RemoteConnection(RemoteHost host) => this.host = host;
     internal Task OpenForPairing(CancellationToken token) => Open(token, pairing: true);
@@ -37,7 +38,8 @@ public sealed class RemoteConnection : IDisposable
     public async Task Connect(CancellationToken token)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
-        await Open(timeout.Token).ConfigureAwait(false);
+        using var abort = timeout.Token.Register(Dispose);
+        await Open(timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
         var credential = JsonNode.Parse(await File.ReadAllTextAsync(host.KeyPath, timeout.Token).ConfigureAwait(false))?.AsObject() ?? throw new IOException("Pair this host again in Remote settings.");
         credential["method"] = "auth";
         await Request(credential, timeout.Token).ConfigureAwait(false);
@@ -58,18 +60,25 @@ public sealed class RemoteConnection : IDisposable
         await gate.WaitAsync(token).ConfigureAwait(false);
         try
         {
+            ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
+            using var abort = token.Register(Dispose);
             request["id"] = Guid.NewGuid().ToString("N");
-            await RemoteWire.Write(stream!, request, token).ConfigureAwait(false);
-            var response = await RemoteWire.Read(stream!, token).ConfigureAwait(false);
+            await RemoteWire.Write(stream!, request, token).WaitAsync(token).ConfigureAwait(false);
+            var response = await RemoteWire.Read(stream!, token).WaitAsync(token).ConfigureAwait(false);
             if (response["id"]?.GetValue<string>() != request["id"]!.GetValue<string>()) throw new IOException("Unexpected remote response.");
             if (response["error"] is { } error) throw new RemoteOperationException(error.GetValue<string>());
-            return response["result"]?.DeepClone();
+            var result = response["result"]; response.Remove("result"); return result;
         }
         catch (RemoteOperationException) { throw; }
         catch { Dispose(); throw; }
         finally { gate.Release(); }
     }
-    public void Dispose() { stream?.Dispose(); client.Dispose(); }
+    public void Dispose()
+    {
+        if (Interlocked.Exchange(ref disposed, 1) != 0) return;
+        // Close the socket first to interrupt a TLS read, including on Android resume.
+        client.Dispose(); stream?.Dispose();
+    }
 }
 
 public static class RemoteWire

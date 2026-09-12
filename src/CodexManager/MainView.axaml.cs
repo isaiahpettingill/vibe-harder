@@ -1111,16 +1111,18 @@ public partial class MainView : UserControl
     private async Task OfferInterruptedChats()
     {
         if (recoveryOffered) return; recoveryOffered = true;
+        var updateResume = DesktopUpdater.ConsumeResumeChats(store, Environment.GetCommandLineArgs().Contains("--updated"));
         var interrupted = chats.Where(c => c.InterruptedInput is not null).ToArray();
         if (interrupted.Length == 0 || closing) return;
-        if (store.Setting("autoResume") == "1")
+        if (store.Setting("autoResume") == "1" || updateResume.Count > 0)
         {
             foreach (var chat in interrupted)
             {
+                if (store.Setting("autoResume") != "1" && !updateResume.Contains(chat.Id)) continue;
                 var owner = store.Workspaces().FirstOrDefault(w => w.Id == chat.WorkspaceId);
                 if (owner is null) continue;
                 if (!workspaces.Any(w => w.Id == owner.Id)) { workspaces.Add(owner); store.Setting("closed:" + owner.Id, "0"); BuildWorkspaceTree(); }
-                _ = ResumeInterrupted(chat, owner, chat.InterruptedInput!);
+                _ = ResumeInterrupted(chat, owner, chat.InterruptedInput!, updateResume.Contains(chat.Id));
             }
             return;
         }
@@ -1147,7 +1149,7 @@ public partial class MainView : UserControl
         };
         await dialog.ShowDialog(desktopWindow!);
     }
-    private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input)
+    private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input, bool afterUpdate = false)
     {
         var runtime = Runtime(chat, owner);
         while (runtime.IsReconnecting || runtime.IsLoadingHistory) { if (closing) return; await Task.Delay(50); }
@@ -1157,7 +1159,7 @@ public partial class MainView : UserControl
             await runtime.Reconnect();
             if (closing) return;
             if (runtime.IsConnected) break;
-            if (chat.NeedsLogin || store.Setting("autoResume") != "1") return;
+            if (chat.NeedsLogin || (!afterUpdate && store.Setting("autoResume") != "1")) return;
             chat.Status = "Waiting to reconnect before automatic resume…"; UpdateControls();
             try { await Task.Delay(TimeSpan.FromSeconds(15), discoveryLifetime.Token); } catch (OperationCanceledException) { return; }
         }
@@ -1173,6 +1175,7 @@ public partial class MainView : UserControl
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
         { e.Cancel = true; SaveAll(); desktopWindow?.Hide(); return; }
         if (closing) { e.Cancel = !shutdownComplete; return; }
+        if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
         e.Cancel = true; closing = true; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
         var errors = new List<Exception>();
         async Task Cleanup(Func<Task> action)

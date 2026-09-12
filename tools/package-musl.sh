@@ -13,5 +13,6 @@ cp packaging/install-linux.sh "$publish/install.sh"
 cp packaging/README.md "$publish/INSTALL.md"
 cp LICENSE "$publish/LICENSE"
 printf '%s' "$rid" > "$publish/runtime.txt"
+printf '{"version":"%s","runtime":"%s","mode":"%s"}\n' "$version" "$rid" "$mode" > "$publish/update.json"
 chmod +x "$publish/install.sh" "$publish/VibeHarder"
 tar -czf "artifacts/packages/VibeHarder-$version-$rid-$mode.tar.gz" -C "$publish" .

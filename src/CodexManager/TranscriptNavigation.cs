@@ -31,6 +31,7 @@ public sealed class TranscriptNavigation
         if (!older && !newer) return;
         paging = true;
         try { await browse(newer); }
+        catch (Exception error) { System.Diagnostics.Trace.WriteLine("History navigation: " + error); }
         finally { paging = false; Update(); }
     }
     public static void ReplacePage(ListBox list, IReadOnlyList<Message> page)

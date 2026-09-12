@@ -25,7 +25,12 @@ public sealed class RemoteView : UserControl, IDisposable
         if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
     }
     public Control ConnectionStatus => status;
-    public void ReconnectHost() => _ = Connect();
+    public void ReconnectHost()
+    {
+        connectAttempt?.Cancel(); connection?.Dispose(); connection = null;
+        reconnectAfter = default; reconnectFailures = 0;
+        _ = Connect();
+    }
     private Workspace[] workspaceHistory = [];
     private readonly WrapPanel attachmentChips = new();
     private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
@@ -60,6 +65,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private int polls;
     private bool presentationSleeping;
     private bool connecting;
+    private CancellationTokenSource? connectAttempt;
     private DateTimeOffset reconnectAfter;
     private int reconnectFailures;
     public void SetPresentationSleeping(bool sleeping)
@@ -85,7 +91,12 @@ public sealed class RemoteView : UserControl, IDisposable
     public RemoteView(RemoteHost host)
     {
         this.host = host;
-        var panel = new Grid { RowDefinitions = new("0,*,Auto,Auto"), Margin = new Thickness(12) };
+        var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
+        var connectionNotice = new Grid { Name = "RemoteConnectionNotice", ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 6) };
+        connectionNotice.Bind(IsVisibleProperty, status.GetObservable(IsVisibleProperty));
+        var connectionText = new TextBlock { FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
+        connectionText.Bind(TextBlock.TextProperty, status.GetObservable(TextBlock.TextProperty)); connectionNotice.Children.Add(connectionText);
+        var retry = new IconButton { Icon = "refresh", Label = "Retry connection" }; retry.Click += (_, _) => ReconnectHost(); Grid.SetColumn(retry, 1); connectionNotice.Children.Add(retry); panel.Children.Add(connectionNotice);
         workspaces.SelectionChanged += (_, _) => FilterChats();
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
@@ -165,6 +176,7 @@ public sealed class RemoteView : UserControl, IDisposable
             {
                 var result = await Call(new() { ["method"] = "chat", ["chatId"] = id }); if (presentationSleeping || result is null || id != chatId) return;
                 status.Text = result["status"]?.GetValue<string>() + " · " + result["queued"] + " queued";
+                status.IsVisible = false;
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting")))); UpdateSendAction();
                 UpdateRemoteQueue(result);
                 navigation.Update();
@@ -190,7 +202,11 @@ public sealed class RemoteView : UserControl, IDisposable
                 var follow = scroll is null || scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 80;
                 ApplyMessages(result["messages"]!.AsArray());
                 if (++polls % 20 == 0) await RefreshList();
-                if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() => output.ScrollIntoView(messages[^1]));
+                if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() =>
+                {
+                    if (!lifetime.IsCancellationRequested && !presentationSleeping && !viewingHistory && id == chatId && messages.Count > 0) output.ScrollIntoView(messages[^1]);
+                });
+                if (lifetime.IsCancellationRequested || id != chatId) return;
                 var permissionText = result["permissions"]!.ToJsonString();
                 if (permissionsJson != permissionText)
                 {
@@ -205,6 +221,11 @@ public sealed class RemoteView : UserControl, IDisposable
                         }
                     }
                 }
+            }
+            catch (Exception error)
+            {
+                System.Diagnostics.Trace.WriteLine("Remote chat refresh: " + error);
+                if (!lifetime.IsCancellationRequested) { status.IsVisible = true; status.Text = "Could not refresh chat: " + error.Message; }
             }
             finally { polling = false; }
         };
@@ -231,7 +252,7 @@ public sealed class RemoteView : UserControl, IDisposable
         var stop = busy && !preparing && !HasDraft;
         send.Icon = preparing ? "loading" : stop ? "stop" : "send";
         send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";
-        send.IsEnabled = !sending && !preparing && chatId is not null && (stop || HasDraft);
+        send.IsEnabled = connection is not null && !sending && !preparing && chatId is not null && (stop || HasDraft);
     }
     private async Task SendOrStop()
     {
@@ -294,14 +315,18 @@ public sealed class RemoteView : UserControl, IDisposable
         if (connecting || lifetime.IsCancellationRequested) return;
         connecting = true;
         connection?.Dispose(); connection = null;
+        using var attempt = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+        connectAttempt = attempt; attempt.CancelAfter(TimeSpan.FromSeconds(30));
+        status.IsVisible = true; status.Text = "Connecting…";
+        UpdateSendAction();
         RemoteConnection? candidate = null;
-        try { candidate = new RemoteConnection(host); await candidate.Connect(lifetime.Token); lifetime.Token.ThrowIfCancellationRequested(); connection = candidate; status.Text = "Connected"; status.IsVisible = false; await RefreshList(); if (connection is not null) reconnectFailures = 0; }
+        try { candidate = new RemoteConnection(host); await candidate.Connect(attempt.Token); attempt.Token.ThrowIfCancellationRequested(); connection = candidate; status.Text = "Connected"; status.IsVisible = false; await RefreshList(); if (connection is not null) reconnectFailures = 0; }
         catch (Exception error) { status.IsVisible = true; status.Text = error.Message + (candidate?.ObservedFingerprint is { } pin && pin != host.Fingerprint ? "\nObserved host fingerprint: " + pin + "\nVerify it on the host before changing the saved fingerprint." : "\nRetrying connection…"); candidate?.Dispose(); if (ReferenceEquals(connection, candidate)) connection = null; }
-        finally { connecting = false; if (connection is null) reconnectAfter = DateTimeOffset.UtcNow.AddSeconds(Math.Min(30, Math.Pow(2, Math.Min(reconnectFailures++, 5)))); }
+        finally { connectAttempt = null; connecting = false; if (connection is null) reconnectAfter = DateTimeOffset.UtcNow.AddSeconds(Math.Min(30, Math.Pow(2, Math.Min(reconnectFailures++, 5)))); }
     }
     private async Task RefreshList()
     {
-        var result = await Call(new() { ["method"] = "list" }); if (result is null) return;
+        var result = await Call(new() { ["method"] = "list" }); if (result is null || lifetime.IsCancellationRequested) return;
         workspaceHistory = result["workspaces"]!.AsArray().Select(w => new Workspace(w!["id"]!.GetValue<string>(), w["name"]!.GetValue<string>(), w["path"]?.GetValue<string>() ?? "", w["distro"]?.GetValue<string>())).ToArray();
         chatRows = result["chats"]!.AsArray();
         var selected = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
@@ -331,12 +356,12 @@ public sealed class RemoteView : UserControl, IDisposable
     private async Task<JsonNode?> Call(JsonObject request)
     {
         var client = connection;
-        if (client is null) { status.Text = "Connect to the host first."; return null; }
+        if (client is null) { status.IsVisible = true; status.Text = "Reconnecting to the host…"; UpdateSendAction(); return null; }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(request["method"]?.GetValue<string>() is "list" or "chat" or "terminal/read" or "file/read" ? 15 : 90));
-        try { return await client.Request(request, timeout.Token); }
+        try { var result = await client.Request(request, timeout.Token); return !lifetime.IsCancellationRequested && ReferenceEquals(connection, client) ? result : null; }
         catch (RemoteOperationException error) { status.IsVisible = true; status.Text = error.Message; return null; }
-        catch (Exception error) { status.IsVisible = true; status.Text = "Connection interrupted: " + error.Message + " Retrying…"; client.Dispose(); if (ReferenceEquals(connection, client)) { connection = null; reconnectAfter = DateTimeOffset.UtcNow.AddSeconds(1); } return null; }
+        catch (Exception error) { status.IsVisible = true; status.Text = "Connection interrupted: " + error.Message + " Retrying…"; client.Dispose(); if (ReferenceEquals(connection, client)) { connection = null; reconnectAfter = DateTimeOffset.UtcNow.AddSeconds(1); } UpdateSendAction(); return null; }
     }
     private void RefreshAttachments()
     {

@@ -41,6 +41,34 @@ public class RemotePairingTests
     private static string DirectoryPath() => Path.Combine(Path.GetTempPath(), "vibe-pairing", Guid.NewGuid().ToString("N"));
 
     [AvaloniaFact]
+    public async Task CancelledRemoteRequestUnblocksAndFreshConnectionWorks()
+    {
+        var directory = DirectoryPath(); var port = Port();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var finish = new TaskCompletionSource<JsonNode?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var server = new RemoteServer(directory, "127.0.0.1", port, request =>
+        {
+            if (request["method"]!.GetValue<string>() == "hang") { started.TrySetResult(); return finish.Task; }
+            return Task.FromResult<JsonNode?>(JsonValue.Create("ready"));
+        });
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), Path.Combine(directory, "key"), "Phone", TestContext.Current.CancellationToken);
+        try
+        {
+            using var client = new RemoteConnection(host); await client.Connect(TestContext.Current.CancellationToken);
+            using var cancel = new CancellationTokenSource();
+            var pending = client.Request(new() { ["method"] = "hang" }, cancel.Token);
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            cancel.Cancel();
+            await Assert.ThrowsAnyAsync<Exception>(async () => await pending.WaitAsync(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+            Assert.True(pending.IsCompleted);
+            using var replacement = new RemoteConnection(host); await replacement.Connect(TestContext.Current.CancellationToken);
+            Assert.Equal("ready", (await replacement.Request(new() { ["method"] = "list" }, TestContext.Current.CancellationToken))!.GetValue<string>());
+        }
+        finally { finish.TrySetResult(null); }
+    }
+
+    [AvaloniaFact]
     public async Task CatalogRefreshAndResumeKeepSelectedChatAndReuseConnection()
     {
         var directory = DirectoryPath(); var port = Port(); var revision = 0;

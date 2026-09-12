@@ -7,6 +7,8 @@
 
 ## Linux latest-release installer
 
+Installed desktop releases also check for updates after startup and every four hours. Use **Download update**, then **Restart to update** in the status bar. Downloads are verified against GitHub's SHA-256 digest and retain your platform, architecture, and package mode. The restart saves chats and resumes active requests once, without changing the normal automatic-resume preference. Linux/macOS updates require write access to the installation's parent directory; system-owned installs must be updated by their owner. Development builds, headless hosts, and Android do not poll for updates.
+
 ```sh
 curl -fsSL https://github.com/isaiahpettingill/vibe-harder/releases/latest/download/install.sh -o /tmp/vibe-harder-install.sh
 sh /tmp/vibe-harder-install.sh

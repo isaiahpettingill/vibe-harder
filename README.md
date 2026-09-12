@@ -16,6 +16,8 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 
 Android phones should use `VibeHarder-Android.apk` (ARM64). Intel Android devices and x64 emulators have a separate `VibeHarder-Android-x64.apk`, so each download contains only its own runtime.
 
+Desktop releases check GitHub at startup and every four hours. When a newer matching package is available, a **Download update** button appears in the status bar. After download and checksum verification, **Restart to update** installs it, reopens your chats, and resumes requests that were active at restart. Nothing appears when you are current or a check fails. Android has no built-in updater.
+
 ### Start
 
 On Linux (x64/ARM64, glibc or musl), install or update to the latest release:

@@ -39,6 +39,7 @@ Get-ChildItem -LiteralPath $publish -File | Where-Object { $_.Extension -in '.pd
 Copy-Item -LiteralPath (Join-Path $repo 'packaging/README.md') -Destination (Join-Path $publish 'INSTALL.md')
 if (Test-Path (Join-Path $repo 'LICENSE')) { Copy-Item -LiteralPath (Join-Path $repo 'LICENSE') -Destination $publish }
 Set-Content -LiteralPath (Join-Path $publish 'runtime.txt') -Value $Runtime -NoNewline
+@{ version = $Version; runtime = $Runtime; mode = $mode } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publish 'update.json')
 
 if ($Runtime.StartsWith('win')) {
     $compiler = Get-Command makensis -ErrorAction SilentlyContinue

@@ -68,6 +68,7 @@ public partial class MainView
         ConfigureTray();
         window.Opened += async (_, _) =>
         {
+            StartUpdateChecks();
             await ConfigureRemoteServer();
             await OfferInterruptedChats();
             if (Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable) window.Hide();
