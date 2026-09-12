@@ -5,7 +5,7 @@ Agents run on the computer that owns the workspace. Closing Android or another r
 ## Pair once
 
 1. Keep the desktop app running.
-2. On Android, enter the computer's address and tap **Connect**. On desktop, open a workspace and choose **Remote computer…** under **Choose where Codex works**. The same pairing flow is also available in **Settings → Remote hosts and server**.
+2. On Android, enter the computer's address and tap **Connect**. On desktop, use **＋ Open workspace → Open folder…** and choose **Remote computer…** under **Choose where Codex works**. The same pairing flow is also available in **Settings → Remote hosts and server**.
 3. A popup on the host shows a six-digit number. Enter that number on the connecting device and tap **Pair**.
 
 Use a hostname such as `my-desktop`, a Tailscale MagicDNS name such as `my-desktop.tail123.ts.net`, or an IPv4/IPv6 address. Hostnames are resolved by the operating system; the field does not require an IP address. Add `:port` when using a non-default port, for example `my-desktop:3333` or `[::1]:3333`.
@@ -20,7 +20,11 @@ Both devices must be able to reach the host and port. Allow that port through th
 
 Desktop and Android load the same Avalonia application, `MainView`, remote chat view, themes, Markdown renderer, and message controls from `CodexManager.UI`. Android's activity only hosts that shared view and forwards lifecycle events.
 
-Use **☰ Chats** to open or collapse the sidebar. On narrow screens it opens over the chat and closes after choosing a chat; wider screens use a resizable sidebar. Desktop remembers a manually collapsed sidebar. Android hides terminal controls, local agent setup, and system tray settings. Remote agents continue running on the host.
+Use the **☰** icon to open or collapse the sidebar. On narrow screens it opens over the chat and closes after choosing a chat; wider screens use a resizable sidebar. Desktop remembers a manually collapsed sidebar. Android hides terminal controls, local agent setup, and system tray settings. Remote agents continue running on the host.
+
+Remote workspace history is under **＋ Open workspace** in the sidebar. **Open folder…** browses directories on the remote host, including its WSL distributions. Upgrade the host to 1.0.8 or later for folder browsing. Each workspace has a **＋** action for a new chat; reconnect and import actions also live in the sidebar.
+
+On Android the keyboard leaves room for the composer and action icons. The attachment button opens the system file picker; selected files remain visible as removable chips until sent. Code blocks wrap long lines without overlaying horizontal scrollbars. Copy buttons appear on code blocks rather than every message or tool call. New sessions select Full access when the provider exposes that option; existing sessions retain their selections.
 
 ## Headless host
 

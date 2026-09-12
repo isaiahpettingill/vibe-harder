@@ -1,3 +1,4 @@
+using Avalonia.Styling;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
@@ -6,7 +7,15 @@ namespace CodexManager;
 
 public partial class App : Application
 {
-    public override void Initialize() => AvaloniaXamlLoader.Load(this);
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+        if (OperatingSystem.IsAndroid())
+            Styles.Add(new Avalonia.Styling.Style(selector => selector.OfType<Avalonia.Controls.Primitives.ScrollBar>())
+            {
+                Setters = { new Avalonia.Styling.Setter(Avalonia.Controls.Primitives.ScrollBar.IsVisibleProperty, false) }
+            });
+    }
     public override async void OnFrameworkInitializationCompleted()
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)

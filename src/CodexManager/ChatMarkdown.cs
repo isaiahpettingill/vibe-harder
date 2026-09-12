@@ -72,6 +72,21 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         }
         foreach (var border in this.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("CodeBlock")).ToArray())
         {
+            // Plain fences use an upstream horizontal scroller whose overlay
+            // covers the only line. Wrap the text within the available width.
+            if (border.Child is ScrollViewer { Content: TextBlock plain } plainScroll)
+            {
+                plainScroll.Content = null;
+                plain.TextWrapping = TextWrapping.Wrap;
+                plain.Bind(TextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+                plain.Bind(TextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
+                plain.Margin = new Thickness(8);
+                var plainCopy = new IconButton { Name = "CopyCode", Label = "Copy code", HorizontalAlignment = HorizontalAlignment.Right };
+                plainCopy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(plain.Text); };
+                var plainGrid = new Grid { RowDefinitions = new("Auto,Auto") };
+                plainGrid.Children.Add(plainCopy); Grid.SetRow(plain, 1); plainGrid.Children.Add(plain); border.Child = plainGrid;
+                continue;
+            }
             if (border.Child is not Panel panel || panel is Grid) continue;
             var editor = panel.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault();
             if (editor is null) continue;

@@ -27,9 +27,9 @@ public class UiTests
             foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), FixtureCommand);
         }
         var window = new MainWindow(); window.Show();
-        window.FindControl<Button>("WorkspaceSelectorButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        window.FindControl<Button>("OpenWorkspaceButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Task.Delay(200);
-        var flyout = Assert.IsType<Flyout>(Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(window.FindControl<Button>("WorkspaceSelectorButton")!));
+        var flyout = Assert.IsType<Flyout>(Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(window.FindControl<Button>("OpenWorkspaceButton")!));
         var selector = Assert.IsType<WorkspaceSelector>(flyout.Content);
         var list = selector.GetVisualDescendants().OfType<ListBox>().Single();
         await WaitUntil(() => list.ItemCount == 1);
@@ -69,6 +69,9 @@ public class UiTests
         window = new MainWindow(); window.Show();
         Assert.Single(window.FindControl<StackPanel>("WorkspaceTree")!.Children);
         window.FindControl<Button>("OpenWorkspaceButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var historyFlyout = Assert.IsType<Flyout>(Avalonia.Controls.Primitives.FlyoutBase.GetAttachedFlyout(window.FindControl<Button>("OpenWorkspaceButton")!));
+        var historyPicker = Assert.IsType<WorkspaceSelector>(historyFlyout.Content);
+        Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(historyPicker).OfType<Button>().Single(b => b.Name == "BrowseWorkspaceHistory").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         var dialog = Assert.IsType<WorkspaceDialog>(window.OwnedWindows.Single());
         var controls = Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(dialog).OfType<Control>().ToArray();
         controls.OfType<TextBox>().Single(c => c.Name == "FolderPath").Text = directory;

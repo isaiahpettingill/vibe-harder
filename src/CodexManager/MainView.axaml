@@ -1,11 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:local="using:CodexManager" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit" x:Class="CodexManager.MainView" Background="{DynamicResource AppBackground}" FontFamily="{DynamicResource UIFont}" FontSize="{DynamicResource UIFontSize}">
   <Grid Name="RootPanes" ColumnDefinitions="250,5,*" RowDefinitions="Auto,*,28">
-    <Button Name="SidebarToggle" Grid.ColumnSpan="3" Content="☰ Chats" HorizontalAlignment="Left" MinHeight="40" Margin="6,2"/>
+    <local:IconButton Name="SidebarToggle" Icon="menu" Label="Toggle sidebar" Grid.ColumnSpan="3" HorizontalAlignment="Left" MinHeight="40" Margin="6,2"/>
     <Border Name="SidebarDismiss" Grid.Row="1" Grid.ColumnSpan="3" ZIndex="19" Background="#66000000" IsVisible="False"/>
     <Border Name="Sidebar" ZIndex="20" Background="{DynamicResource AppBackground}" Padding="10" Grid.Row="1">
       <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-        <Grid ColumnDefinitions="24,*" Margin="2,4,0,12"><Image Source="/Assets/app.png" Width="24" Height="24"/><Button Grid.Column="1" Name="WorkspaceSelectorButton" Content="Workspaces ▾" Click="WorkspaceSelectorClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></Grid>
-        <Button Grid.Row="1" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="OpenWorkspaceClick"/>
+        <Grid ColumnDefinitions="24,*" Margin="2,4,0,12"><Image Source="/Assets/app.png" Width="24" Height="24"/><Button Grid.Column="1" Name="WorkspaceSelectorButton" IsVisible="False" Content="Workspaces ▾" Click="WorkspaceSelectorClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></Grid>
+        <Button Grid.Row="1" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="WorkspaceSelectorClick"/>
         <TextBox Grid.Row="2" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
         <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
         <ScrollViewer Name="WorkspaceScroll" Grid.Row="4" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
@@ -51,7 +51,7 @@
           
           <ItemsControl Name="AttachmentList"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Button Tag="{Binding}" Click="RemoveAttachment" Margin="0,0,6,5" ToolTip.Tip="Remove attachment"><StackPanel Spacing="4"><Image Source="{Binding Thumbnail}" IsVisible="{Binding IsImage}" Width="80" Height="60" Stretch="Uniform"/><TextBlock Text="{Binding Name}" MaxWidth="150" TextTrimming="CharacterEllipsis" FontSize="11"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
           <TextBox FontFamily="{DynamicResource ChatFont}" Name="Composer" FontSize="{DynamicResource ChatFontSize}" PlaceholderText="Ask Codex… paste an image or drop a file" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48" MaxHeight="190" Padding="8,6" Background="Transparent" BorderThickness="0" TextChanged="DraftChanged"/>
-          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Label="Copy whole chat" Click="CopyChatClick"/><local:IconButton Name="StopButton" Icon="stop" Label="Stop" Click="StopClick" IsVisible="False"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
+          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Name="StopButton" Icon="stop" Label="Stop" Click="StopClick" IsVisible="False"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
         </StackPanel>
       </Border>
       </Grid>
@@ -61,6 +61,6 @@
         <local:IconButton Name="NewTerminalButton" Grid.Column="1" Icon="add" Label="New terminal" Click="NewTerminalClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0"/>
       </Grid>
     </Grid>
-    <Border Grid.Row="2" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
+    <Border Name="StatusBar" Grid.Row="2" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
   </Grid>
 </UserControl>

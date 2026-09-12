@@ -14,6 +14,27 @@ namespace CodexManager.Tests;
 public class ChatPresentationTests
 {
     [AvaloniaFact]
+    public async Task PlainCodeBlocksWrapWithoutCoveringTextAndKeepCodeCopy()
+    {
+        var code = "adb shell " + string.Join(" ", Enumerable.Repeat("long-command-argument", 30));
+        var view = new ChatMarkdown { Text = "completed\n\n```\n" + code + "\n```", Muted = true };
+        var window = new Window { Content = view, Width = 360, Height = 600 }; window.Show();
+        try
+        {
+            await Task.Delay(150); window.UpdateLayout();
+            var block = Assert.Single(view.GetVisualDescendants().OfType<TextBlock>(), b => b.Text?.Contains(code) == true);
+            Assert.Equal(Avalonia.Media.TextWrapping.Wrap, block.TextWrapping);
+            Assert.True(block.Bounds.Height > 40);
+            Assert.True(block.Bounds.Bottom <= ((Control)block.Parent!).Bounds.Height);
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<ScrollViewer>(), s => s.HorizontalScrollBarVisibility == Avalonia.Controls.Primitives.ScrollBarVisibility.Auto);
+            var copy = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => b.Name == "CopyCode");
+            copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(50);
+            using var data = await window.Clipboard!.TryGetDataAsync(); Assert.Equal(code, (await data!.TryGetTextAsync())!.Trim());
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task HighlightingCanBeDisabledAndRestoredOnVisibleCode()
     {
         var view = new ChatMarkdown { Text = "```csharp\nvar value = 123;\n```" };

@@ -21,17 +21,8 @@ public sealed class MessageView : UserControl
     public MessageView()
     {
         toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; if (Message is not null) Message.OutputExpanded = expanded; Refresh(); };
-        var copy = new IconButton { Label = "Copy complete message with formatting" };
-        ToolTip.SetTip(copy, "Copy complete message with formatting");
-        copy.Click += async (_, _) =>
-        {
-            if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
-            var text = Message?.Text ?? "";
-            var html = await Task.Run(() => Markdig.Markdown.ToHtml(text));
-            await RichClipboard.Set(clipboard, text, html);
-        };
-        var header = new Grid { ColumnDefinitions = new("*,Auto") }; header.Children.Add(toggle); Grid.SetColumn(copy, 1); header.Children.Add(copy);
-        details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        var header = toggle;
+        details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
         Content = new StackPanel { Spacing = 6, Children = { header, details } };
     }
     private void Change(Message? old)

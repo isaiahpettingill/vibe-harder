@@ -82,7 +82,7 @@ public sealed class Message : Observable
     public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };
 }
 
-public sealed record Attachment(string Name, string MimeType, string Data, string? SourcePath = null, string? Reference = null)
+public sealed record Attachment(string Name, string MimeType, string Data, string? SourcePath = null, string? Reference = null, bool Binary = false)
 {
     private WeakReference<Bitmap>? thumbnail;
     [JsonIgnore]
@@ -104,5 +104,5 @@ public sealed record Attachment(string Name, string MimeType, string Data, strin
     public bool IsImage => MimeType.StartsWith("image/", StringComparison.Ordinal);
     public JsonObject ToContent() => IsImage
         ? RpcJson.Object(("type", "image"), ("mimeType", MimeType), ("data", Data))
-        : RpcJson.Object(("type", "resource"), ("resource", RpcJson.Object(("uri", new Uri(SourcePath!).AbsoluteUri), ("mimeType", "text/plain"), ("text", Data))));
+        : RpcJson.Object(("type", "resource"), ("resource", RpcJson.Object(("uri", new Uri(SourcePath!).AbsoluteUri), ("mimeType", MimeType), (Binary ? "blob" : "text", Data))));
 }

@@ -15,8 +15,9 @@ public sealed class WorkspaceSelector : StackPanel
     public event Action<Workspace>? Chosen;
     public event Action<Workspace>? Removed;
     public event Action? Browse;
-    public WorkspaceSelector(IReadOnlyList<Workspace> history)
+    public WorkspaceSelector(IReadOnlyList<Workspace> history, bool allowRemoval = true)
     {
+        if (OperatingSystem.IsAndroid()) ScrollViewer.SetVerticalScrollBarVisibility(list, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
         entries = history; Width = 330; Spacing = 6;
         Children.Add(search); Children.Add(list);
         var open = new Button { Name = "BrowseWorkspaceHistory", Content = "＋ Open folder…", HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -30,6 +31,7 @@ public sealed class WorkspaceSelector : StackPanel
             var choose = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(choose, workspace.Path); choose.Click += (_, _) => Chosen?.Invoke(workspace);
             var remove = new Button { Name = "RemoveHistory_" + workspace.Id, Content = "×", Padding = new Thickness(5, 2) };
+            remove.IsVisible = allowRemoval;
             ToolTip.SetTip(remove, "Remove from history (keep saved chats)");
             remove.Click += (_, _) => Removed?.Invoke(workspace);
             Grid.SetColumn(remove, 1); row.Children.Add(choose); row.Children.Add(remove); return row;

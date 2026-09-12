@@ -44,19 +44,24 @@ public partial class MainView : UserControl
     private void OpenRemoteHost(RemoteHost host)
     {
         CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view;
+        view.WorkspaceNavigation += CollapseSidebar;
         if (current is not null) DeferHistoryEviction(current);
         MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
         view.CatalogChanged += catalog =>
         {
             if (!remoteSections.TryGetValue(host.Name, out var section)) return;
             section.Children.Clear();
+            section.Children.Add(view.SidebarTools);
             foreach (var workspace in catalog["workspaces"]!.AsArray())
             {
                 var ownerId = workspace!["id"]!.GetValue<string>(); var key = "collapsed:remote:" + host.Address + ":" + ownerId;
                 var group = new StackPanel { IsVisible = store.Setting(key) != "1" };
                 var heading = new Button { Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
                 heading.Click += (_, _) => { group.IsVisible = !group.IsVisible; store.Setting(key, group.IsVisible ? "0" : "1"); heading.Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(); };
-                section.Children.Add(heading); section.Children.Add(group);
+                var headingRow = new Grid { ColumnDefinitions = new("*,Auto") }; headingRow.Children.Add(heading);
+                var addChat = new IconButton { Icon = "add", Label = "New chat" }; Grid.SetColumn(addChat, 1); headingRow.Children.Add(addChat);
+                addChat.Click += (_, _) => view.ShowNewChat(addChat, ownerId);
+                section.Children.Add(headingRow); section.Children.Add(group);
                 foreach (var chat in catalog["chats"]!.AsArray().Where(c => c!["workspaceId"]!.GetValue<string>() == workspace["id"]!.GetValue<string>() && !c["archived"]!.GetValue<bool>()))
                 {
                     var id = chat!["id"]!.GetValue<string>();
@@ -180,6 +185,8 @@ public partial class MainView : UserControl
     }
     private async void WorkspaceSelectorClick(object? sender, RoutedEventArgs e)
     {
+        if (remoteView is not null) { remoteView.ShowWorkspacePicker(OpenWorkspaceButton); return; }
+        if (remoteOnly) { ShowConnectionSettings(); return; }
         var history = new WorkspaceHistory(store);
         var selector = new WorkspaceSelector(history.Entries());
         var flyout = new Flyout { Content = selector };
@@ -193,8 +200,8 @@ public partial class MainView : UserControl
         };
         selector.Browse += () => { flyout.Hide(); OpenWorkspaceClick(this, new()); };
         flyout.Opened += (_, _) => selector.FocusSearch();
-        Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(WorkspaceSelectorButton, flyout);
-        flyout.ShowAt(WorkspaceSelectorButton);
+        Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(OpenWorkspaceButton, flyout);
+        flyout.ShowAt(OpenWorkspaceButton);
         foreach (var item in history.Entries())
         {
             if (await WorkspaceHistory.Exists(item) == false && !closing) history.Remove(item);

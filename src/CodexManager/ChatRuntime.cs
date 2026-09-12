@@ -195,6 +195,11 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         var session = await client!.Request("session/new", RpcJson.Object(("cwd", workspace.Path), ("mcpServers", new JsonArray())), token);
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
+        foreach (var option in chat.ConfigOptions.ToArray())
+        {
+            var fullAccess = option.Values.FirstOrDefault(v => v.Name.Equals("Full access", StringComparison.OrdinalIgnoreCase) || v.Name.Equals("Bypass permissions", StringComparison.OrdinalIgnoreCase));
+            if (fullAccess is not null && option.Current != fullAccess.Value) await SetConfig(option, fullAccess.Value);
+        }
     }
     public Task LoadHistory() => chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = LoadHistoryCore();
     private async Task LoadHistoryCore()

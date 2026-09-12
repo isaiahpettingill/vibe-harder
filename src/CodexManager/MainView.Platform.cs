@@ -20,6 +20,13 @@ public partial class MainView
     private double sidebarWidth = 250;
     private bool started;
     private ConnectionSettingsView? connectionSettings;
+    private TopLevel? inputTopLevel;
+    private void InputPaneChanged(object? sender, Avalonia.Controls.Platform.InputPaneStateEventArgs e)
+    {
+        if (!remoteOnly) return;
+        var bottom = e.NewState == Avalonia.Controls.Platform.InputPaneState.Open ? e.EndRect.Height : 0;
+        Padding = new Thickness(0, 0, 0, bottom);
+    }
 
     public void AttachDesktop(Window window)
     {
@@ -63,6 +70,8 @@ public partial class MainView
             started = true;
             if (remoteOnly)
             {
+                inputTopLevel = TopLevel.GetTopLevel(this);
+                if (inputTopLevel?.InputPane is { } pane) pane.StateChanged += InputPaneChanged;
                 var host = RemoteSettings.Hosts(store).FirstOrDefault();
                 if (host is null) ShowConnectionSettings(); else OpenRemoteHost(host);
             }
@@ -72,7 +81,8 @@ public partial class MainView
             ToggleTerminalButton.IsVisible = false;
             TerminalDrawer.IsVisible = false;
             CommandPaletteButton.IsVisible = false;
-            OpenWorkspaceButton.Content = "Connect to computer";
+            StatusBar.IsVisible = false; RootPanes.RowDefinitions[2].Height = new GridLength(0);
+            ScrollViewer.SetVerticalScrollBarVisibility(WorkspaceScroll, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
             WelcomeOpenButton.Content = "Connect to computer";
             WelcomeHeading.Text = "Connect to your computer";
             WelcomeHint.Text = "Enter its address, then the pairing number shown on your desktop.";
@@ -104,7 +114,7 @@ public partial class MainView
         Grid.SetColumnSpan(Sidebar, compact ? 3 : 1);
         Sidebar.Width = compact ? Math.Min(300, Math.Max(0, Bounds.Width - 48)) : double.NaN;
         Sidebar.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
-        SidebarToggle.Content = sidebarOpen ? "☰ Hide sidebar" : "☰ Chats";
+        SidebarToggle.Label = sidebarOpen ? "Collapse sidebar" : "Open sidebar";
         TerminalDrawer.MaxWidth = Math.Max(220, Bounds.Width - (compact ? 48 : 350));
     }
 
@@ -129,6 +139,7 @@ public partial class MainView
     public void ResumeRemotePresentation() => remoteView?.SetPresentationSleeping(false);
     public void DisposeMobile()
     {
+        if (inputTopLevel?.InputPane is { } pane) pane.StateChanged -= InputPaneChanged;
         closing = true; saveTimer.Stop(); discoveryLifetime.Cancel(); connectionSettings?.Dispose(); CloseRemoteView();
         DisposePresentationSleep(); store.Dispose();
     }

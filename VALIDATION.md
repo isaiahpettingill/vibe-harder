@@ -1,5 +1,13 @@
 # Verification — 2026-09-11
 
+## Android interaction and remote workspace follow-up (1.0.8)
+
+- Twenty-four focused pairing, configuration, workspace-history, composer, mobile-layout, and attachment tests passed. Seven follow-up mobile/presentation cases and four final code-block cases passed.
+- The QA emulator opened the Android document picker, attached an image, sent it to the fixture host and received a reply. Screenshots show a persistent attachment chip and the composer/action row above the open keyboard.
+- The remote sidebar opens workspace history, and Open folder lists the host's actual folders and opens a selected directory. Plain code fences now wrap long commands and have a code-copy button without a horizontal overlay.
+- Tested on an Android emulator and Windows fixture host; physical phone and live Tailscale testing remain unverified.
+
+
 ## Release 1.0.7 follow-up
 
 - The workspace picker offers Remote computer, completes numeric pairing, saves the host, and can switch back to local folders.

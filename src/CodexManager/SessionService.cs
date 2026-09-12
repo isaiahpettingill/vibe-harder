@@ -32,6 +32,16 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     {
         string Text(string key) => request[key]?.GetValue<string>() ?? "";
         var method = Text("method");
+        if (method == "locations") return new JsonObject { ["distros"] = new JsonArray((await Hosts.Distros()).Select(d => (JsonNode)JsonValue.Create(d)!).ToArray()) };
+        if (method == "directories")
+        {
+            var distro = string.IsNullOrWhiteSpace(Text("distro")) ? null : Text("distro");
+            var path = Text("path");
+            if (path.Length == 0) path = distro is null ? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) : (await Hosts.Capture(Hosts.Info("wsl.exe", "-d", distro, "--exec", "sh", "-c", "printf '%s' \"$HOME\""))).Trim();
+            var directories = await Hosts.Directories(distro, path);
+            var parent = distro is null ? Directory.GetParent(path)?.FullName ?? path : path.TrimEnd('/').LastIndexOf('/') is > 0 and var i ? path[..i] : "/";
+            return new JsonObject { ["path"] = path, ["parent"] = parent, ["directories"] = new JsonArray(directories.Select(d => (JsonNode)JsonValue.Create(d)!).ToArray()) };
+        }
         if (method == "list") return new JsonObject
         {
             ["workspaces"] = new JsonArray(workspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
@@ -42,7 +52,9 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var path = Text("path"); var distro = Text("distro");
             if (string.IsNullOrWhiteSpace(path)) throw new IOException("Enter a workspace path on the host.");
             var workspace = new Workspace(Guid.NewGuid().ToString("N"), Text("name"), path, string.IsNullOrWhiteSpace(distro) ? null : distro);
-            if (!workspace.IsWsl && !Directory.Exists(path)) throw new IOException("That folder does not exist on the host.");
+            await Hosts.Validate(workspace);
+            var existing = workspaces.FirstOrDefault(w => w.Path == path && w.Distro == workspace.Distro);
+            if (existing is not null) return JsonValue.Create(existing.Id);
             workspaces.Add(workspace); store.Save(workspace); Changed?.Invoke(); return JsonValue.Create(workspace.Id);
         }
         if (method == "create")

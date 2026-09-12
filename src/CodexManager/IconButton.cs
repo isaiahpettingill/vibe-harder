@@ -14,6 +14,10 @@ public sealed class IconButton : Button
         {
             Data = Geometry.Parse(value switch
             {
+                "menu" => "M2,3 L14,3 M2,8 L14,8 M2,13 L14,13",
+                "refresh" => "M13,6 A6,6 0 1 0 14,10 M9,6 L14,6 L14,1",
+                "queue" => "M2,3 L14,3 M2,7 L10,7 M2,11 L8,11 M12,9 L12,15 M9,12 L15,12",
+                "folder" => "M1,4 L6,4 L8,6 L15,6 L14,14 L1,14 Z",
                 "latest" => "M8,2 L8,11 M4,7 L8,11 L12,7 M3,14 L13,14",
                 "chevron-up" => "M3,10 L8,5 L13,10",
                 "chevron-down" => "M3,5 L8,10 L13,5",
@@ -40,6 +44,6 @@ public sealed class IconButton : Button
         };
     }
     public string Label { set { ToolTip.SetTip(this, value); AutomationProperties.SetName(this, value); } }
-    public IconButton() { Padding = new Thickness(4); MinHeight = 22; MinWidth = 22; Icon = "copy"; }
+    public IconButton() { Padding = new Thickness(4); MinHeight = OperatingSystem.IsAndroid() ? 44 : 28; MinWidth = OperatingSystem.IsAndroid() ? 44 : 28; Icon = "copy"; }
 }
 

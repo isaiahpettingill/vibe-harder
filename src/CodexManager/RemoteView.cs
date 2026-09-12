@@ -5,17 +5,23 @@ using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Threading;
+using Avalonia.Platform.Storage;
+using System.Text.Json;
 
 namespace CodexManager;
 
 public sealed class RemoteView : UserControl, IDisposable
 {
+    public StackPanel SidebarTools { get; } = new() { Spacing = 6 };
+    private Workspace[] workspaceHistory = [];
+    private readonly WrapPanel attachmentChips = new();
+    private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly RemoteHost host;
     public RemoteHost Host => host;
     private RemoteConnection? connection;
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-    private readonly TextBox composer = new() { AcceptsReturn = true, MinHeight = 80, PlaceholderText = "Message the agent…" };
+    private readonly TextBox composer = new() { Name = "RemoteComposer", AcceptsReturn = true, MinHeight = 56, MaxHeight = 140, PlaceholderText = "Message the agent…" };
     private readonly StackPanel approvals = new();
     private readonly ListBox chats = new();
     private readonly ComboBox workspaces = new();
@@ -42,6 +48,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private bool refreshing;
     private bool viewingHistory;
     public event Action<JsonNode>? CatalogChanged;
+    public event Action? WorkspaceNavigation;
     public void SelectChat(string id)
     {
         viewingHistory = false; chatId = id; if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
@@ -52,13 +59,13 @@ public sealed class RemoteView : UserControl, IDisposable
     {
         this.host = host;
         var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
-        var top = new StackPanel { Spacing = 6 }; top.Children.Add(new TextBlock { Text = host.Name + " · " + host.Address, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis }); top.Children.Add(status);
-        var tools = new WrapPanel(); top.Children.Add(tools);
-        var connect = new Button { Content = "Reconnect" }; connect.Click += async (_, _) => await Connect(); tools.Children.Add(connect);
+        var top = new StackPanel { Spacing = 6 }; SidebarTools.Children.Add(status);
+        var tools = new WrapPanel(); SidebarTools.Children.Add(tools);
+        var connect = new IconButton { Icon = "refresh", Label = "Reconnect" }; connect.Click += async (_, _) => await Connect(); tools.Children.Add(connect);
         var select = new Grid { ColumnDefinitions = new("*,Auto") }; workspaces.HorizontalAlignment = HorizontalAlignment.Stretch; select.Children.Add(workspaces);
         workspaces.SelectionChanged += (_, _) => FilterChats();
-        var folder = new Button { Content = "Open folder…" }; tools.Children.Add(folder);
-        var import = new Button { Content = "Import history ▾" }; tools.Children.Add(import);
+        var folder = new IconButton { Icon = "folder", Label = "Open workspace" }; tools.Children.Add(folder);
+        var import = new IconButton { Icon = "latest", Label = "Import history" }; tools.Children.Add(import);
         import.Click += (_, _) =>
         {
             var menu = new MenuFlyout();
@@ -70,22 +77,15 @@ public sealed class RemoteView : UserControl, IDisposable
             }
             menu.ShowAt(import);
         };
-        folder.Click += (_, _) =>
-        {
-            var dialog = new Flyout();
-            var path = new TextBox { PlaceholderText = "Folder path on remote host" }; var name = new TextBox { PlaceholderText = "Workspace name" }; var distro = new TextBox { PlaceholderText = "WSL distro on remote Windows host (optional)" }; var open = new Button { Content = "Open" };
-            open.Click += async (_, _) => { if (await Call(new() { ["method"] = "workspace", ["path"] = path.Text, ["name"] = name.Text, ["distro"] = distro.Text }) is not null) { dialog.Hide(); await RefreshList(); } };
-            dialog.Content = new StackPanel { Width = Math.Min(360, Math.Max(240, Bounds.Width - 48)), Spacing = 8, Children = { name, path, distro, open } }; dialog.ShowAt(folder);
-        };
-        var create = new Button { Content = "New chat ▾" }; Grid.SetColumn(create, 1); select.Children.Add(create); top.Children.Add(select);
-        create.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var provider in AgentProviders.All) { var item = new MenuItem { Header = provider.Name }; item.Click += async (_, _) => { if (workspaces.SelectedItem is RemoteItem workspace) { var result = await Call(new() { ["method"] = "create", ["workspaceId"] = workspace.Id, ["provider"] = provider.Provider.ToString() }); chatId = result?["id"]?.GetValue<string>(); messages.Clear(); await RefreshList(); } }; menu.Items.Add(item); } menu.ShowAt(create); };
+        folder.Click += (_, _) => ShowWorkspacePicker(folder);
+        select.IsVisible = false; SidebarTools.Children.Add(select);
         panel.Children.Add(top);
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (chats.SelectedItem is RemoteItem selected && chatId != selected.Id) { chatId = selected.Id; messages.Clear(); permissionsJson = ""; } };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
         var output = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
         output.ItemContainerTheme = (Avalonia.Styling.ControlTheme)Application.Current!.Resources["TranscriptItemTheme"]!;
-        ScrollViewer.SetVerticalScrollBarVisibility(output, Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
+        ScrollViewer.SetVerticalScrollBarVisibility(output, OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
         ScrollViewer.SetAllowAutoHide(output, false);
         Grid.SetColumn(output, 2); split.Children.Add(output);
         var earlier = new IconButton { Icon = "chevron-up", Label = "Earlier messages" }; var latest = new IconButton { Icon = "latest", Label = "Return to latest messages" };
@@ -93,29 +93,45 @@ public sealed class RemoteView : UserControl, IDisposable
         earlier.Click += async (_, _) => { if (chatId is null || messages.Count == 0) return; var id = chatId; var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["before"] = messages[0].Sequence }); if (result is not null && id == chatId && result["messages"]!.AsArray().Count > 0) { viewingHistory = true; messages.Clear(); ApplyMessages(result["messages"]!.AsArray()); output.ScrollIntoView(0); } };
         latest.Click += (_, _) => { viewingHistory = false; messages.Clear(); };
         Grid.SetRow(approvals, 2); panel.Children.Add(approvals);
-        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(composer);
+        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(composer);
         var actions = new WrapPanel { Orientation = Orientation.Horizontal }; input.Children.Add(actions);
         input.Children.Add(configs);
-        var attach = new IconButton { Icon = "add", Label = "Attach images or files" };
+        var attach = new IconButton { Name = "RemoteAttach", Icon = "add", Label = "Attach images or files" };
         attach.Click += async (_, _) =>
         {
-            var selected = await TopLevel.GetTopLevel(this)!.StorageProvider.OpenFilePickerAsync(new() { AllowMultiple = true });
-            foreach (var file in selected)
+            attach.IsEnabled = false; attachmentError.Text = "";
+            try
             {
-                await using var stream = await file.OpenReadAsync(); using var data = new MemoryStream();
-                var buffer = new byte[8192]; int count;
-                while ((count = await stream.ReadAsync(buffer, lifetime.Token)) > 0)
-                { if (data.Length + count > 20 * 1024 * 1024) break; data.Write(buffer, 0, count); }
-                if (count > 0) { status.Text = "Attachment exceeds 20 MB."; continue; }
-                var extension = Path.GetExtension(file.Name).ToLowerInvariant(); var mime = extension switch { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".webp" => "image/webp", ".gif" => "image/gif", _ => "text/plain" };
-                attachments.Add(new(file.Name, mime, mime.StartsWith("image/") ? Convert.ToBase64String(data.ToArray()) : System.Text.Encoding.UTF8.GetString(data.ToArray()), "file:///" + Uri.EscapeDataString(file.Name)));
+                var provider = TopLevel.GetTopLevel(this)!.StorageProvider;
+                var selected = await provider.OpenFilePickerAsync(new() { Title = "Attach files", AllowMultiple = true, FileTypeFilter = [FilePickerFileTypes.All] });
+                foreach (var file in selected)
+                {
+                    using (file)
+                    {
+                        try { attachments.Add(await AttachmentFiles.Read(file, lifetime.Token)); }
+                        catch (Exception error) { attachmentError.Text = file.Name + ": " + error.Message; }
+                    }
+                }
+                RefreshAttachments();
             }
-            status.Text = $"{attachments.Count} attachments ready";
+            catch (Exception error) { attachmentError.Text = "Could not attach files: " + error.Message; }
+            finally { attach.IsEnabled = true; }
         }; actions.Children.Add(attach);
-        foreach (var (title, method) in new[] { ("Send / queue", "send"), ("Queue", "queue"), ("Steer", "steer"), ("Stop", "stop"), ("Resume", "resume") })
+        foreach (var (title, method, icon) in new[] { ("Send or queue", "send", "send"), ("Queue message", "queue", "queue"), ("Steer agent", "steer", "steer"), ("Stop", "stop", "stop"), ("Resume", "resume", "refresh") })
         {
-            var button = new Button { Content = title, MinHeight = 44, Margin = new Thickness(0, 2, 4, 2) };
-            button.Click += async (_, _) => { if (chatId is null) return; var text = composer.Text ?? ""; var result = await Call(new() { ["method"] = method, ["chatId"] = chatId, ["text"] = text, ["attachments"] = System.Text.Json.JsonSerializer.SerializeToNode(attachments.ToArray(), StoreJsonContext.Default.AttachmentArray) }); if (result is not null && method is not ("stop" or "resume") && result.ToJsonString() != "false" && composer.Text == text) { composer.Text = ""; attachments.Clear(); } }; actions.Children.Add(button);
+            var button = new IconButton { Name = "Remote_" + method, Icon = icon, Label = title, Margin = new Thickness(0, 2, 4, 2) };
+            button.Click += async (_, _) =>
+            {
+                if (chatId is null) return;
+                var text = composer.Text ?? ""; var sent = attachments.ToArray();
+                var result = await Call(new() { ["method"] = method, ["chatId"] = chatId, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
+                if (result is not null && method is not ("stop" or "resume") && result.ToJsonString() != "false")
+                {
+                    if (composer.Text == text) composer.Text = "";
+                    foreach (var file in sent) attachments.Remove(file);
+                    RefreshAttachments();
+                }
+            }; actions.Children.Add(button);
         }
         Content = panel;
         timer.Tick += async (_, _) =>
@@ -132,7 +148,8 @@ public sealed class RemoteView : UserControl, IDisposable
                     configJson = configText; configs.Children.Clear();
                     foreach (var config in result["config"]!.AsArray())
                     {
-                        var button = new Button { Content = config!["current"]!.GetValue<string>() + " ▾", FontSize = 11, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
+                        var option = new SessionConfig(config!["id"]!.GetValue<string>(), config["name"]!.GetValue<string>(), "select", config["current"]!.GetValue<string>(), config["values"]!.AsArray().Select(v => new SessionValue(v!["value"]!.GetValue<string>(), v["name"]!.GetValue<string>())).ToArray());
+                        var button = new Button { Content = new OptionContent(option), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
                     }
                 }
@@ -169,6 +186,8 @@ public sealed class RemoteView : UserControl, IDisposable
             var id = row!["id"]!.GetValue<string>(); var message = messages.FirstOrDefault(m => m.Id == id);
             if (message is null) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); }
             message.Text = row["text"]!.GetValue<string>();
+            if (message.Attachments.Count == 0 && row["attachments"] is { } files)
+                foreach (var file in files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         }
         while (messages.Count > Chat.HistoryPageSize) messages.RemoveAt(0);
     }
@@ -185,6 +204,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private async Task RefreshList()
     {
         var result = await Call(new() { ["method"] = "list" }); if (result is null) return;
+        workspaceHistory = result["workspaces"]!.AsArray().Select(w => new Workspace(w!["id"]!.GetValue<string>(), w["name"]!.GetValue<string>(), w["path"]?.GetValue<string>() ?? "", w["distro"]?.GetValue<string>())).ToArray();
         CatalogChanged?.Invoke(result.DeepClone());
         chatRows = result["chats"]!.AsArray();
         var selected = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
@@ -210,6 +230,47 @@ public sealed class RemoteView : UserControl, IDisposable
         catch (RemoteOperationException error) { status.Text = error.Message; return null; }
         catch (Exception error) { status.Text = "Disconnected: " + error.Message + " Agents remain on the host. Reconnect to continue."; client.Dispose(); if (ReferenceEquals(connection, client)) connection = null; return null; }
     }
-    public void Dispose() { timer.Stop(); lifetime.Cancel(); connection?.Dispose(); connection = null; CatalogChanged = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }
+    private void RefreshAttachments()
+    {
+        attachmentChips.Children.Clear();
+        foreach (var attachment in attachments)
+        {
+            var chip = new Button { Content = attachment.Name + " ×", MinHeight = 40, MaxWidth = 260 };
+            ToolTip.SetTip(chip, "Remove " + attachment.Name);
+            chip.Click += (_, _) => { attachments.Remove(attachment); RefreshAttachments(); };
+            attachmentChips.Children.Add(chip);
+        }
+    }
+    public void ShowNewChat(Control anchor, string workspaceId)
+    {
+        var menu = new MenuFlyout();
+        foreach (var provider in AgentProviders.All)
+        {
+            var item = new MenuItem { Header = provider.Name };
+            item.Click += async (_, _) =>
+            {
+                var result = await Call(new() { ["method"] = "create", ["workspaceId"] = workspaceId, ["provider"] = provider.Provider.ToString() });
+                if (result is not null) { chatId = result["id"]!.GetValue<string>(); messages.Clear(); await RefreshList(); WorkspaceNavigation?.Invoke(); }
+            };
+            menu.Items.Add(item);
+        }
+        menu.ShowAt(anchor);
+    }
+    public void ShowWorkspacePicker(Control anchor)
+    {
+        var selector = new WorkspaceSelector(workspaceHistory, allowRemoval: false) { Width = Math.Min(330, Math.Max(220, Bounds.Width - 24)) };
+        var menu = new Flyout { Content = selector };
+        selector.Chosen += workspace => { workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == workspace.Id); menu.Hide(); WorkspaceNavigation?.Invoke(); };
+        selector.Browse += () =>
+        {
+            menu.Hide(); WorkspaceNavigation?.Invoke();
+            var browser = new RemoteWorkspacePicker(Call);
+            var overlay = new Border { Background = Background, Child = browser, ZIndex = 100 };
+            var grid = (Grid)Content!; Grid.SetRowSpan(overlay, 4); grid.Children.Add(overlay);
+            browser.Closed += async () => { grid.Children.Remove(overlay); await RefreshList(); if (browser.OpenedWorkspaceId is { } id) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == id); };
+        };
+        menu.ShowAt(anchor);
+    }
+    public void Dispose() { timer.Stop(); lifetime.Cancel(); connection?.Dispose(); connection = null; CatalogChanged = null; WorkspaceNavigation = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }
     private sealed record RemoteItem(string Id, string Name) { public override string ToString() => Name; }
 }
