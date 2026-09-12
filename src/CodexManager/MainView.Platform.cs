@@ -22,23 +22,30 @@ public partial class MainView
     private ConnectionSettingsView? connectionSettings;
     private TopLevel? inputTopLevel;
     private double keyboardInset;
+    private Thickness? nativeSafeArea;
+    public void UpdateNativeMobileInsets(Thickness safeArea, double keyboardOcclusion)
+    {
+        if (!remoteOnly || closing) return;
+        nativeSafeArea = safeArea; keyboardInset = Math.Max(0, keyboardOcclusion); ApplyMobileInsets();
+    }
     private void SafeAreaChanged(object? sender, Avalonia.Controls.Platform.SafeAreaChangedArgs e) => ApplyMobileInsets();
     private void MobileScalingChanged(object? sender, EventArgs e)
     {
+        if (nativeSafeArea is not null) { ApplyMobileInsets(); return; }
         keyboardInset = inputTopLevel?.InputPane is { State: Avalonia.Controls.Platform.InputPaneState.Open } pane ? pane.OccludedRect.Height : 0;
         ApplyMobileInsets();
     }
     private void ApplyMobileInsets()
     {
-        var safe = inputTopLevel?.InsetsManager?.SafeAreaPadding ?? default;
+        var safe = nativeSafeArea ?? inputTopLevel?.InsetsManager?.SafeAreaPadding ?? default;
         // Keep insets on the root layout, outside the UserControl template.
         // The content must fill the viewport again when the IME closes.
         Padding = default;
-        RootPanes.Margin = new Thickness(safe.Left, safe.Top, safe.Right, safe.Bottom + keyboardInset);
+        RootPanes.Margin = new Thickness(safe.Left, safe.Top, safe.Right, Math.Max(safe.Bottom, keyboardInset));
     }
     private void InputPaneChanged(object? sender, Avalonia.Controls.Platform.InputPaneStateEventArgs e)
     {
-        if (!remoteOnly) return;
+        if (!remoteOnly || nativeSafeArea is not null) return;
         keyboardInset = e.NewState == Avalonia.Controls.Platform.InputPaneState.Open ? e.EndRect.Height : 0;
         ApplyMobileInsets();
     }

@@ -103,4 +103,24 @@ public class MobileInteractionTests
         handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Closed, null, default, TimeSpan.Zero, null)]);
         Assert.Equal(0, view.FindControl<Grid>("RootPanes")!.Margin.Bottom); view.DisposeMobile();
     }
+
+    [AvaloniaFact]
+    public void NativeInsetsClearStaleKeyboardSpaceAndDoNotDoubleCountResize()
+    {
+        var view = new MainView(new Store(Directory.CreateTempSubdirectory("inset-test-").FullName), remoteOnly: true);
+        var root = view.FindControl<Grid>("RootPanes")!;
+        try
+        {
+            view.UpdateNativeMobileInsets(new Thickness(0, 24, 0, 24), 280);
+            Assert.Equal(280, root.Margin.Bottom);
+            view.UpdateNativeMobileInsets(new Thickness(0, 24, 0, 24), 0);
+            Assert.Equal(24, root.Margin.Bottom);
+            var handler = typeof(MainView).GetMethod("InputPaneChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Open, null, new Rect(0, 400, 390, 280), TimeSpan.Zero, null)]);
+            Assert.Equal(24, root.Margin.Bottom);
+            view.UpdateNativeMobileInsets(new Thickness(0, 24, 0, 0), 0); // Android already resized the viewport.
+            Assert.Equal(0, root.Margin.Bottom);
+        }
+        finally { view.DisposeMobile(); }
+    }
 }

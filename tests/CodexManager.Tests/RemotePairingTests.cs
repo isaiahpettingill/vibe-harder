@@ -41,6 +41,39 @@ public class RemotePairingTests
     private static string DirectoryPath() => Path.Combine(Path.GetTempPath(), "vibe-pairing", Guid.NewGuid().ToString("N"));
 
     [AvaloniaFact]
+    public async Task CatalogRefreshAndResumeKeepSelectedChatAndReuseConnection()
+    {
+        var directory = DirectoryPath(); var port = Port(); var revision = 0;
+        JsonObject Row(string id) => new() { ["id"] = id, ["workspaceId"] = "w", ["title"] = id + revision, ["archived"] = false };
+        await using var server = new RemoteServer(directory, "127.0.0.1", port, request => Task.FromResult<JsonNode?>(
+            request["method"]!.GetValue<string>() == "list"
+                ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "w", ["name"] = "Workspace" }), ["chats"] = new JsonArray(Row("newest"), Row("older")) }
+                : request["method"]!.GetValue<string>() == "chat"
+                    ? new JsonObject { ["status"] = "Ready", ["queued"] = 0, ["busy"] = false, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray() }
+                    : JsonValue.Create(true)));
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), Path.Combine(directory, "key"), "Phone", TestContext.Current.CancellationToken);
+        using var view = new RemoteView(host); var window = new Window { Content = view }; window.Show();
+        try
+        {
+            await Wait(() => view.SelectedChatId == "newest"); view.SelectChat("older");
+            var field = typeof(RemoteView).GetField("connection", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var original = Assert.IsType<RemoteConnection>(field.GetValue(view));
+            var refresh = typeof(RemoteView).GetMethod("RefreshList", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            for (var i = 0; i < 3; i++)
+            {
+                revision++; await (Task)refresh.Invoke(view, null)!; Assert.Equal("older", view.SelectedChatId);
+                view.SetPresentationSleeping(true); view.SetPresentationSleeping(false);
+                Assert.Same(original, field.GetValue(view)); Assert.Equal("older", view.SelectedChatId);
+            }
+            original.Dispose();
+            await Wait(() => field.GetValue(view) is RemoteConnection replacement && !ReferenceEquals(replacement, original));
+            Assert.Equal("older", view.SelectedChatId);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task DesktopPopupPairsByHostnameAndSavedCredentialReconnects()
     {
         var directory = DirectoryPath(); Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
