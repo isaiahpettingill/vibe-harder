@@ -14,6 +14,8 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 - **Optional UI sleep:** enable in Settings to freeze inactive windows after two seconds; off by default. Inactive transcripts unload after a two-second grace period. Agents keep running.
 - **Small native app:** Native AOT on Windows/Linux. No bundled Node.js or browser engine.
 
+Android phones should use `VibeHarder-Android.apk` (ARM64). Intel Android devices and x64 emulators have a separate `VibeHarder-Android-x64.apk`, so each download contains only its own runtime.
+
 ### Start
 
 1. Install the package for your platform.

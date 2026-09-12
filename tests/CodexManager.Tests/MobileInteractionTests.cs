@@ -30,11 +30,38 @@ public class MobileInteractionTests
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         using var store = new Store(directory); var workspace = new Workspace("w", "Test", directory); store.Save(workspace);
         var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
-        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config --access");
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config --access --reset-access");
         await runtime.Connect();
+        Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.Reconnect();
+        Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "model"), "large");
         Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
         await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "mode"), "ask");
         Assert.Equal("ask", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.Reconnect();
+        Assert.Equal("ask", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+    }
+
+    [AvaloniaFact]
+    public async Task ReloadShowsSpinnerInsteadOfStop()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Reload", directory));
+        store.Save(new Chat { Id = "reload", WorkspaceId = "w", SessionId = "fixture-session" });
+        store.Setting("localCommand", "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --load-hang");
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var button = window.FindControl<IconButton>("SendButton")!;
+            while (button.Content is not LoadingSpinner) await Task.Delay(20, timeout.Token);
+            Assert.False(button.IsEnabled);
+            Assert.Equal("Loading chat", Avalonia.Automation.AutomationProperties.GetName(button));
+        }
+        finally { window.Close(); await Task.Delay(200, TestContext.Current.CancellationToken); }
     }
 
     [AvaloniaFact]
@@ -71,9 +98,9 @@ public class MobileInteractionTests
         var view = new MainView(new Store(directory), remoteOnly: true);
         var handler = typeof(MainView).GetMethod("InputPaneChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Open, null, new Rect(0, 400, 390, 280), TimeSpan.Zero, null)]);
-        Assert.Equal(280, view.Padding.Bottom);
+        Assert.Equal(280, view.FindControl<Grid>("RootPanes")!.Margin.Bottom);
         Assert.IsType<IconButton>(view.FindControl<Button>("SidebarToggle"));
         handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Closed, null, default, TimeSpan.Zero, null)]);
-        Assert.Equal(0, view.Padding.Bottom); view.DisposeMobile();
+        Assert.Equal(0, view.FindControl<Grid>("RootPanes")!.Margin.Bottom); view.DisposeMobile();
     }
 }

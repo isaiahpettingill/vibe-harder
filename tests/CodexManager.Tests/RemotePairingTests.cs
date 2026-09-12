@@ -107,7 +107,10 @@ public class RemotePairingTests
         try
         {
             window.Show();
-            await Wait(() => view.GetLogicalDescendants().OfType<ComboBox>().Any(c => c.Items.Count > 0));
+            await Wait(() => view.GetLogicalDescendants().OfType<Button>().Any(c => Equals(c.Content, "Remote project")));
+            Assert.True(view.FindControl<TextBox>("SearchBox")!.IsVisible);
+            Assert.True(view.FindControl<Button>("ImportChatsButton")!.IsVisible);
+            Assert.True(view.FindControl<IconButton>("MobileTerminalButton")!.IsVisible);
             Assert.Single(view.GetLogicalDescendants().OfType<RemoteView>());
             Assert.False(view.FindControl<IconButton>("ToggleTerminalButton")!.IsVisible);
         }

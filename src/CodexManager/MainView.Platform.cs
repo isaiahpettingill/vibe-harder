@@ -23,10 +23,18 @@ public partial class MainView
     private TopLevel? inputTopLevel;
     private double keyboardInset;
     private void SafeAreaChanged(object? sender, Avalonia.Controls.Platform.SafeAreaChangedArgs e) => ApplyMobileInsets();
+    private void MobileScalingChanged(object? sender, EventArgs e)
+    {
+        keyboardInset = inputTopLevel?.InputPane is { State: Avalonia.Controls.Platform.InputPaneState.Open } pane ? pane.OccludedRect.Height : 0;
+        ApplyMobileInsets();
+    }
     private void ApplyMobileInsets()
     {
         var safe = inputTopLevel?.InsetsManager?.SafeAreaPadding ?? default;
-        Padding = new Thickness(safe.Left, safe.Top, safe.Right, safe.Bottom + keyboardInset);
+        // Keep insets on the root layout, outside the UserControl template.
+        // The content must fill the viewport again when the IME closes.
+        Padding = default;
+        RootPanes.Margin = new Thickness(safe.Left, safe.Top, safe.Right, safe.Bottom + keyboardInset);
     }
     private void InputPaneChanged(object? sender, Avalonia.Controls.Platform.InputPaneStateEventArgs e)
     {
@@ -70,6 +78,7 @@ public partial class MainView
             var narrow = Bounds.Width < 720;
             if (narrow != compact) { compact = narrow; sidebarOpen = !narrow && store.Setting("sidebarCollapsed") != "1"; }
             ApplyLayout();
+            if (remoteOnly && inputTopLevel is not null) ApplyMobileInsets();
         };
         AttachedToVisualTree += (_, _) =>
         {
@@ -78,7 +87,10 @@ public partial class MainView
             if (remoteOnly)
             {
                 TopLevel.SetAutoSafeAreaPadding(this, false);
+                HorizontalAlignment = HorizontalAlignment.Stretch; VerticalAlignment = VerticalAlignment.Stretch;
+                HorizontalContentAlignment = HorizontalAlignment.Stretch; VerticalContentAlignment = VerticalAlignment.Stretch;
                 inputTopLevel = TopLevel.GetTopLevel(this);
+                if (inputTopLevel is not null) inputTopLevel.ScalingChanged += MobileScalingChanged;
                 if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged += SafeAreaChanged;
                 ApplyMobileInsets();
                 if (inputTopLevel?.InputPane is { } pane) pane.StateChanged += InputPaneChanged;
@@ -90,19 +102,18 @@ public partial class MainView
         {
             ToggleTerminalButton.IsVisible = false;
             TerminalDrawer.IsVisible = false;
-            CommandPaletteButton.IsVisible = false;
+            MobileTerminalButton.IsVisible = true;
             StatusBar.IsVisible = false; RootPanes.RowDefinitions[2].Height = new GridLength(0);
             ScrollViewer.SetVerticalScrollBarVisibility(WorkspaceScroll, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
             WelcomeOpenButton.Content = "Connect to computer";
             WelcomeHeading.Text = "Connect to your computer";
             WelcomeHint.Text = "Enter its address, then the pairing number shown on your desktop.";
             WorkspaceSelectorButton.IsVisible = false;
-            SearchBox.IsVisible = false;
-            ArchiveViewButton.IsVisible = false;
-            ImportChatsButton.IsVisible = false;
             StatusText.Text = "Connect to a computer to view your chats.";
         }
     }
+
+    private async void MobileTerminalClick(object? sender, RoutedEventArgs e) { if (remoteView is not null) { CollapseSidebar(); await remoteView.ShowTerminal(); } }
 
     private void CollapseSidebar()
     {
@@ -149,6 +160,7 @@ public partial class MainView
     public void ResumeRemotePresentation() => remoteView?.SetPresentationSleeping(false);
     public void DisposeMobile()
     {
+        if (inputTopLevel is not null) inputTopLevel.ScalingChanged -= MobileScalingChanged;
         if (inputTopLevel?.InputPane is { } pane) pane.StateChanged -= InputPaneChanged;
         if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged -= SafeAreaChanged;
         closing = true; saveTimer.Stop(); discoveryLifetime.Cancel(); connectionSettings?.Dispose(); CloseRemoteView();

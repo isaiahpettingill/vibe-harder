@@ -16,6 +16,7 @@ public sealed class IconButton : Button
         {
             if (icon == value) return;
             icon = value;
+            if (value == "loading") { Content = new LoadingSpinner(); return; }
             Content = new Avalonia.Controls.Shapes.Path
             {
                 Data = Geometry.Parse(value switch

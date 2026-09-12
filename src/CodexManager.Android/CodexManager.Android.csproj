@@ -7,7 +7,8 @@
     <ApplicationId>com.isaiahpettingill.vibeharder</ApplicationId>
     <ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
-    <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
+    <!-- Phone builds contain one runtime. Pass -r android-x64 for Intel devices/emulators. -->
+    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
     <PublishAot>false</PublishAot>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>

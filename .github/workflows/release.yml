@@ -75,6 +75,12 @@ jobs:
           if-no-files-found: error
   android:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { rid: android-arm64, artifact: android, filename: VibeHarder-Android.apk }
+          - { rid: android-x64, artifact: android-x64, filename: VibeHarder-Android-x64.apk }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -96,12 +102,12 @@ jobs:
         run: |
           test -n "$KEYSTORE"
           printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          dotnet publish src/CodexManager.Android -c Release -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore" -p:AndroidSigningKeyAlias=codexmanager -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:KEYSTORE_PASSWORD -p:ApplicationDisplayVersion="$RELEASE_VERSION" -p:ApplicationVersion="${{ github.run_number }}"
+          dotnet publish src/CodexManager.Android -c Release -r "${{ matrix.rid }}" -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore" -p:AndroidSigningKeyAlias=codexmanager -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:KEYSTORE_PASSWORD -p:ApplicationDisplayVersion="$RELEASE_VERSION" -p:ApplicationVersion="${{ github.run_number }}"
           mkdir -p artifacts/packages
-          cp src/CodexManager.Android/bin/Release/net11.0-android/publish/*-Signed.apk artifacts/packages/VibeHarder-Android.apk
+          cp src/CodexManager.Android/bin/Release/net11.0-android/${{ matrix.rid }}/publish/*-Signed.apk "artifacts/packages/${{ matrix.filename }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: android
+          name: ${{ matrix.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
   publish:

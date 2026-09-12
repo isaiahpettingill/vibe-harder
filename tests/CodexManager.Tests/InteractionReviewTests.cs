@@ -11,6 +11,29 @@ namespace CodexManager.Tests;
 public class InteractionReviewTests
 {
     [AvaloniaFact]
+    public async Task TerminalKeyboardStreamsTypingBackspaceAndEnter()
+    {
+        var input = new StringBuilder();
+        Task<JsonNode?> Call(JsonObject request)
+        {
+            if (request["method"]!.GetValue<string>() == "terminal/input") input.Append(request["text"]!.GetValue<string>());
+            return Task.FromResult<JsonNode?>(request["method"]!.GetValue<string>() switch
+            {
+                "terminal/open" => new JsonObject { ["id"] = "shell" },
+                "terminal/read" => new JsonObject { ["text"] = "", ["offset"] = 0L },
+                _ => JsonValue.Create(true)
+            });
+        }
+        using var terminal = new RemoteTerminalView(Call);
+        await terminal.Open("workspace", "Host");
+        var keyboard = Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(terminal).OfType<TextBox>().Single();
+        keyboard.Text = "echx"; keyboard.Text = "ech"; keyboard.Text = "echo hé";
+        keyboard.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        Assert.Equal("echx\x7fo hé\r", input.ToString());
+        Assert.Equal("", keyboard.Text);
+    }
+
+    [AvaloniaFact]
     public void TranscriptPagingPreservesReadingPositionAndLatestAppearsOnlyWhenAway()
     {
         var messages = Enumerable.Range(0, 250).Select(i => new Message { Sequence = i, Text = "Message " + i }).ToArray();

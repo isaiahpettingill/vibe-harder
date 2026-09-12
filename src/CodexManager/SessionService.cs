@@ -26,6 +26,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     public async Task<JsonNode?> Handle(JsonObject request)
     {
         var result = await HandleCore(request);
+        if (result is JsonObject summary && summary["id"] is JsonValue id && chats.FirstOrDefault(c => c.Id == id.GetValue<string>()) is { } chat)
+            summary["preparing"] = runtime(chat, workspaces.Single(w => w.Id == chat.WorkspaceId)).IsPreparing;
         // A successful mutation reply must survive an immediate host restart.
         var method = request["method"]?.GetValue<string>() ?? "";
         if (method is not ("list" or "chat") && !method.StartsWith("terminal/", StringComparison.Ordinal)) await store.FlushAsync();

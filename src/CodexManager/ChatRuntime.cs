@@ -29,6 +29,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public bool IsReconnecting => reconnecting;
     public bool IsPrompting => (turn is not null || detachedTurn) && chat.Busy;
     public bool IsConfiguring { get; private set; }
+    public bool IsPreparing => chat.Busy && (!IsConnected || loading || reconnecting || IsLoadingHistory || !IsPrompting);
     public bool IsConnected => connected && client?.Alive == true;
     public bool SupportsSteering { get; private set; }
     public bool IsSteering { get; private set; }
@@ -81,6 +82,23 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public async Task SetConfig(SessionConfig config, string value)
     {
         if (loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
+        await SetConfigCore(config, value);
+        await RestoreAccess();
+    }
+    private static SessionValue? FullAccess(SessionConfig option) => option.Values.FirstOrDefault(v => v.Name.Equals("Full access", StringComparison.OrdinalIgnoreCase) || v.Name.Equals("Bypass permissions", StringComparison.OrdinalIgnoreCase));
+    private string AccessKey(SessionConfig option) => "sessionAccess:" + chat.Id + ":" + option.Id;
+    private async Task RestoreAccess()
+    {
+        if (IsConfiguring || client is null || chat.SessionId is null) return;
+        foreach (var option in chat.ConfigOptions.ToArray())
+        {
+            if (FullAccess(option) is not { } full) continue;
+            var value = store.Setting(AccessKey(option)) ?? full.Value;
+            if (option.Current != value && option.Values.Any(v => v.Value == value)) await SetConfigCore(option, value);
+        }
+    }
+    private async Task SetConfigCore(SessionConfig config, string value)
+    {
         if (!config.Values.Any(v => v.Value == value)) return;
         IsConfiguring = true; Changed?.Invoke();
         try
@@ -90,9 +108,10 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             var method = "session/set_config_option";
             if (config.Kind is "model" or "mode") { method = "session/set_" + config.Kind; parameters[config.Kind + "Id"] = value; }
             else { parameters["configId"] = config.Id; parameters["value"] = config.Kind == "boolean" ? JsonValue.Create(value == "true") : JsonValue.Create(value); if (config.Kind == "boolean") parameters["type"] = "boolean"; }
-            var result = await client.Request(method, parameters, timeout.Token);
+            var result = await client!.Request(method, parameters, timeout.Token);
             chat.ConfigOptions = chat.ConfigOptions.Select(c => c.Id == config.Id ? c with { Current = value } : c).ToArray(); chat.ConfigVersion++;
             Configure(result);
+            if (FullAccess(config) is not null) store.Setting(AccessKey(config), value);
         }
         catch (Exception error) { chat.Status = "Could not change " + config.Name + ": " + error.Message; chat.ConfigVersion++; }
         finally { IsConfiguring = false; Changed?.Invoke(); }
@@ -186,6 +205,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             {
                 await NewSession(timeout.Token);
             }
+            await RestoreAccess();
             connected = true; connectedAt = DateTimeOffset.UtcNow;
         }
         finally { loading = false; replaying = false; }
@@ -195,12 +215,8 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         var session = await client!.Request("session/new", RpcJson.Object(("cwd", workspace.Path), ("mcpServers", new JsonArray())), token);
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
-        foreach (var option in chat.ConfigOptions.ToArray())
-        {
-            var fullAccess = option.Values.FirstOrDefault(v => v.Name.Equals("Full access", StringComparison.OrdinalIgnoreCase) || v.Name.Equals("Bypass permissions", StringComparison.OrdinalIgnoreCase));
-            if (fullAccess is not null && option.Current != fullAccess.Value) await SetConfig(option, fullAccess.Value);
-        }
     }
+
     public Task LoadHistory() => chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = LoadHistoryCore();
     private async Task LoadHistoryCore()
     {
@@ -241,6 +257,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, limit: chat.RetainHistory ? Chat.HistoryPageSize : 1, token: turn.Token));
             await store.FlushAsync();
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
+            await RestoreAccess();
             turn.Token.ThrowIfCancellationRequested();
             var user = new Message { Role = "user", Provider = chat.Provider, Text = text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
             foreach (var a in attachments) user.Attachments.Add(a);
@@ -363,7 +380,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     {
         if (update.TryGetProperty("sessionUpdate", out var commandKind) && commandKind.GetString() == "available_commands_update")
         { chat.Commands = SlashCommand.Read(update); Changed?.Invoke(); return; }
-        if (update.TryGetProperty("sessionUpdate", out var configKind) && configKind.GetString() == "config_option_update") { Configure(update); return; }
+        if (update.TryGetProperty("sessionUpdate", out var configKind) && configKind.GetString() == "config_option_update") { Configure(update); if (connected && !loading && !reconnecting && !IsConfiguring) _ = RestoreAccess(); return; }
         if ((loading && !replaying) || lifetime.IsCancellationRequested) return;
         var kind = update.GetProperty("sessionUpdate").GetString();
         if (kind is "agent_message_chunk" or "agent_thought_chunk" or "user_message_chunk")

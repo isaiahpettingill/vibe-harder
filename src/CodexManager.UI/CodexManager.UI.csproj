@@ -19,7 +19,7 @@
   <ItemGroup>
     <TrimmerRootDescriptor Include="../CodexManager/TrimmerRoots.xml" />
     <AdditionalCompileInputs Include="../CodexManager/TrimmerRoots.xml" />
-    <AvaloniaResource Include="../CodexManager/Assets/**/*" Link="Assets/%(RecursiveDir)%(Filename)%(Extension)" />
+    <AvaloniaResource Include="../CodexManager/Assets/**/*" Exclude="../CodexManager/Assets/*.icns" Link="Assets/%(RecursiveDir)%(Filename)%(Extension)" />
     <AvaloniaXaml Include="../CodexManager/*.axaml" Link="%(Filename)%(Extension)" />
     <Compile Include="../CodexManager/*.cs" Exclude="../CodexManager/Program.cs;../CodexManager/HeadlessHost.cs" />
   </ItemGroup>

@@ -40,40 +40,15 @@ public partial class MainView : UserControl
         }
     }
     private void CloseRemoteView()
-    { if (remoteView is null) return; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; }
+    { if (remoteView is null) return; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; MobileTerminalButton.IsEnabled = false; }
     private void OpenRemoteHost(RemoteHost host)
     {
-        CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view;
+        CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view; MobileTerminalButton.IsEnabled = true;
         view.WorkspaceNavigation += CollapseSidebar;
         if (current is not null) DeferHistoryEviction(current);
         MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
-        view.CatalogChanged += catalog =>
-        {
-            if (!remoteSections.TryGetValue(host.Name, out var section)) return;
-            section.Children.Clear();
-            section.Children.Add(view.SidebarTools);
-            foreach (var workspace in catalog["workspaces"]!.AsArray())
-            {
-                var ownerId = workspace!["id"]!.GetValue<string>(); var key = "collapsed:remote:" + host.Address + ":" + ownerId;
-                var group = new StackPanel { IsVisible = store.Setting(key) != "1" };
-                var heading = new Button { Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-                heading.Click += (_, _) => { group.IsVisible = !group.IsVisible; store.Setting(key, group.IsVisible ? "0" : "1"); heading.Content = (group.IsVisible ? "▾ " : "▸ ") + workspace["name"]!.GetValue<string>(); };
-                var headingRow = new Grid { ColumnDefinitions = new("*,Auto") }; headingRow.Children.Add(heading);
-                var addChat = new IconButton { Icon = "add", Label = "New chat" }; Grid.SetColumn(addChat, 1); headingRow.Children.Add(addChat);
-                addChat.Click += (_, _) => view.ShowNewChat(addChat, ownerId);
-                section.Children.Add(headingRow); section.Children.Add(group);
-                foreach (var chat in catalog["chats"]!.AsArray().Where(c => c!["workspaceId"]!.GetValue<string>() == workspace["id"]!.GetValue<string>() && !c["archived"]!.GetValue<bool>()))
-                {
-                    var id = chat!["id"]!.GetValue<string>();
-                    var activityKey = host.Address + ":" + id;
-                    if (!remoteActivity.TryGetValue(activityKey, out var activity)) remoteActivity[activityKey] = activity = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(chat["provider"]!.GetValue<string>()) };
-                    activity.Busy = chat["busy"]!.GetValue<bool>(); activity.HasUnreadCompletion = chat["unread"]?.GetValue<bool>() == true;
-                    var row = new Grid { ColumnDefinitions = new("22,*") }; row.Children.Add(new ChatActivityIndicator(activity)); var title = new TextBlock { Text = chat["title"]!.GetValue<string>(), TextTrimming = TextTrimming.CharacterEllipsis }; Grid.SetColumn(title, 1); row.Children.Add(title);
-                    var choose = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView?.Host != host) OpenRemoteHost(host); remoteView!.SelectChat(id); CollapseSidebar(); }; group.Children.Add(choose);
-                }
-            }
-        };
+        view.CatalogChanged += catalog => { remoteCatalog = catalog; RefreshRemoteSidebar(); };
+        view.WorkspaceOpened += id => { store.Setting("closed:remote:" + host.Address + ":" + id, "0"); RefreshRemoteSidebar(); };
         Grid.SetColumn(view, 2); Grid.SetRow(view, 1); view.Bind(BackgroundProperty, this.GetResourceObservable("AppBackground")); RootPanes.Children.Add(view);
     }
 
@@ -268,6 +243,7 @@ public partial class MainView : UserControl
     private async void SearchChanged(object? sender, TextChangedEventArgs e)
     {
         if (chats is null) return;
+        if (remoteView is not null) { RefreshRemoteSidebar(); return; }
         searchCancellation?.Cancel(); var cancellation = searchCancellation = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
         searchMatches.Clear(); RefreshChats(); var query = SearchBox.Text ?? ""; if (query.Length == 0) return;
         try { await Task.Delay(150, cancellation.Token); var matches = await store.SearchChatIdsAsync(query, cancellation.Token); if (!cancellation.IsCancellationRequested) { searchMatches = matches; RefreshChats(); } }
@@ -283,10 +259,10 @@ public partial class MainView : UserControl
             var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
             title.Click += (_, _) => SelectWorkspace(owner, true);
-            var create = new Button { Name = "NewChat_" + owner.Id, Content = "＋", Padding = new(5, 2) };
+            var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", Label = "New chat" };
             ToolTip.SetTip(create, "New chat"); Grid.SetColumn(create, 2);
             create.Flyout = ProviderMenu(owner);
-            var close = new Button { Name = "CloseWorkspace_" + owner.Id, Content = "×", Padding = new(5, 2) };
+            var close = new IconButton { Name = "CloseWorkspace_" + owner.Id, Icon = "remove", Label = "Close workspace (keep chats)" };
             ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 3);
             close.Click += async (_, _) =>
             {
@@ -301,25 +277,7 @@ public partial class MainView : UserControl
             var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; store.Setting("collapsed:" + owner.Id, list.IsVisible ? "0" : "1"); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
-            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) =>
-            {
-                if (chat is null) return null;
-                var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4) };
-                row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
-                var details = new StackPanel { Spacing = 3 };
-                var name = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis };
-                name.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Title, source: chat));
-                var status = new TextBlock { FontSize = 11, Classes = { "muted" } };
-                status.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Status, source: chat));
-                details.Children.Add(name); details.Children.Add(status); Grid.SetColumn(details, 1); row.Children.Add(details);
-                var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", MinWidth = 23, MinHeight = 23, Padding = new Thickness(4), VerticalAlignment = VerticalAlignment.Top };
-                rename.Click += async (_, e) => { e.Handled = true; await RenameChat(chat); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
-                var archive = new IconButton { Name = "Archive_" + chat.Id, Icon = "archive", Label = chat.Archived ? "Restore chat" : "Archive chat", MinWidth = 23, MinHeight = 23, Padding = new Thickness(4), VerticalAlignment = VerticalAlignment.Top };
-                archive.Click += async (_, e) => { e.Handled = true; await ArchiveChat(chat); }; Grid.SetColumn(archive, 3); row.Children.Add(archive);
-                rename.MinWidth = archive.MinWidth = 20; rename.MinHeight = archive.MinHeight = 20;
-                row.Background = Brushes.Transparent; row.Classes.Add("chatRow"); rename.Classes.Add("rowAction"); archive.Classes.Add("rowAction");
-                ToolTip.SetTip(row, chat.ProviderLabel); return row;
-            }, false);
+            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             WorkspaceTree.Children.Add(new StackPanel { Children = { header, list } });
         }
@@ -527,7 +485,7 @@ public partial class MainView : UserControl
         WelcomeOpenButton.IsVisible = workspace is null;
         MessageList.IsVisible = current is not null; UpdateHistoryNavigation();
         ComposerBorder.IsEnabled = current is not null;
-        ImportChatsButton.IsEnabled = workspace is not null;
+        ImportChatsButton.IsEnabled = workspace is not null || remoteView?.HasWorkspace == true;
         LoginButton.IsEnabled = workspace is not null;
         var provider = current?.Provider ?? AgentProvider.Codex;
         LoginButton.Content = provider == AgentProvider.OpenCode ? "Add provider" : "Log in to " + AgentProviders.Get(provider).Name;
@@ -551,14 +509,15 @@ public partial class MainView : UserControl
         DeleteChatButton.IsEnabled = current is { Busy: false };
         StatusText.Text = current is null ? "Ready — open a workspace to begin" : $"{workspace?.Host}  ·  {current.Status}";
     }
-    private bool ComposerShowsStop => current?.Busy == true && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
+    private bool ComposerLoading => current?.Busy == true && (runtimes.GetValueOrDefault(current.Id)?.IsPreparing ?? true);
+    private bool ComposerShowsStop => current?.Busy == true && !ComposerLoading && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
     private void UpdateComposerAction()
     {
         var stop = ComposerShowsStop;
-        SendButton.Icon = stop ? "stop" : "send";
-        SendButton.Label = stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
+        SendButton.Icon = ComposerLoading ? "loading" : stop ? "stop" : "send";
+        SendButton.Label = ComposerLoading ? "Loading chat" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
         var runtime = current is null ? null : runtimes.GetValueOrDefault(current.Id);
-        SendButton.IsEnabled = current is not null && (stop || (runtime is not { IsReconnecting: true } and not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true)));
+        SendButton.IsEnabled = current is not null && !ComposerLoading && (stop || (runtime is not { IsReconnecting: true } and not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true)));
     }
     private async void SendClick(object? sender, RoutedEventArgs e)
     {
@@ -776,6 +735,7 @@ public partial class MainView : UserControl
     }
     private async void ImportChatsClick(object? sender, RoutedEventArgs e)
     {
+        if (remoteView is not null) { remoteView.ShowImport(ImportChatsButton); return; }
         if (workspace is not { } owner) return;
         var dialog = new Window { Title = "Import chats", Width = 400, Height = 290, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var options = AgentProviders.All.Select(p => new CheckBox { Content = p.Label, Tag = p.Provider, IsChecked = p.Provider != AgentProvider.Codex }).ToArray();
@@ -866,7 +826,7 @@ public partial class MainView : UserControl
     }
     private async void PaletteClick(object? sender, RoutedEventArgs e)
     {
-        if (remoteOnly) return;
+        if (remoteOnly) { ShowMobilePalette(); return; }
         if (palette is not null) { palette.Activate(); return; }
         var owner = workspace;
         List<PaletteCommand> commands = [
@@ -1057,7 +1017,7 @@ public partial class MainView : UserControl
         foreach (var archived in new[] { false, true })
         {
             var item = new MenuItem { Header = archived ? "Archived" : "Chats", IsEnabled = archived != showArchived };
-            item.Click += (_, _) => { showArchived = archived; ArchiveViewButton.Content = archived ? "Archived ▾" : "Chats ▾"; SearchBox.Text = ""; SelectNextChat(); };
+            item.Click += (_, _) => { showArchived = archived; ArchiveViewButton.Content = archived ? "Archived ▾" : "Chats ▾"; SearchBox.Text = ""; if (remoteView is not null) RefreshRemoteSidebar(); else SelectNextChat(); };
             menu.Items.Add(item);
         }
         ArchiveViewButton.Flyout = menu; menu.ShowAt(ArchiveViewButton);

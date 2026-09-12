@@ -22,6 +22,7 @@ createInterface({input:process.stdin}).on('line',line=>{
   case 'session/set_config_option':
    configOptions.find(c=>c.id===m.params.configId).currentValue=m.params.value;
    if(m.params.configId==='model'){configOptions[1].currentValue='low';configOptions[1].options=m.params.value==='large'?[{value:'low',name:'Low'},{value:'high',name:'High'}]:[{value:'low',name:'Low'}];}
+   if(process.argv.includes('--reset-access') && m.params.configId !== 'mode') configOptions.find(c=>c.id==='mode').currentValue='ask';
    response(m.id,{configOptions});break;
   case 'session/list':
    if (!process.argv.includes('--history')) { response(m.id,{sessions:[]}); break; }
@@ -42,7 +43,7 @@ createInterface({input:process.stdin}).on('line',line=>{
     emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:m.params.sessionId,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Earlier question'}}}});
     update('Earlier ');update('answer');
    } else update('REPLAY SHOULD NOT DUPLICATE');
-   response(m.id,{});break;
+   response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
    if(m.params.prompt[0]?.text==='background-tools') {
     const tool = value => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:value}});
