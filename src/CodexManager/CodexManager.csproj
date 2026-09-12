@@ -5,6 +5,7 @@
     <Title>Vibe Harder</Title>
     <TargetFramework>net11.0</TargetFramework>
     <Nullable>enable</Nullable>
+    <EnableDefaultAvaloniaItems>false</EnableDefaultAvaloniaItems>
     <ImplicitUsings>enable</ImplicitUsings>
     <ApplicationIcon>Assets/app.ico</ApplicationIcon>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -17,24 +18,14 @@
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
   </PropertyGroup>
   <ItemGroup>
-    <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
-    <AdditionalCompileInputs Include="TrimmerRoots.xml" />
-    <AvaloniaResource Include="Assets/Fonts/*.ttf" />
-    <AvaloniaResource Include="Assets/Brands/*.svg;Assets/app.png;Assets/app.ico" />
-    <AvaloniaResource Include="Assets/Platforms/*.svg" />
-    <None Update="Assets/Platforms/*.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Update="Assets/Brands/*.txt;Assets/Brands/*.md;Assets/app.svg;Assets/app.png;Assets/app.ico;Assets/app.icns" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <None Update="Assets/Fonts/*.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-  </ItemGroup>
-  <ItemGroup>
+    <Compile Remove="*.cs" />
+    <Compile Include="Program.cs;HeadlessHost.cs" />
+    <AvaloniaResource Remove="**/*.axaml" />
+    <AvaloniaXaml Remove="**/*.axaml" />
+    <ProjectReference Include="../CodexManager.UI/CodexManager.UI.csproj" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Headless" Version="12.1.2" />
-    <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
-    <PackageReference Include="Porta.Pty" Version="2.2.2" />
-    <PackageReference Include="Markdig" Version="1.3.2" />
-    <PackageReference Include="SvcSystems.UI.Terminal" Version="1.1.4" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
-    <PackageReference Include="Markdown.Avalonia.Tight" Version="12.0.0-a3" />
-    <PackageReference Include="Markdown.Avalonia.SyntaxHigh" Version="12.0.0-a3" />
+    <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
+    <None Update="Assets/Platforms/*.md;Assets/Brands/*.txt;Assets/Brands/*.md;Assets/Fonts/*.txt;Assets/app.*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

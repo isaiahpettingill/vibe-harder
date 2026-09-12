@@ -45,10 +45,18 @@ public static class RemoteTrust
         {
             var path = Path.Combine(directory, "pairing.json"); var invite = Read(path);
             if (invite["expires"]?.GetValue<long>() is not { } expires || expires < DateTimeOffset.UtcNow.ToUnixTimeSeconds() || invite["hash"]?.GetValue<string>() != RemoteKey.Hash(code)) throw new IOException("Connection code expired or was already used. Create a new code on the host.");
+            Write(path, new());
+            return AddDevice(directory, name);
+        }
+    }
+    internal static JsonObject AddDevice(string directory, string name)
+    {
+        lock (Sync)
+        {
             var id = Guid.NewGuid().ToString("N"); var secret = RemoteKey.NewSecret();
             var devices = Read(Path.Combine(directory, "devices.json"));
             devices[id] = new JsonObject { ["name"] = name[..Math.Min(100, name.Length)], ["hash"] = RemoteKey.Hash(secret), ["paired"] = DateTimeOffset.UtcNow.ToString("O") };
-            Write(path, new()); Write(Path.Combine(directory, "devices.json"), devices);
+            Write(Path.Combine(directory, "devices.json"), devices);
             return new JsonObject { ["device"] = id, ["token"] = secret };
         }
     }

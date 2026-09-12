@@ -23,9 +23,8 @@ public static class HeadlessHost
         }
         service = new(store, workspaces, chats, Runtime);
         string Arg(string key, string fallback) { var index = Array.IndexOf(args, key); return index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback; }
-        var server = new RemoteServer(RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteAddress") ?? "127.0.0.1"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), service.Handle);
-        if (args.Contains("--pair"))
-            Console.WriteLine(RemoteTrust.Invite(RemoteServer.DirectoryPath, Arg("--pair", "127.0.0.1"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), Environment.MachineName));
+        var server = new RemoteServer(RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteListenAddress") ?? "0.0.0.0"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), service.Handle,
+            args.Contains("--pair") ? (device, code, _, _) => { Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask; } : null);
         using var stopped = new CancellationTokenSource(); bool stopping = false;
         async void Stop()
         {

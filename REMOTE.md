@@ -1,31 +1,37 @@
 # Connect your computers
 
-Agents run on the computer that owns the workspace. Closing a remote client does not stop them. You can mix local and remote workspaces in the desktop app; Android is a remote client only.
+Agents run on the computer that owns the workspace. Closing Android or another remote client does not stop them.
 
 ## Pair once
 
-1. On the host, open **Settings → Remote connections**.
-2. Enter its LAN, VPN, or Tailscale IP address. Choose **Copy connection code and start hosting**.
-3. On your other device, paste the code in **Remote connections** (or **Connect** on Android) and pair.
+1. Keep the desktop app running.
+2. On Android, enter the computer's address and tap **Connect**. On desktop, open a workspace and choose **Remote computer…** under **Choose where Codex works**. The same pairing flow is also available in **Settings → Remote hosts and server**.
+3. A popup on the host shows a six-digit number. Enter that number on the connecting device and tap **Pair**.
 
-The code expires after 10 minutes and works once. The saved device credential survives restarts and stays valid until you revoke it under **Paired devices**. Keep the host's app data to preserve pairing.
+Use a hostname such as `my-desktop`, a Tailscale MagicDNS name such as `my-desktop.tail123.ts.net`, or an IPv4/IPv6 address. Hostnames are resolved by the operating system; the field does not require an IP address. Add `:port` when using a non-default port, for example `my-desktop:3333` or `[::1]:3333`.
 
-Both devices must be able to reach the chosen IP and TCP port (default **2222**). Allow that port through the host firewall for your LAN or VPN. No SSH installation, SSH keys, Node.js, or repeated access to the host is required. There is no public relay; use a VPN/tailnet for access away from home.
+The number expires after two minutes and allows one attempt. Request a new number after an incorrect entry. Closing the desktop popup cancels that request. Connections are saved and Android reconnects on launch or return from the background. Existing Android connections and the selected theme migrate on upgrade.
+
+The desktop listens on port **2222** by default. **Allow my other devices to connect** controls incoming connections; an existing disabled setting stays disabled. The port is under **Advanced**. You do not need to enter the host's own address in its settings.
+
+Both devices must be able to reach the host and port. Allow that port through the host firewall for your LAN or VPN. For Tailscale, connect both devices to the tailnet and enable MagicDNS. There is no public relay.
+
+## Shared interface
+
+Desktop and Android load the same Avalonia application, `MainView`, remote chat view, themes, Markdown renderer, and message controls from `CodexManager.UI`. Android's activity only hosts that shared view and forwards lifecycle events.
+
+Use **☰ Chats** to open or collapse the sidebar. On narrow screens it opens over the chat and closes after choosing a chat; wider screens use a resizable sidebar. Desktop remembers a manually collapsed sidebar. Android hides terminal controls, local agent setup, and system tray settings. Remote agents continue running on the host.
 
 ## Headless host
 
 ```sh
-VibeHarder --headless --listen 0.0.0.0 --port 2222 --pair 100.64.0.10
+VibeHarder --headless --listen 0.0.0.0 --port 2222 --pair
 ```
 
-Replace `100.64.0.10` with the address clients can reach. The command prints a connection code. Omit `--pair` on later starts; existing devices remain paired. Use your operating system's service manager to start this command at login or boot. A separate profile can be selected with `CODEX_MANAGER_DATA`.
+With `--pair`, a connection request prints its six-digit number to the host console. Omit `--pair` on later starts to allow only already-paired devices. A separate profile can be selected with `CODEX_MANAGER_DATA`.
 
 ## Connection security
 
-Connections use TLS with the host certificate pinned by the pairing code. Paired clients receive a random device credential; the host stores its hash. Revoking a device blocks new requests and disconnects idle connections within five seconds. Paired devices can operate the host's agent workspaces, so share codes only with your own trusted devices.
+Numeric pairing uses SRP-6a with a 3072-bit group and SHA-256, bound to the host's TLS certificate. The number is not sent over the connection. Successful pairing pins that certificate and saves a random device credential; the host stores only the credential hash. Pairing is limited to one pending request and five requests per minute.
 
-Treat connection codes and app-data backups as credentials. A changed host certificate requires pairing again. Older SSH-based saved connections also need to pair again after upgrading.
-
-## Android
-
-Install **VibeHarder-Android.apk** from Releases, tap **Connect**, and paste a code. The client remembers its paired host and reconnects on launch. It has no local agents, terminal, or system tray.
+Revoking a device under **Paired devices** blocks new requests and disconnects idle connections within five seconds. Paired devices can operate the host's agent workspaces. A changed host certificate requires pairing again. Existing saved credentials remain compatible with this update.

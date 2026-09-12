@@ -7,7 +7,7 @@ using Avalonia.Threading;
 
 namespace CodexManager;
 
-public partial class MainWindow
+public partial class MainView
 {
     private readonly Dictionary<Chat, IDisposable> historyEvictions = [];
     private IDisposable? pendingSleep;
@@ -18,11 +18,8 @@ public partial class MainWindow
     public bool IsPresentationSleeping => uiSleeping;
     private void InitializePresentationSleep()
     {
-        Activated += (_, _) => WakePresentation();
-        Deactivated += (_, _) => SchedulePresentationSleep();
         AddHandler(PointerPressedEvent, (_, _) => WakePresentation(), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
         AddHandler(KeyDownEvent, (_, _) => WakePresentation(), Avalonia.Interactivity.RoutingStrategies.Tunnel, handledEventsToo: true);
-        PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty || e.Property == WindowStateProperty) SchedulePresentationSleep(); };
     }
     private void WakePresentation()
     {
@@ -51,12 +48,12 @@ public partial class MainWindow
         pendingSleep?.Dispose(); pendingSleep = null;
         // Headless hosts have no desktop visibility and continue processing RPC.
         if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime) return;
-        if (store.Setting("presentationSleep") != "1" || IsVisible && IsActive && WindowState != WindowState.Minimized)
+        if (store.Setting("presentationSleep") != "1" || desktopWindow is { IsVisible: true, IsActive: true } && desktopWindow.WindowState != WindowState.Minimized)
         { _ = SetPresentationSleeping(false); return; }
         pendingSleep = DispatcherTimer.RunOnce(async () =>
         {
             pendingSleep = null;
-            if (store.Setting("presentationSleep") == "1" && (!IsVisible || !IsActive || WindowState == WindowState.Minimized))
+            if (store.Setting("presentationSleep") == "1" && (desktopWindow is not { IsVisible: true, IsActive: true } || desktopWindow.WindowState == WindowState.Minimized))
                 await SetPresentationSleeping(true);
         }, TimeSpan.FromSeconds(2));
     }

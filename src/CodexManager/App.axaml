@@ -16,14 +16,14 @@
     <SolidColorBrush x:Key="AppMuted" Color="#9693AA"/>
     <SolidColorBrush x:Key="AppAccent" Color="#B99AED"/>
     <SolidColorBrush x:Key="AppOnAccent" Color="#14141C"/>
-    <FontFamily x:Key="TerminalFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <FontFamily x:Key="TerminalFont">avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
     <x:Double x:Key="TerminalFontSize">13</x:Double>
     <x:Double x:Key="UIFontSize">13</x:Double><x:Double x:Key="ChatFontSize">13</x:Double><x:Double x:Key="CodeFontSize">13</x:Double><x:Double x:Key="ToolFontSize">11</x:Double>
-    <FontFamily x:Key="AppFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
-    <FontFamily x:Key="UIFont">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
-    <FontFamily x:Key="ChatFont">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
-    <FontFamily x:Key="CodeFont">avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
-    <FontFamily x:Key="ContentControlThemeFontFamily">avares://VibeHarder/Assets/Fonts#Noto Sans</FontFamily>
+    <FontFamily x:Key="AppFont">avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <FontFamily x:Key="UIFont">avares://VibeHarder.UI/Assets/Fonts#Noto Sans</FontFamily>
+    <FontFamily x:Key="ChatFont">avares://VibeHarder.UI/Assets/Fonts#Noto Sans</FontFamily>
+    <FontFamily x:Key="CodeFont">avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font</FontFamily>
+    <FontFamily x:Key="ContentControlThemeFontFamily">avares://VibeHarder.UI/Assets/Fonts#Noto Sans</FontFamily>
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />

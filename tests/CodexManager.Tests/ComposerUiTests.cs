@@ -30,7 +30,26 @@ public class ComposerUiTests
         {
             composer.Text = "hang"; window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
-            var tray = (TrayIcon)typeof(MainWindow).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            var configPanel = window.FindControl<WrapPanel>("ConfigOptionsPanel")!;
+            Assert.True(configPanel.IsEffectivelyEnabled);
+            var modelPicker = configPanel.Children.OfType<Button>().Single(b => b.Name == "Config_model");
+            var modelMenu = Assert.IsType<MenuFlyout>(modelPicker.Flyout);
+            modelMenu.ShowAt(modelPicker);
+            Assert.True(modelMenu.IsOpen);
+            modelMenu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, "Large")).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            await Wait(() => chat.ConfigOptions.Single(c => c.Id == "model").Current == "large");
+            Assert.True(chat.Busy);
+            modelMenu.Hide();
+            foreach (var (id, choice, expected) in new[] { ("reasoning", "High", "high"), ("fast", "On", "true") })
+            {
+                await Wait(() => configPanel.Children.OfType<Button>().Any(b => b.Name == "Config_" + id) && configPanel.IsEffectivelyEnabled);
+                var picker = configPanel.Children.OfType<Button>().Single(b => b.Name == "Config_" + id);
+                var menu = Assert.IsType<MenuFlyout>(picker.Flyout);
+                menu.Items.OfType<MenuItem>().Single(i => Equals(i.Header, choice)).RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+                await Wait(() => chat.ConfigOptions.Single(c => c.Id == id).Current == expected);
+                Assert.True(chat.Busy);
+            }
+            var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
             Assert.Contains("1 agent running", tray.ToolTipText);
             Assert.Contains(tray.Menu!.Items.OfType<NativeMenuItem>(), item => item.Header?.Contains("Codex · Composer ·") == true);
             composer.Text = "queued next"; composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });

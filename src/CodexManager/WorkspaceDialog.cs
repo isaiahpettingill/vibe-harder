@@ -10,6 +10,8 @@ namespace CodexManager;
 
 public sealed class WorkspaceDialog : Window
 {
+    public const string RemoteOption = "Remote computer…";
+    public RemoteHost? PairedHost { get; private set; }
     private readonly ComboBox host = new() { Name = "HostPicker", HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly TextBox path = new() { Name = "FolderPath", PlaceholderText = "Absolute workspace path" };
     private readonly TextBox name = new() { PlaceholderText = "Workspace name (optional)" };
@@ -23,7 +25,7 @@ public sealed class WorkspaceDialog : Window
     private int navigation;
     private readonly Workspace? initial;
 
-    public WorkspaceDialog(Workspace? initialWorkspace = null)
+    public WorkspaceDialog(Workspace? initialWorkspace = null, Store? connectionStore = null)
     {
         initial = initialWorkspace;
         Title = "Open workspace"; Width = 640; Height = 680; MinWidth = 500; MinHeight = 550; WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -53,7 +55,6 @@ public sealed class WorkspaceDialog : Window
         folders.DoubleTapped += async (_, _) => await EnterFolder();
         folders.KeyDown += async (_, e) => { if (e.Key is Key.Enter or Key.Right) { e.Handled = true; await EnterFolder(); } else if (e.Key is Key.Back or Key.Left) { e.Handled = true; await NavigateParent(); } };
         path.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Navigate(path.Text ?? ""); } };
-        host.SelectionChanged += async (_, _) => { back.Clear(); displayedPath = null; if (initial is not null && Distro == initial.Distro) await Navigate(initial.Path); else await Home(); };
         filter.TextChanged += (_, _) => Filter(); hidden.IsCheckedChanged += (_, _) => Filter();
         var grid = new Grid { Margin = new Thickness(16), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto"), RowSpacing = 8 };
         void Row(Control control, int index) { Grid.SetRow(control, index); grid.Children.Add(control); }
@@ -61,15 +62,34 @@ public sealed class WorkspaceDialog : Window
         Row(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { previous, up, home, browse } }, 3);
         var filterRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 }; filterRow.Children.Add(filter); Grid.SetColumn(hidden, 1); filterRow.Children.Add(hidden); Row(filterRow, 4);
         Row(folders, 5); Row(name, 6); Row(error, 7); Row(open, 8); Content = grid;
+        var localControls = grid.Children.Where(c => Grid.GetRow(c) >= 2).ToArray();
+        ConnectionSettingsView? settings = null;
+        Store? ownedStore = null;
+        host.SelectionChanged += async (_, _) =>
+        {
+            ++navigation; back.Clear(); displayedPath = null;
+            var remote = Equals(host.SelectedItem, RemoteOption);
+            foreach (var control in localControls) control.IsVisible = !remote;
+            if (settings is not null) { grid.Children.Remove(settings); settings.Dispose(); settings = null; }
+            if (remote)
+            {
+                settings = new ConnectionSettingsView(connectionStore ?? (ownedStore ??= new Store()), true, () => Task.CompletedTask);
+                settings.Paired += paired => { PairedHost = paired; Close(); };
+                Grid.SetRow(settings, 2); Grid.SetRowSpan(settings, 7); grid.Children.Add(settings);
+                return;
+            }
+            if (initial is not null && Distro == initial.Distro) await Navigate(initial.Path); else await Home();
+        };
+        Closed += (_, _) => { ++navigation; settings?.Dispose(); ownedStore?.Dispose(); };
         Opened += async (_, _) =>
         {
             host.IsEnabled = false; error.Text = "Discovering WSL distributions…";
-            try { host.ItemsSource = new[] { "Local" }.Concat(await Hosts.Distros()).ToArray(); }
-            catch (Exception ex) { host.ItemsSource = new[] { "Local" }; error.Text = ex.Message; }
+            try { host.ItemsSource = new[] { "Local" }.Concat(await Hosts.Distros()).Append(RemoteOption).ToArray(); }
+            catch (Exception ex) { host.ItemsSource = new[] { "Local", RemoteOption }; error.Text = ex.Message; }
             finally { host.IsEnabled = true; host.SelectedItem = initial?.Distro ?? "Local"; if (host.SelectedIndex < 0) host.SelectedIndex = 0; }
         };
     }
-    private string? Distro => host.SelectedItem is string selected && selected != "Local" ? selected : null;
+    private string? Distro => host.SelectedItem is string selected && selected != "Local" && selected != RemoteOption ? selected : null;
     private async Task Home()
     {
         try

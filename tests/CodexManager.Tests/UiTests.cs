@@ -332,7 +332,7 @@ public class UiTests
         var send = window.FindControl<Button>("SendButton")!;
         var sendCorner = send.TranslatePoint(new Point(send.Bounds.Width, send.Bounds.Height), border)!.Value;
         Assert.InRange(sendCorner.X, 1, border.Bounds.Width); Assert.InRange(sendCorner.Y, 1, border.Bounds.Height);
-        Assert.Contains("avares://VibeHarder/Assets/Fonts", composer.FontFamily.ToString());
+        Assert.Contains("avares://VibeHarder.UI/Assets/Fonts", composer.FontFamily.ToString());
         window.Width = 1220; window.Height = 840;
 
         window.FindControl<Button>("ArchiveChatButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

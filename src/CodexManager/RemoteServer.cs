@@ -14,17 +14,24 @@ public sealed class RemoteServer : IAsyncDisposable
     private readonly ConcurrentDictionary<TcpClient, Task> clients = new();
     private TcpListener? listener;
     private readonly Task loop;
+    private readonly SemaphoreSlim pairingGate = new(1, 1);
+    private readonly Queue<DateTimeOffset> pairingRequests = new();
     public string? Fingerprint { get; private set; }
     public string? Error { get; private set; }
     public static string DirectoryPath => Path.Combine(Store.DataDirectory, "remote");
-    public RemoteServer(string directory, string address, int port, Func<JsonObject, Task<JsonNode?>> handle)
+    public RemoteServer(string directory, string address, int port, Func<JsonObject, Task<JsonNode?>> handle, Func<string, string, CancellationToken, Action, Task>? showPairing = null)
     {
         loop = Task.Run(async () =>
         {
             try
             {
                 using var certificate = RemoteTrust.Certificate(directory);
-                listener = new TcpListener(IPAddress.Parse(address), port); listener.Start();
+                // Listening interfaces and client-facing DNS names are separate settings.
+                var bindAddress = IPAddress.TryParse(address, out var ip) ? ip : IPAddress.Any;
+                if ((bindAddress.Equals(IPAddress.Any) || bindAddress.Equals(IPAddress.IPv6Any)) && Socket.OSSupportsIPv6) bindAddress = IPAddress.IPv6Any;
+                listener = new TcpListener(bindAddress, port);
+                if (bindAddress.Equals(IPAddress.IPv6Any)) listener.Server.DualMode = true;
+                listener.Start();
                 Fingerprint = RemoteTrust.Fingerprint(certificate);
                 await File.WriteAllTextAsync(Path.Combine(directory, "host_fingerprint"), Fingerprint + "\n", lifetime.Token);
                 try
@@ -49,6 +56,43 @@ public sealed class RemoteServer : IAsyncDisposable
                 using var handshake = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token); handshake.CancelAfter(TimeSpan.FromSeconds(15));
                 await stream.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = certificate, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, handshake.Token);
                 var login = await RemoteWire.Read(stream, handshake.Token, 16 * 1024);
+                if (login["method"]?.GetValue<string>() == "pairing/start")
+                {
+                    var response = new JsonObject { ["id"] = login["id"]?.DeepClone() };
+                    if (showPairing is null || !await pairingGate.WaitAsync(0, lifetime.Token))
+                    {
+                        response["error"] = showPairing is null ? "Pairing is unavailable on this host." : "Another device is pairing. Try again shortly.";
+                        await RemoteWire.Write(stream, response, handshake.Token); return;
+                    }
+                    using var pairing = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
+                    pairing.CancelAfter(TimeSpan.FromMinutes(2));
+                    try
+                    {
+                        while (pairingRequests.TryPeek(out var time) && time < DateTimeOffset.UtcNow.AddMinutes(-1)) pairingRequests.Dequeue();
+                        if (pairingRequests.Count >= 5) throw new IOException("Too many pairing requests. Try again in a minute.");
+                        pairingRequests.Enqueue(DateTimeOffset.UtcNow);
+                        var challenge = new RemotePairingChallenge(RemoteTrust.Fingerprint(certificate));
+                        var name = login["name"]?.GetValue<string>() ?? "Device";
+                        name = new string(name.Where(c => !char.IsControl(c)).Take(80).ToArray());
+                        await showPairing(name, challenge.Code, pairing.Token, pairing.Cancel);
+                        response["result"] = challenge.Offer();
+                        await RemoteWire.Write(stream, response, pairing.Token);
+                        var proof = await RemoteWire.Read(stream, pairing.Token, 16 * 1024);
+                        response = new JsonObject { ["id"] = proof["id"]?.DeepClone() };
+                        if (proof["method"]?.GetValue<string>() != "pairing/finish") throw new IOException("Invalid pairing request.");
+                        var evidence = challenge.Verify(proof);
+                        pairing.Token.ThrowIfCancellationRequested();
+                        response["result"] = new JsonObject { ["proof"] = evidence, ["credential"] = RemoteTrust.AddDevice(directory, name) };
+                        await RemoteWire.Write(stream, response, pairing.Token);
+                    }
+                    catch (Exception error) when (!pairing.IsCancellationRequested)
+                    {
+                        response.Remove("result"); response["error"] = error.Message;
+                        await RemoteWire.Write(stream, response, pairing.Token);
+                    }
+                    finally { pairing.Cancel(); pairingGate.Release(); }
+                    return;
+                }
                 var reply = new JsonObject { ["id"] = login["id"]?.DeepClone() };
                 string device; string secret;
                 try

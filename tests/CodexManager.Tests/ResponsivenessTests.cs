@@ -140,7 +140,7 @@ public class ResponsivenessTests
         {
             var list = UiTests.Named<ListBox>(window, "Chats_w"); var chat = (Chat)list.SelectedItem!;
             await Wait(() => chat.Busy && chat.Messages.Count > 0);
-            var tray = (TrayIcon)typeof(MainWindow).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window)!;
+            var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
             Assert.Contains("no agents running", tray.ToolTipText);
             UiTests.Named<Button>(window, "CollapseWorkspace_w").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); Assert.False(list.IsVisible);
             UiTests.Named<Button>(window, "CollapseWorkspace_w").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); Assert.True(list.IsVisible);

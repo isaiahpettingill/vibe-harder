@@ -22,14 +22,15 @@ public sealed class RemoteConnection : IDisposable
     private readonly SemaphoreSlim gate = new(1);
     public string? ObservedFingerprint { get; private set; }
     public RemoteConnection(RemoteHost host) => this.host = host;
-    private async Task Open(CancellationToken token)
+    internal Task OpenForPairing(CancellationToken token) => Open(token, pairing: true);
+    private async Task Open(CancellationToken token, bool pairing = false)
     {
         await client.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
         stream = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
         {
             if (certificate is null) return false;
             ObservedFingerprint = "SHA256:" + Convert.ToBase64String(SHA256.HashData(certificate.GetRawCertData())).TrimEnd('=');
-            return string.Equals(host.Fingerprint, ObservedFingerprint, StringComparison.Ordinal);
+            return pairing || string.Equals(host.Fingerprint, ObservedFingerprint, StringComparison.Ordinal);
         });
         await stream.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = host.Address, EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13 }, token).ConfigureAwait(false);
     }

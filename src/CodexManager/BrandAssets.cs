@@ -14,7 +14,7 @@ public static class BrandAssets
     {
         if (Images.TryGetValue(provider, out var cached)) return cached;
         var file = provider switch { AgentProvider.Codex => "openai", AgentProvider.Claude => "anthropic", _ => "opencode" };
-        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder/Assets/Brands/{file}.svg"));
+        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Brands/{file}.svg"));
         var svg = XDocument.Load(stream).Root!;
         var bounds = svg.Attribute("viewBox")!.Value.Split(' ').Select(n => double.Parse(n, CultureInfo.InvariantCulture)).ToArray();
         var drawing = new DrawingGroup();

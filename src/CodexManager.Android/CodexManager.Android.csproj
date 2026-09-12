@@ -9,14 +9,12 @@
     <AndroidPackageFormats>apk</AndroidPackageFormats>
     <RuntimeIdentifiers>android-arm64;android-x64</RuntimeIdentifiers>
     <PublishAot>false</PublishAot>
+    <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="Markdig" Version="1.3.2" />
-    <Compile Include="../CodexManager/RemoteConnection.cs" Link="RemoteConnection.cs" />
-    <Compile Include="../CodexManager/RemoteKey.cs" Link="RemoteKey.cs" />
-    <Compile Include="../CodexManager/ThemeCatalog.cs" Link="ThemeCatalog.cs" />
-    <AndroidAsset Include="../CodexManager/Assets/Fonts/NotoSans-Regular.ttf" Link="NotoSans-Regular.ttf" />
-    <AndroidAsset Include="../CodexManager/Assets/Fonts/NeoSpleenNerdFont-Regular.ttf" Link="NeoSpleenNerdFont-Regular.ttf" />
+    <PackageReference Include="Avalonia.Android" Version="12.1.2" />
+    <ProjectReference Include="../CodexManager.UI/CodexManager.UI.csproj" />
+    <TrimmerRootDescriptor Include="../CodexManager/TrimmerRoots.xml" />
     <AndroidResource Include="../CodexManager/Assets/app.png" Link="Resources/drawable/app.png" />
   </ItemGroup>
 </Project>

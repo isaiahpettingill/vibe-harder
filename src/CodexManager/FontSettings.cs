@@ -8,7 +8,7 @@ public sealed class FontSettings : Window
 {
     public const string DefaultName = "NeoSpleen Nerd Font";
     public static string Default(string kind) => kind is "UI" or "Chat" ? "Noto Sans" : DefaultName;
-    public static FontFamily Family(string? name) => new(string.IsNullOrWhiteSpace(name) || name == DefaultName ? "avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font" : name == "Noto Sans" ? "avares://VibeHarder/Assets/Fonts#Noto Sans" : name);
+    public static FontFamily Family(string? name) => new(string.IsNullOrWhiteSpace(name) || name == DefaultName ? "avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font" : name == "Noto Sans" ? "avares://VibeHarder.UI/Assets/Fonts#Noto Sans" : name);
     public static void Apply(Store store)
     {
         foreach (var kind in new[] { "UI", "Chat", "Code", "Terminal" })

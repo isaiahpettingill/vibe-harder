@@ -17,7 +17,7 @@ using SvcSystems.UI.Terminal;
 
 namespace CodexManager;
 
-public partial class MainWindow : Window
+public partial class MainView : UserControl
 {
     private readonly Store store;
     private SessionService remoteSessions = null!;
@@ -28,11 +28,11 @@ public partial class MainWindow : Window
     private async Task ConfigureRemoteServer()
     {
         if (remoteServer is not null) { await remoteServer.DisposeAsync(); remoteServer = null; }
-        if (store.Setting("remoteEnabled") == "1")
+        if (!remoteOnly && store.Setting("remoteEnabled") != "0")
         {
             try
             {
-                remoteServer = new RemoteServer(RemoteServer.DirectoryPath, store.Setting("remoteAddress") ?? "127.0.0.1", int.TryParse(store.Setting("remotePort"), out var port) ? port : 2222, remoteSessions.Handle);
+                remoteServer = new RemoteServer(RemoteServer.DirectoryPath, store.Setting("remoteListenAddress") ?? "0.0.0.0", int.TryParse(store.Setting("remotePort"), out var port) ? port : 2222, remoteSessions.Handle, ShowPairingCode);
                 while (remoteServer.Fingerprint is null && remoteServer.Error is null && !closing) await Task.Delay(25, discoveryLifetime.Token);
                 if (remoteServer.Error is { } error) StatusText.Text = "Remote server: " + error;
             }
@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     { if (remoteView is null) return; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; }
     private void OpenRemoteHost(RemoteHost host)
     {
-        CloseRemoteView(); var view = new RemoteView(host); remoteView = view;
+        CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view;
         if (current is not null) DeferHistoryEviction(current);
         MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
         view.CatalogChanged += catalog =>
@@ -65,11 +65,11 @@ public partial class MainWindow : Window
                     activity.Busy = chat["busy"]!.GetValue<bool>(); activity.HasUnreadCompletion = chat["unread"]?.GetValue<bool>() == true;
                     var row = new Grid { ColumnDefinitions = new("22,*") }; row.Children.Add(new ChatActivityIndicator(activity)); var title = new TextBlock { Text = chat["title"]!.GetValue<string>(), TextTrimming = TextTrimming.CharacterEllipsis }; Grid.SetColumn(title, 1); row.Children.Add(title);
                     var choose = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch };
-                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView?.Host != host) OpenRemoteHost(host); remoteView!.SelectChat(id); }; group.Children.Add(choose);
+                    choose.Click += (_, _) => { activity.HasUnreadCompletion = false; if (remoteView?.Host != host) OpenRemoteHost(host); remoteView!.SelectChat(id); CollapseSidebar(); }; group.Children.Add(choose);
                 }
             }
         };
-        Grid.SetColumn(view, 2); view.Bind(BackgroundProperty, this.GetResourceObservable("AppBackground")); RootPanes.Children.Add(view);
+        Grid.SetColumn(view, 2); Grid.SetRow(view, 1); view.Bind(BackgroundProperty, this.GetResourceObservable("AppBackground")); RootPanes.Children.Add(view);
     }
 
     private readonly ObservableCollection<Workspace> workspaces;
@@ -111,10 +111,10 @@ public partial class MainWindow : Window
     private double? resizeY;
     private double resizeHeight;
 
-    public MainWindow() : this(new Store()) { }
-    public MainWindow(Store store, List<Workspace>? loadedWorkspaces = null, List<Chat>? loadedChats = null)
+    public MainView() : this(new Store()) { }
+    public MainView(Store store, List<Workspace>? loadedWorkspaces = null, List<Chat>? loadedChats = null, bool remoteOnly = false)
     {
-        this.store = store;
+        this.store = store; this.remoteOnly = remoteOnly;
         InitializeComponent();
         TerminalDrawer.PropertyChanged += (_, e) =>
         {
@@ -127,7 +127,7 @@ public partial class MainWindow : Window
         RootPanes.ColumnDefinitions[0].MinWidth = 170; RootPanes.ColumnDefinitions[0].MaxWidth = 600;
         RootPanes.ColumnDefinitions[2].MinWidth = 420;
         if (double.TryParse(store.Setting("sidebarWidth"), System.Globalization.CultureInfo.InvariantCulture, out var sidebarWidth)) RootPanes.ColumnDefinitions[0].Width = new GridLength(Math.Clamp(sidebarWidth, 170, 600));
-        workspaces = new((loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = loadedChats ?? store.Chats();
+        workspaces = new((remoteOnly ? [] : loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = remoteOnly ? [] : loadedChats ?? store.Chats();
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, Runtime);
@@ -157,21 +157,16 @@ public partial class MainWindow : Window
             { e.Handled = true; PaletteClick(this, new()); }
         }, RoutingStrategies.Tunnel);
         saveTimer.Tick += async (_, _) => { try { SaveAll(); await store.FlushAsync(); } catch (Exception error) { StatusText.Text = "Could not save: " + error.Message; } }; saveTimer.Start();
-        Closing += OnClosing;
-        ConfigureTray();
-        Opened += async (_, _) =>
-        {
-            await ConfigureRemoteServer();
-            await OfferInterruptedChats();
-            if (Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable) Hide();
-        };
-        SizeChanged += (_, _) => TerminalDrawer.MaxWidth = Math.Max(220, Bounds.Width - 650);
+        InitializeLayout();
         if (workspaces.Count > 0) SelectWorkspace(workspaces.FirstOrDefault(w => w.Id == store.Setting("workspace")) ?? workspaces[0]);
         UpdateControls();
     }
     private async void OpenWorkspaceClick(object? sender, RoutedEventArgs e)
     {
-        var selected = await new WorkspaceDialog(workspace).ShowDialog<Workspace?>(this);
+        if (remoteOnly) { ShowConnectionSettings(); return; }
+        var dialog = new WorkspaceDialog(workspace, store);
+        var selected = await dialog.ShowDialog<Workspace?>(desktopWindow!);
+        if (dialog.PairedHost is { } host) { BuildWorkspaceTree(); OpenRemoteHost(host); return; }
         if (selected is null) return;
         OpenWorkspace(selected);
     }
@@ -430,7 +425,7 @@ public partial class MainWindow : Window
         void Apply() { if (string.IsNullOrWhiteSpace(input.Text)) return; chat.Title = input.Text.Trim(); store.Save(chat); UpdateControls(); dialog.Close(); }
         save.Click += (_, _) => Apply(); input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Apply(); } };
         dialog.Content = new StackPanel { Margin = new Thickness(12), Spacing = 8, Children = { input, save } };
-        dialog.Opened += (_, _) => { input.Focus(); input.SelectAll(); }; await dialog.ShowDialog(this);
+        dialog.Opened += (_, _) => { input.Focus(); input.SelectAll(); }; await dialog.ShowDialog(desktopWindow!);
     }
     private void InsertSlashCommand()
     {
@@ -492,7 +487,7 @@ public partial class MainWindow : Window
         UpdateTray();
         UpdateSlashCommands();
         UpdateQueue();
-        ConfigOptionsPanel.IsEnabled = current is { Busy: false } && runtimes.GetValueOrDefault(current.Id) is not { IsConfiguring: true } and not { IsReconnecting: true };
+        ConfigOptionsPanel.IsEnabled = current is not null && runtimes.GetValueOrDefault(current.Id) is { IsConnected: true, IsConfiguring: false, IsReconnecting: false, IsLoadingHistory: false };
         if (!ReferenceEquals(configChat, current) || configVersion != (current?.ConfigVersion ?? -1))
         {
             configChat = current; configVersion = current?.ConfigVersion ?? -1; ConfigOptionsPanel.Children.Clear();
@@ -501,24 +496,22 @@ public partial class MainWindow : Window
                 {
                     var picker = new Button { Name = "Config_" + option.Id, Content = new OptionContent(option), MaxWidth = 190, MinHeight = 24, FontSize = 11, Padding = new Thickness(4, 2) };
                     ToolTip.SetTip(picker, option.Name);
-                    picker.Click += (_, _) =>
+                    var menu = new MenuFlyout();
+                    foreach (var value in option.Values)
                     {
-                        var menu = new ContextMenu();
-                        foreach (var value in option.Values)
-                        {
-                            var item = new MenuItem { Header = value.Name, IsEnabled = value.Value != option.Current };
-                            item.Click += async (_, _) => await Runtime(configured, owner).SetConfig(option, value.Value);
-                            menu.Items.Add(item);
-                        }
-                        picker.ContextMenu = menu; menu.Open(picker);
-                    };
+                        var item = new MenuItem { Header = value.Name, IsEnabled = value.Value != option.Current };
+                        item.Click += async (_, _) => await Runtime(configured, owner).SetConfig(option, value.Value);
+                        menu.Items.Add(item);
+                    }
+                    picker.Flyout = menu;
                     ConfigOptionsPanel.Children.Add(picker);
                 }
         }
         WorkspaceSelectorButton.Content = (workspace?.Name ?? "Workspaces") + " ▾";
         Welcome.IsVisible = current is null;
-        WelcomeHeading.Text = workspace is null ? "Open a folder to start" : "Start a chat in " + workspace.Name;
-        WelcomeHint.Text = workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
+        WelcomeHeading.Text = remoteOnly ? "Connect to your computer" : workspace is null ? "Open a folder to start" : "Start a chat in " + workspace.Name;
+        WelcomeHint.Text = remoteOnly ? "Enter its address, then the pairing number shown on your desktop." : workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
+        ComposerBorder.IsVisible = !remoteOnly;
         WelcomeOpenButton.IsVisible = workspace is null;
         MessageList.IsVisible = current is not null; HistoryNavigation.IsVisible = current is not null;
         ComposerBorder.IsEnabled = current is not null;
@@ -756,7 +749,7 @@ public partial class MainWindow : Window
             _ = completion.Task.ContinueWith(_ => Dispatcher.UIThread.Post(() => { remoteSessions.ForgetPermission(remotePermissionId); dialog.Close(); }));
             var registration = token.Register(() => Dispatcher.UIThread.Post(() => dialog.Close()));
             dialog.Closed += (_, _) => registration.Dispose();
-            _ = dialog.ShowDialog(this);
+            _ = dialog.ShowDialog(desktopWindow!);
         });
         return await completion.Task;
     }
@@ -772,7 +765,7 @@ public partial class MainWindow : Window
         panel.Children.Add(new TextBlock { Text = "Uses each agent’s history in " + owner.Host + ". Existing chats are skipped.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         panel.Children.Add(import); dialog.Content = panel;
         import.Click += (_, _) => dialog.Close(options.Where(p => p.IsChecked == true).Select(p => (AgentProvider)p.Tag!).ToArray());
-        var providers = await dialog.ShowDialog<AgentProvider[]?>(this);
+        var providers = await dialog.ShowDialog<AgentProvider[]?>(desktopWindow!);
         if (providers is null || closing) return;
         var tasks = providers.Select(provider =>
         {
@@ -789,6 +782,7 @@ public partial class MainWindow : Window
     }
     private async void SettingsClick(object? sender, RoutedEventArgs e)
     {
+        if (remoteOnly) { ShowConnectionSettings(); return; }
         var dialog = new Window { Title = "Settings", Width = 680, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
         var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") == "1" };
@@ -812,7 +806,7 @@ public partial class MainWindow : Window
         fontSettings.Click += async (_, _) => await new FontSettings(store).ShowDialog(dialog);
         panel.Children.Add(fontSettings);
         var remote = new Button { Content = "Remote hosts and server…" };
-        remote.Click += async (_, _) => { await new RemoteSettings(store, remoteServer?.Fingerprint).ShowDialog(dialog); await ConfigureRemoteServer(); BuildWorkspaceTree(); };
+        remote.Click += async (_, _) => { var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(dialog); BuildWorkspaceTree(); if (host is not null) { dialog.Close(); OpenRemoteHost(host); } };
         panel.Children.Add(remote);
         panel.Children.Add(new TextBlock { Text = "Color theme" }); panel.Children.Add(AppTheme.Picker(store));
         var fields = new Dictionary<string, TextBox>();
@@ -847,17 +841,18 @@ public partial class MainWindow : Window
             store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0"); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0");
             store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray(); dialog.Close();
         };
-        dialog.Content = new ScrollViewer { Content = panel }; await dialog.ShowDialog(this);
+        dialog.Content = new ScrollViewer { Content = panel }; await dialog.ShowDialog(desktopWindow!);
     }
     private async void PaletteClick(object? sender, RoutedEventArgs e)
     {
+        if (remoteOnly) return;
         if (palette is not null) { palette.Activate(); return; }
         var owner = workspace;
         List<PaletteCommand> commands = [
             new("Open workspace", "Choose a local or WSL folder", () => { OpenWorkspaceClick(this, new()); return Task.CompletedTask; }),
             new("Connection settings", "Configure agent and account commands", () => { SettingsClick(this, new()); return Task.CompletedTask; })
         ];
-        commands.Add(new("Terminal settings", "Choose a shell for each platform", async () => await new TerminalSettings(store, store.Workspaces()).ShowDialog(this)));
+        commands.Add(new("Terminal settings", "Choose a shell for each platform", async () => await new TerminalSettings(store, store.Workspaces()).ShowDialog(desktopWindow!)));
         if (owner is not null)
         {
             commands.Add(new("New terminal", owner.Caption, () => NewTerminal(target: owner)));
@@ -872,7 +867,7 @@ public partial class MainWindow : Window
         palette = new CommandPalette(commands, owner);
         try
         {
-            var command = await palette.ShowDialog<PaletteCommand?>(this);
+            var command = await palette.ShowDialog<PaletteCommand?>(desktopWindow!);
             palette = null;
             if (command is not null && !closing) await command.Execute();
         }
@@ -906,7 +901,7 @@ public partial class MainWindow : Window
     }
     private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize)
     {
-        var control = new ThemedTerminalControl { Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder/Assets/Fonts#NeoSpleen Nerd Font") };
+        var control = new ThemedTerminalControl { Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font") };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         control.AddHandler(KeyDownEvent, async (_, e) =>
@@ -956,6 +951,7 @@ public partial class MainWindow : Window
     }
     private async void ToggleTerminal(object? sender, RoutedEventArgs e)
     {
+        if (remoteOnly) return;
         TerminalDrawer.IsVisible = !TerminalDrawer.IsVisible;
         if (!TerminalDrawer.IsVisible) { Composer.Focus(); return; }
         if (TerminalTabs.ItemCount == 0) await NewTerminal();
@@ -964,6 +960,7 @@ public partial class MainWindow : Window
     private async void NewTerminalClick(object? sender, RoutedEventArgs e) => await NewTerminal();
     private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null)
     {
+        if (remoteOnly) return null;
         var owner = target ?? workspace;
         if (owner is null) return null;
         var session = new TerminalSession();
@@ -983,7 +980,7 @@ public partial class MainWindow : Window
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }
     private void TerminalResizeEnd(object? sender, PointerReleasedEventArgs e) { resizeY = null; e.Pointer.Capture(null); }
     private void SaveAll()
-    { store.Setting("sidebarWidth", RootPanes.ColumnDefinitions[0].ActualWidth.ToString(System.Globalization.CultureInfo.InvariantCulture)); store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)); foreach (var c in chats) { if (runtimes.GetValueOrDefault(c.Id)?.IsLoadingHistory == true) continue; store.Save(c); foreach (var m in c.Messages) store.SaveMessage(c, m); } }
+    { store.Setting("sidebarWidth", (!compact && sidebarOpen ? RootPanes.ColumnDefinitions[0].ActualWidth : sidebarWidth).ToString(System.Globalization.CultureInfo.InvariantCulture)); store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)); foreach (var c in chats) { if (runtimes.GetValueOrDefault(c.Id)?.IsLoadingHistory == true) continue; store.Save(c); foreach (var m in c.Messages) store.SaveMessage(c, m); } }
     private async Task BrowseHistory(bool newer)
     {
         if (current is not { } chat) return;
@@ -1066,7 +1063,7 @@ public partial class MainWindow : Window
         var confirm = new Button { Name = "ConfirmDeleteButton", Content = codexHistory ? "Delete permanently" : "Remove from app" }; var cancel = new Button { Content = "Cancel" };
         confirm.Click += (_, _) => dialog.Close(true); cancel.Click += (_, _) => dialog.Close(false);
         dialog.Content = new StackPanel { Margin = new Thickness(24), Spacing = 18, Children = { new TextBlock { Text = "Delete “" + chat.Title + "”?", FontSize = 20, TextWrapping = TextWrapping.Wrap }, new TextBlock { Text = codexHistory ? "This removes the chat and attachments from this app and permanently deletes its Codex history, including any child sessions. Project files are kept." : "Remove this chat and its attachments from this app? The original agent history is kept. This chat will be skipped by future imports.", TextWrapping = TextWrapping.Wrap }, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { cancel, confirm } } } };
-        if (!await dialog.ShowDialog<bool>(this)) return;
+        if (!await dialog.ShowDialog<bool>(desktopWindow!)) return;
         historyOperation = DeleteChat(chat, owner); await historyOperation;
     }
     private async Task DeleteChat(Chat chat, Workspace owner)
@@ -1086,10 +1083,10 @@ public partial class MainWindow : Window
     private void ConfigureTray()
     {
         tray?.Dispose(); tray = null;
-        if (store.Setting("runInTray") == "0") return;
+        if (remoteOnly || desktopWindow is null || store.Setting("runInTray") == "0") return;
         var show = new NativeMenuItem("Open Vibe Harder"); show.Click += (_, _) => ShowFromTray();
         var quit = new NativeMenuItem("Quit and interrupt agents"); quit.Click += (_, _) => RequestExit();
-        tray = new TrayIcon { Icon = Icon, ToolTipText = "Vibe Harder — no agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
+        tray = new TrayIcon { Icon = desktopWindow.Icon, ToolTipText = "Vibe Harder — no agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
         UpdateTray();
         tray.Clicked += (_, _) => ShowFromTray();
         if (Application.Current is { } app) TrayIcon.SetIcons(app, new TrayIcons { tray });
@@ -1117,8 +1114,8 @@ public partial class MainWindow : Window
         var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += (_, _) => RequestExit(); menu.Items.Add(quit);
         tray.Menu = menu;
     }
-    public void ShowFromTray() { Show(); WindowState = WindowState.Normal; Activate(); UpdateControls(); }
-    public void RequestExit() { exitRequested = true; Close(); }
+    public void ShowFromTray() { desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
+    public void RequestExit() { exitRequested = true; desktopWindow?.Close(); }
     private async Task OfferInterruptedChats()
     {
         if (recoveryOffered) return; recoveryOffered = true;
@@ -1156,7 +1153,7 @@ public partial class MainWindow : Window
                 _ = ResumeInterrupted(chat, owner, input);
             }
         };
-        await dialog.ShowDialog(this);
+        await dialog.ShowDialog(desktopWindow!);
     }
     private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input)
     {
@@ -1182,7 +1179,7 @@ public partial class MainWindow : Window
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
-        { e.Cancel = true; SaveAll(); Hide(); return; }
+        { e.Cancel = true; SaveAll(); desktopWindow?.Hide(); return; }
         if (closing) { e.Cancel = !shutdownComplete; return; }
         e.Cancel = true; closing = true; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
         var errors = new List<Exception>();
@@ -1213,10 +1210,10 @@ public partial class MainWindow : Window
             remoteSessions.Changed -= BuildWorkspaceTree;
             MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
             runtimes.Clear(); terminals.Clear(); loginSessions.Clear(); discoveries.Clear(); workspaceClosures.Clear();
-            foreach (var owned in OwnedWindows.ToArray()) owned.Close();
+            foreach (var owned in desktopWindow!.OwnedWindows.ToArray()) owned.Close();
             if (errors.Count > 0) System.Diagnostics.Trace.WriteLine(new AggregateException("Shutdown cleanup errors", errors));
-            shutdownComplete = true; Close();
-            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && ReferenceEquals(desktop.MainWindow, this)) desktop.Shutdown();
+            shutdownComplete = true; desktopWindow?.Close();
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime desktop && ReferenceEquals(desktop.MainWindow, desktopWindow)) desktop.Shutdown();
         }
     }
 }

@@ -25,7 +25,7 @@ public static class PlatformIcons
     }
     public static Image For(Workspace workspace)
     {
-        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder/Assets/Platforms/{Identify(workspace.Distro)}.svg"));
+        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Platforms/{Identify(workspace.Distro)}.svg"));
         var svg = XDocument.Load(stream).Root!;
         var bounds = svg.Attribute("viewBox")!.Value.Split(' ').Select(n => double.Parse(n, CultureInfo.InvariantCulture)).ToArray();
         var drawing = new DrawingGroup();

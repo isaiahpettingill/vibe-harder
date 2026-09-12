@@ -1,5 +1,23 @@
 # Verification — 2026-09-11
 
+## Release 1.0.7 follow-up
+
+- The workspace picker offers Remote computer, completes numeric pairing, saves the host, and can switch back to local folders.
+- Model, reasoning, and fast-mode selectors remain usable during a running response. The focused composer test changes each through its menu without stopping the turn.
+- Nineteen focused pairing, session configuration, composer, and workspace-folder tests passed (the composer test was rerun after correcting its expected panel type).
+
+## Shared Avalonia Android UI and numeric pairing
+
+Desktop and Android now reference `CodexManager.UI`; desktop wraps the shared `MainView` in `MainWindow`, while Android uses Avalonia's activity lifetime. The sidebar collapses into an overlay at narrow widths. Android hides terminal controls and does not initialize local workspaces or agent runtimes.
+
+- The focused UI, remote, settings, lifecycle, and presentation run passed 46 of 47 cases. The remaining desktop command-palette shortcut regression was fixed; all three focused follow-up cases passed. The final focused pairing/remote/composer/shortcut run passed all 21 cases.
+- Numeric pairing tests exercise a desktop popup, DNS hostnames, IPv4/IPv6 address parsing, wrong-number rejection, retry, one-use completion, saved credentials, certificate pinning, settings persistence, and a saved host opening in the mobile shell. Existing restart/revocation tests still pass.
+- The Android emulator ran the shared Avalonia UI, paired against an isolated fixture host, displayed Markdown, sent a message and received the fixture response, expanded/collapsed the sidebar, and reconnected after restarting and returning from the background. The original emulator app was kept; smoke testing used `com.isaiahpettingill.vibeharder.qa`.
+- Screenshots: `artifacts/android-shared-avalonia.png`, `android-pairing-number.png`, `android-paired-sidebar.png`, and `android-chat-roundtrip.png`.
+- Windows native AOT publishing succeeded at `artifacts/publish/shared-ui-win-x64`; existing third-party Markdown trim/AOT warnings remain. Android debug builds passed with zero warnings/errors, and Release APK publishing succeeded. The Release QA APK was installed on the emulator and successfully opened the saved remote chat. Android builds use the repository `.dotnet/dotnet` with `AndroidSdkDirectory=K:/Caches/android-sdk` and `JavaSdkDirectory=K:/Caches/android-jdk`.
+- Validation uses disposable fixture profiles and no paid agent requests. MagicDNS names are accepted without IP validation; a live Tailscale connection and a physical Android device were not exercised. Release distribution/signing with the existing release identity was not performed.
+
+
 Automatic recovery follow-up: 10 targeted lifecycle/queue/composer/streaming tests passed, followed by 2 startup-command/single-instance tests. Automatic restart resumes an interrupted fixture without presenting the recovery dialog; opting out still prompts; manual Stop has no recovery marker. Second instances signal the owner through a current-user pipe. Startup registration remains opt-in and wasn't enabled on the user's machine by these tests. Windows native AOT build validates the implementation; macOS LaunchAgent and Linux autostart registration have not been run on native desktops.
 
 Queue/lifecycle follow-up: targeted UI, store, queue, and streaming run passed 21 tests; subsequent changed lifecycle/composer/queue/recovery run passed 9 tests. Covered advertised steering without cancelling the owning turn, Enter-to-queue, double Escape stopping while preserving queued input, FIFO dispatch, queued input surviving restart, sidebar title/archive persistence, pane width persistence, and X-close leading to a startup recovery dialog without automatic resubmission. Inspected `artifacts/ui-composer-queue.png`. Tray uses native Avalonia integration and falls back to normal close when no tray menu exporter is available; native tray interaction and macOS behavior were not exercised in this environment.

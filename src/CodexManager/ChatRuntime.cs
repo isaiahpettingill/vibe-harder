@@ -80,7 +80,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     }
     public async Task SetConfig(SessionConfig config, string value)
     {
-        if (chat.Busy || IsConfiguring || client is null || chat.SessionId is null) return;
+        if (loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
         if (!config.Values.Any(v => v.Value == value)) return;
         IsConfiguring = true; Changed?.Invoke();
         try
