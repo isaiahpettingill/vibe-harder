@@ -15,6 +15,9 @@ public sealed class TerminalSession : IDisposable
     private readonly System.Text.Decoder decoder = System.Text.Encoding.UTF8.GetDecoder();
     public event Action? Completed;
     public event Action? OutputChanged;
+    public event Action<string>? RawOutput;
+    public void Input(string text) => Write(System.Text.Encoding.UTF8.GetBytes(text));
+    public void Resize(int cols, int rows) => Model.Resize(Math.Clamp(cols, 2, 500), Math.Clamp(rows, 2, 200), 1, 1);
     public TerminalOutput Output { get; } = new();
     public async Task Start(Workspace workspace, string? command = null, Store? settings = null)
     {
@@ -83,9 +86,9 @@ public sealed class TerminalSession : IDisposable
                 var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(read)];
                 var count = decoder.GetChars(copy, chars, false);
                 var text = new string(chars, 0, count);
-                await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed(text); Output.Append(copy); OutputChanged?.Invoke(); });
+                await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed(text); RawOutput?.Invoke(text); Output.Append(copy); OutputChanged?.Invoke(); });
             }
-            await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed("\r\n[Shell exited]\r\n"); if (!disposed) Completed?.Invoke(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed("\r\n[Shell exited]\r\n"); RawOutput?.Invoke("\r\n[Shell exited]\r\n"); if (!disposed) Completed?.Invoke(); });
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (!lifetime.IsCancellationRequested) await Dispatcher.UIThread.InvokeAsync(() => Model.Feed("\r\n" + error.Message)); }

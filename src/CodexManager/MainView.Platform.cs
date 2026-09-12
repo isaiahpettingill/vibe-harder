@@ -21,11 +21,18 @@ public partial class MainView
     private bool started;
     private ConnectionSettingsView? connectionSettings;
     private TopLevel? inputTopLevel;
+    private double keyboardInset;
+    private void SafeAreaChanged(object? sender, Avalonia.Controls.Platform.SafeAreaChangedArgs e) => ApplyMobileInsets();
+    private void ApplyMobileInsets()
+    {
+        var safe = inputTopLevel?.InsetsManager?.SafeAreaPadding ?? default;
+        Padding = new Thickness(safe.Left, safe.Top, safe.Right, safe.Bottom + keyboardInset);
+    }
     private void InputPaneChanged(object? sender, Avalonia.Controls.Platform.InputPaneStateEventArgs e)
     {
         if (!remoteOnly) return;
-        var bottom = e.NewState == Avalonia.Controls.Platform.InputPaneState.Open ? e.EndRect.Height : 0;
-        Padding = new Thickness(0, 0, 0, bottom);
+        keyboardInset = e.NewState == Avalonia.Controls.Platform.InputPaneState.Open ? e.EndRect.Height : 0;
+        ApplyMobileInsets();
     }
 
     public void AttachDesktop(Window window)
@@ -70,7 +77,10 @@ public partial class MainView
             started = true;
             if (remoteOnly)
             {
+                TopLevel.SetAutoSafeAreaPadding(this, false);
                 inputTopLevel = TopLevel.GetTopLevel(this);
+                if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged += SafeAreaChanged;
+                ApplyMobileInsets();
                 if (inputTopLevel?.InputPane is { } pane) pane.StateChanged += InputPaneChanged;
                 var host = RemoteSettings.Hosts(store).FirstOrDefault();
                 if (host is null) ShowConnectionSettings(); else OpenRemoteHost(host);
@@ -140,6 +150,7 @@ public partial class MainView
     public void DisposeMobile()
     {
         if (inputTopLevel?.InputPane is { } pane) pane.StateChanged -= InputPaneChanged;
+        if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged -= SafeAreaChanged;
         closing = true; saveTimer.Stop(); discoveryLifetime.Cancel(); connectionSettings?.Dispose(); CloseRemoteView();
         DisposePresentationSleep(); store.Dispose();
     }

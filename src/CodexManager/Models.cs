@@ -64,7 +64,10 @@ public sealed class Chat : Observable
     public override string ToString() => Title;
 }
 
-public sealed record PendingInput(string Text, Attachment[] Attachments);
+public sealed record PendingInput(string Text, Attachment[] Attachments)
+{
+    public string Id { get; init; } = Guid.NewGuid().ToString("N");
+}
 
 public sealed class Message : Observable
 {

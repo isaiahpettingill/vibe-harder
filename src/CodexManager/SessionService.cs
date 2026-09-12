@@ -3,8 +3,10 @@ using System.Text.Json.Nodes;
 
 namespace CodexManager;
 
-public sealed class SessionService(Store store, IList<Workspace> workspaces, IList<Chat> chats, Func<Chat, Workspace, ChatRuntime> runtime)
+public sealed class SessionService(Store store, IList<Workspace> workspaces, IList<Chat> chats, Func<Chat, Workspace, ChatRuntime> runtime) : IDisposable
 {
+    private readonly RemoteTerminals terminals = new(store, workspaces);
+    public void Dispose() => terminals.Dispose();
     public event Action? Changed;
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
@@ -25,13 +27,15 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     {
         var result = await HandleCore(request);
         // A successful mutation reply must survive an immediate host restart.
-        if (request["method"]?.GetValue<string>() is not ("list" or "chat")) await store.FlushAsync();
+        var method = request["method"]?.GetValue<string>() ?? "";
+        if (method is not ("list" or "chat") && !method.StartsWith("terminal/", StringComparison.Ordinal)) await store.FlushAsync();
         return result;
     }
     private async Task<JsonNode?> HandleCore(JsonObject request)
     {
         string Text(string key) => request[key]?.GetValue<string>() ?? "";
         var method = Text("method");
+        if (method.StartsWith("terminal/", StringComparison.Ordinal)) return await terminals.Handle(request);
         if (method == "locations") return new JsonObject { ["distros"] = new JsonArray((await Hosts.Distros()).Select(d => (JsonNode)JsonValue.Create(d)!).ToArray()) };
         if (method == "directories")
         {
@@ -84,7 +88,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         if (method == "chat")
         {
             Message[] page;
-            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>());
+            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: 50);
+            else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: 50, newer: true);
             else if (!chat.RetainHistory)
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);
@@ -102,7 +107,17 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());
             result["config"] = new JsonArray(chat.ConfigOptions.Select(c => (JsonNode)new JsonObject { ["id"] = c.Id, ["name"] = c.Name, ["current"] = c.Current, ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)new JsonObject { ["value"] = v.Value, ["name"] = v.Name }).ToArray()) }).ToArray());
+            result["canSteer"] = active.SupportsSteering && active.IsPrompting && !active.IsSteering;
+            result["queue"] = new JsonArray(chat.QueuedInputs.Select(q => (JsonNode)new JsonObject { ["id"] = q.Id, ["text"] = q.Text, ["attachments"] = q.Attachments.Length }).ToArray());
             return result;
+        }
+        if (method is "queue/steer" or "queue/remove")
+        {
+            var queued = chat.QueuedInputs.FirstOrDefault(q => q.Id == Text("queueId")) ?? throw new IOException("This message is no longer queued.");
+            if (method == "queue/remove") active.RemoveQueued(queued);
+            else if (await active.Steer(queued)) active.RemoveQueued(queued);
+            else throw new IOException("Steering was not accepted. The message remains queued.");
+            return Summary(chat);
         }
         if (method is "send" or "queue" or "steer")
         {

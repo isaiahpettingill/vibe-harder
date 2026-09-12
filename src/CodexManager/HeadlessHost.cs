@@ -32,7 +32,7 @@ public static class HeadlessHost
             try
             {
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
-                await server.DisposeAsync(); await Task.WhenAll(shutdowns);
+                await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);
                 foreach (var chat in chats) { store.Save(chat); foreach (var message in chat.Messages) store.SaveMessage(chat, message); }
                 await store.FlushAsync();
             }

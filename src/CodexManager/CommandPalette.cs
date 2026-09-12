@@ -15,10 +15,21 @@ public sealed class CommandPalette : Window
     private readonly ListBox results = new() { Name = "CommandResults" };
     private readonly TextBlock status = new() { Text = "Finding configuration files…", FontSize = 11, TextWrapping = TextWrapping.Wrap };
     private readonly List<PaletteCommand> commands;
+    private readonly TaskCompletionSource<PaletteCommand?> completion = new();
+    private PaletteCommand? chosen;
+    public Task<PaletteCommand?> Open(Window owner)
+    {
+        void Outside(object? sender, PointerPressedEventArgs e) => Close();
+        owner.AddHandler(PointerPressedEvent, Outside, Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
+        Closed += (_, _) => owner.RemoveHandler(PointerPressedEvent, Outside);
+        Show(owner); Activate(); return completion.Task;
+    }
     public CommandPalette(IEnumerable<PaletteCommand> initial, Workspace? workspace)
     {
         commands = initial.ToList();
-        Title = "Command palette"; Width = 700; Height = 440; MinWidth = 450; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Title = "Command palette"; Width = 700; Height = 440; MinWidth = 450; WindowStartupLocation = WindowStartupLocation.CenterOwner; CanResize = false;
+        Deactivated += (_, _) => Close();
+        Closed += (_, _) => completion.TrySetResult(chosen);
         var grid = new Grid { Margin = new Thickness(10), RowDefinitions = new RowDefinitions("Auto,*,Auto"), RowSpacing = 6 };
         grid.Children.Add(query); Grid.SetRow(results, 1); grid.Children.Add(results); Grid.SetRow(status, 2); grid.Children.Add(status); Content = grid;
         results.ItemTemplate = new FuncDataTemplate<PaletteCommand>((command, _) => new StackPanel
@@ -59,5 +70,5 @@ public sealed class CommandPalette : Window
         results.ItemsSource = commands.Where(c => terms.All(t => (c.Title + " " + c.Detail).Contains(t, StringComparison.OrdinalIgnoreCase))).ToArray();
         results.SelectedIndex = results.ItemCount > 0 ? 0 : -1;
     }
-    private void Choose() { if (results.SelectedItem is PaletteCommand command) Close(command); }
+    private void Choose() { if (results.SelectedItem is PaletteCommand command) { chosen = command; Close(); } }
 }

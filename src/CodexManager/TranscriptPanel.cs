@@ -39,6 +39,13 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
     private double HeightAt(int index) => Items[index] is { } item && heights.TryGetValue(item, out var height) ? height : 100;
     private double Top(int index) { double result = 0; for (var i = 0; i < index; i++) result += HeightAt(i); return result; }
     private int At(double y) { var i = 0; while (i < Items.Count - 1 && y >= HeightAt(i)) y -= HeightAt(i++); return i; }
+    public (object Item, double Within)? CaptureAnchor() => Items.Count == 0 ? null : (Items[At(offset.Y)]!, offset.Y - Top(At(offset.Y)));
+    public void RestoreAnchor((object Item, double Within)? anchor)
+    {
+        if (anchor is not { } saved) return;
+        for (var i = 0; i < Items.Count; i++)
+            if (ReferenceEquals(Items[i], saved.Item) || Items[i] is Message item && saved.Item is Message previous && item.Id == previous.Id) { bottom = false; offset = new Vector(0, Top(i) + saved.Within); InvalidateMeasure(); RaiseScrollInvalidated(EventArgs.Empty); break; }
+    }
     private Control Realize(int index)
     {
         if (realized.TryGetValue(index, out var existing)) return existing;

@@ -9,7 +9,7 @@
         <TextBox Grid.Row="2" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
         <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
         <ScrollViewer Name="WorkspaceScroll" Grid.Row="4" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
-        <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><Button Content="⚙ Settings" Click="SettingsClick" HorizontalAlignment="Stretch"/><Button Name="CommandPaletteButton" Grid.Column="1" Content="⌘" Click="PaletteClick" ToolTip.Tip="Command palette (Ctrl+Shift+P)" Margin="4,0,0,0"/></Grid>
+        <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><local:IconButton Name="SettingsButton" Icon="settings" Label="Settings" Click="SettingsClick" HorizontalAlignment="Left"/><local:IconButton Name="CommandPaletteButton" Grid.Column="1" Icon="command" Label="Command palette (Ctrl+Shift+P)" Click="PaletteClick" Margin="4,0,0,0"/></Grid>
       </Grid>
     </Border>
     <GridSplitter Name="SidebarSplitter" Grid.Row="1" Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource AppBorder}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
@@ -27,7 +27,7 @@
           </StackPanel>
         </Border>
         <Grid Grid.Row="2" Margin="14,0,14,10" RowDefinitions="Auto,*">
-            <StackPanel Name="HistoryNavigation" Orientation="Horizontal" HorizontalAlignment="Right"><local:IconButton Icon="chevron-up" Label="Earlier messages" Click="EarlierMessagesClick"/><local:IconButton Icon="chevron-down" Label="Newer messages" Click="NewerMessagesClick"/><local:IconButton Icon="latest" Label="Return to latest messages" Click="LatestMessagesClick"/></StackPanel>
+
             <StackPanel Grid.Row="1" Name="Welcome" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Spacing="10" Margin="16,32">
               <TextBlock Name="WelcomeHeading" Text="Open a folder to start" FontSize="16" TextWrapping="Wrap"/>
               <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
@@ -41,6 +41,7 @@
                 </Border>
               </DataTemplate></ListBox.ItemTemplate>
             </ListBox>
+            <local:IconButton Name="HistoryNavigation" Grid.Row="1" Icon="chevron-down" Label="Return to latest message" Click="LatestMessagesClick" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,8" IsVisible="False" ZIndex="5" Background="{DynamicResource AppSurface}"/>
         </Grid>
       </Grid>
       <Border Grid.Row="2" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
@@ -51,7 +52,7 @@
           
           <ItemsControl Name="AttachmentList"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Button Tag="{Binding}" Click="RemoveAttachment" Margin="0,0,6,5" ToolTip.Tip="Remove attachment"><StackPanel Spacing="4"><Image Source="{Binding Thumbnail}" IsVisible="{Binding IsImage}" Width="80" Height="60" Stretch="Uniform"/><TextBlock Text="{Binding Name}" MaxWidth="150" TextTrimming="CharacterEllipsis" FontSize="11"/></StackPanel></Button></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
           <TextBox FontFamily="{DynamicResource ChatFont}" Name="Composer" FontSize="{DynamicResource ChatFontSize}" PlaceholderText="Ask Codex… paste an image or drop a file" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="48" MaxHeight="190" Padding="8,6" Background="Transparent" BorderThickness="0" TextChanged="DraftChanged"/>
-          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Name="StopButton" Icon="stop" Label="Stop" Click="StopClick" IsVisible="False"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
+          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
         </StackPanel>
       </Border>
       </Grid>

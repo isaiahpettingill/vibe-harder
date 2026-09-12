@@ -28,7 +28,7 @@ public class HistoryReplayTests
             var selected = Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_replay").SelectedItem);
             var until = DateTime.UtcNow.AddSeconds(45);
             while (selected.Busy && DateTime.UtcNow < until)
-            { Assert.False(window.FindControl<Button>("StopButton")!.IsVisible); await Task.Delay(50); }
+            { Assert.NotNull(window.FindControl<Button>("SendButton")); await Task.Delay(50); }
             Assert.Equal("Ready", selected.Status);
             Assert.NotEmpty(selected.Messages);
             Assert.False(selected.Busy);

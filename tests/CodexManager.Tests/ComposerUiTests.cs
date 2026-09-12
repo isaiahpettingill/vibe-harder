@@ -30,6 +30,18 @@ public class ComposerUiTests
         {
             composer.Text = "hang"; window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
+            var send = window.FindControl<Button>("SendButton")!;
+            Assert.Equal("Stop", Avalonia.Automation.AutomationProperties.GetName(send));
+            composer.Text = "button queued";
+            await Wait(() => Avalonia.Automation.AutomationProperties.GetName(send)?.StartsWith("Queue message") == true);
+            send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Single(chat.QueuedInputs);
+            await Wait(() => Avalonia.Automation.AutomationProperties.GetName(send) == "Stop");
+            Assert.Equal("Stop", Avalonia.Automation.AutomationProperties.GetName(send));
+            window.FindControl<Expander>("QueuePanel")!.IsExpanded = true; window.UpdateLayout();
+            var steerQueued = window.GetVisualDescendants().OfType<IconButton>().Single(b => b.Name == "SteerQueued");
+            Assert.True(steerQueued.IsVisible); steerQueued.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => chat.QueuedInputs.Count == 0 && chat.Messages.Any(m => m.Text == "button queued"));
             var configPanel = window.FindControl<WrapPanel>("ConfigOptionsPanel")!;
             Assert.True(configPanel.IsEffectivelyEnabled);
             var modelPicker = configPanel.Children.OfType<Button>().Single(b => b.Name == "Config_model");

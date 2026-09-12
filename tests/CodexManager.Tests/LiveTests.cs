@@ -50,7 +50,7 @@ public class LiveTests
             var stopDeadline = DateTime.UtcNow.AddSeconds(40);
             while (resumed.Busy && (resumed.Messages.Count <= previousCount + 1 || resumed.Messages.Last().Text.Length == 0) && DateTime.UtcNow < stopDeadline) await Task.Delay(50);
             Assert.True(resumed.Busy, "Expected a streaming turn to interrupt");
-            reopened.FindControl<Button>("StopButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            reopened.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitForTurn(reopened);
             Assert.Equal("Interrupted", resumed.Status);
             reopened.Close(); await Task.Delay(300);

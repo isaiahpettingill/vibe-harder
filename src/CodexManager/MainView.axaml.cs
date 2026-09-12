@@ -104,6 +104,8 @@ public partial class MainView : UserControl
     private bool refreshingChats;
     private CancellationTokenSource? pageLoad;
     private bool viewingHistory;
+    private TranscriptNavigation? historyNavigation;
+    private void UpdateHistoryNavigation() => historyNavigation?.Update();
     private HashSet<string> searchMatches = [];
     private CancellationTokenSource? searchCancellation;
     private Chat? configChat;
@@ -121,6 +123,7 @@ public partial class MainView : UserControl
     {
         this.store = store; this.remoteOnly = remoteOnly;
         InitializeComponent();
+        historyNavigation = new TranscriptNavigation(MessageList, HistoryNavigation, () => viewingHistory, BrowseHistory);
         TerminalDrawer.PropertyChanged += (_, e) =>
         {
             if (e.Property != IsVisibleProperty) return;
@@ -415,7 +418,7 @@ public partial class MainView : UserControl
         else if (chat.SessionId is not null && workspace is not null && Runtime(chat, workspace) is { IsConnected: false, IsReconnecting: false } runtime)
             await runtime.Reconnect();
     }
-    private void DraftChanged(object? sender, TextChangedEventArgs e) { if (!switching && current is not null) current.Draft = Composer.Text ?? ""; UpdateSlashCommands(); }
+    private void DraftChanged(object? sender, TextChangedEventArgs e) { if (!switching && current is not null) current.Draft = Composer.Text ?? ""; UpdateSlashCommands(); UpdateComposerAction(); }
     private void UpdateSlashCommands()
     {
         var matches = SlashCommand.Match(current?.Commands ?? [], Composer.Text ?? "");
@@ -444,6 +447,8 @@ public partial class MainView : UserControl
     private void UpdateQueue()
     {
         var inputs = current?.QueuedInputs.ToArray() ?? [];
+        var canSteer = current is not null && runtimes.GetValueOrDefault(current.Id) is { SupportsSteering: true, IsPrompting: true, IsSteering: false };
+        foreach (var button in QueueItems.GetVisualDescendants().OfType<IconButton>().Where(b => b.Name == "SteerQueued")) button.IsVisible = canSteer;
         QueuePanel.IsVisible = inputs.Length > 0;
         QueuePanel.Header = $"{inputs.Length} queued message{(inputs.Length == 1 ? "" : "s")}";
         if (ReferenceEquals(queueChat, current) && displayedQueue.SequenceEqual(inputs)) return;
@@ -455,7 +460,7 @@ public partial class MainView : UserControl
             row.Children.Add(new TextBlock { Text = input.Text.Length > 0 ? input.Text : $"{input.Attachments.Length} attachments", TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 2, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
             void Action(int column, string icon, string label, Func<Task> action)
             {
-                var button = new IconButton { Icon = icon, Label = label };
+                var button = new IconButton { Icon = icon, Label = label, Name = icon == "steer" ? "SteerQueued" : null, IsVisible = icon != "steer" || canSteer };
                 button.Click += async (_, _) => await action(); Grid.SetColumn(button, column); row.Children.Add(button);
             }
             Action(1, "remove", "Remove queued message", () => { Runtime(chat, owner).RemoveQueued(input); return Task.CompletedTask; });
@@ -520,7 +525,7 @@ public partial class MainView : UserControl
         WelcomeHint.Text = remoteOnly ? "Enter its address, then the pairing number shown on your desktop." : workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
         ComposerBorder.IsVisible = !remoteOnly;
         WelcomeOpenButton.IsVisible = workspace is null;
-        MessageList.IsVisible = current is not null; HistoryNavigation.IsVisible = current is not null;
+        MessageList.IsVisible = current is not null; UpdateHistoryNavigation();
         ComposerBorder.IsEnabled = current is not null;
         ImportChatsButton.IsEnabled = workspace is not null;
         LoginButton.IsEnabled = workspace is not null;
@@ -538,18 +543,27 @@ public partial class MainView : UserControl
         ChatProviderIcon.Source = current is null ? null : BrandAssets.Provider(current.Provider);
         ToolTip.SetTip(ChatProviderIcon, current?.ProviderLabel);
         Composer.PlaceholderText = current is null ? "Message…" : $"Message {AgentProviders.Get(current.Provider).Name}…";
-        SendButton.IsEnabled = current is not null && (current.Busy == false || runtimes.GetValueOrDefault(current.Id)?.IsPrompting == true) && runtimes.GetValueOrDefault(current.Id) is not { IsReconnecting: true } and not { IsConfiguring: true };
-        SendButton.Label = current?.Busy == true ? "Queue message for after this turn (Enter)" : "Send (Enter)";
+        UpdateComposerAction();
         ReconnectChatButton.IsEnabled = current is not null && runtimes.GetValueOrDefault(current.Id) is not { IsReconnecting: true } and not { IsLoadingHistory: true };
-        StopButton.IsVisible = current is not null && runtimes.GetValueOrDefault(current.Id) is { } stopping && (stopping.IsPrompting || stopping.IsRecovering);
         ResumeChatButton.IsVisible = current?.InterruptedInput is not null && current.Busy == false && runtimes.GetValueOrDefault(current.Id) is not { IsRecovering: true };
-        if (current is not null && runtimes.GetValueOrDefault(current.Id)?.IsRecovering == true) SendButton.IsEnabled = false;
         ArchiveChatButton.IsEnabled = current is not null;
         ArchiveChatButton.Label = current?.Archived == true ? "Restore chat" : "Archive chat";
         DeleteChatButton.IsEnabled = current is { Busy: false };
         StatusText.Text = current is null ? "Ready — open a workspace to begin" : $"{workspace?.Host}  ·  {current.Status}";
     }
-    private async void SendClick(object? sender, RoutedEventArgs e) => await Send();
+    private bool ComposerShowsStop => current?.Busy == true && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
+    private void UpdateComposerAction()
+    {
+        var stop = ComposerShowsStop;
+        SendButton.Icon = stop ? "stop" : "send";
+        SendButton.Label = stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
+        var runtime = current is null ? null : runtimes.GetValueOrDefault(current.Id);
+        SendButton.IsEnabled = current is not null && (stop || (runtime is not { IsReconnecting: true } and not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true)));
+    }
+    private async void SendClick(object? sender, RoutedEventArgs e)
+    {
+        if (ComposerShowsStop) StopClick(sender, e); else await Send();
+    }
     private void CollapseOutputClick(object? sender, RoutedEventArgs e)
     {
         foreach (var view in MessageList.GetVisualDescendants().OfType<MessageView>()) view.Collapse();
@@ -874,7 +888,7 @@ public partial class MainView : UserControl
         palette = new CommandPalette(commands, owner);
         try
         {
-            var command = await palette.ShowDialog<PaletteCommand?>(desktopWindow!);
+            var command = await palette.Open(desktopWindow!);
             palette = null;
             if (command is not null && !closing) await command.Execute();
         }
@@ -995,15 +1009,16 @@ public partial class MainView : UserControl
         var visible = MessageList.Items.OfType<Message>().ToArray(); if (visible.Length == 0) return;
         try
         {
-            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, token: cancellation.Token, newer: newer);
+            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: 50, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
-            viewingHistory = true; MessageList.ItemsSource = page; MessageList.ScrollIntoView(0);
+            var merged = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.First()).OrderBy(m => m.Sequence);
+            var bounded = newer ? merged.TakeLast(Chat.HistoryPageSize).ToArray() : merged.Take(Chat.HistoryPageSize).ToArray();
+            viewingHistory = !(newer && chat.Messages.Count > 0 && bounded[^1].Sequence >= chat.Messages[^1].Sequence);
+            TranscriptNavigation.ReplacePage(MessageList, viewingHistory ? bounded : chat.Messages); UpdateHistoryNavigation();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; }
     }
-    private async void EarlierMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(false);
-    private async void NewerMessagesClick(object? sender, RoutedEventArgs e) => await BrowseHistory(true);
     private async void LatestMessagesClick(object? sender, RoutedEventArgs e)
     {
         pageLoad?.Cancel(); viewingHistory = false; MessageList.ItemsSource = current?.Messages;
@@ -1198,6 +1213,7 @@ public partial class MainView : UserControl
         {
             await Cleanup(() => { SaveAll(); return Task.CompletedTask; });
             CloseRemoteView();
+            remoteSessions.Dispose();
             // Cancel providers before waiting for operations that depend on them.
             var stoppingAgents = runtimes.Values.Select(runtime => Cleanup(() => runtime.DisposeAsync().AsTask())).ToArray();
             foreach (var login in loginSessions.Values) await Cleanup(() => Task.Run(login.Session.Dispose));
