@@ -18,6 +18,15 @@ Android phones should use `VibeHarder-Android.apk` (ARM64). Intel Android device
 
 ### Start
 
+On Linux (x64/ARM64, glibc or musl), install or update to the latest release:
+
+```sh
+curl -fsSL https://github.com/isaiahpettingill/vibe-harder/releases/latest/download/install.sh -o /tmp/vibe-harder-install.sh
+sh /tmp/vibe-harder-install.sh
+```
+
+The script selects a compatible package, verifies its SHA-256 checksum, and installs for your user without sudo or a .NET SDK. It prefers Native AOT and uses the bundled runtime on older glibc distributions. A graphical session and native GUI libraries are required to use the desktop app; see [Linux requirements](packaging/README.md).
+
 1. Install the package for your platform.
 2. Open a local folder, WSL workspace, or [pair a remote computer](REMOTE.md).
 3. Configure an installed provider adapter and sign in when prompted.

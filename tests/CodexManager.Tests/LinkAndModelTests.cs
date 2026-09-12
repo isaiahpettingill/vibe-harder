@@ -11,6 +11,19 @@ namespace CodexManager.Tests;
 public class LinkAndModelTests
 {
     [Fact]
+    public void RecentModelsIgnoreMalformedSettingsAndRepairOnSelection()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("model-corrupt-").FullName);
+        foreach (var invalid in new[] { "not-json", "{}", "null", "[123,null,{}]" })
+        {
+            store.Setting("recentModels:OpenCode", invalid); Assert.Empty(ModelPicker.Recent(store, AgentProvider.OpenCode));
+        }
+        store.Setting("recentModels:OpenCode", "[123,\"large\",\"large\",null,\"\"]");
+        Assert.Equal(new[] { "large" }, ModelPicker.Recent(store, AgentProvider.OpenCode));
+        ModelPicker.Remember(store, AgentProvider.OpenCode, "small");
+        Assert.Equal(new[] { "small", "large" }, ModelPicker.Recent(store, AgentProvider.OpenCode));
+    }
+    [Fact]
     public async Task RemoteFileDownloadPreservesNameAndBytesAcrossChunks()
     {
         var directory = Directory.CreateTempSubdirectory("link-test-").FullName;
@@ -60,6 +73,33 @@ public class LinkAndModelTests
         Assert.Equal("large", Assert.IsType<SessionValue>(list.Items[0]).Value);
         search.Text = "SMALL"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent));
         Assert.Equal("small", Assert.IsType<SessionValue>(Assert.Single(list.Items)).Value);
+    }
+
+    [AvaloniaFact]
+    public void ModelPickerShowsFiveRecentsAndVirtualizesSearchResults()
+    {
+        var values = Enumerable.Range(0, 1000).Select(i => new SessionValue("model-" + i, "Model " + i)).ToArray();
+        var option = new SessionConfig("model", "Model", "select", "model-0", values);
+        string? selected = null;
+        var picker = ModelPicker.Create(option, ["missing", "model-9", "model-8", "model-7", "model-6", "model-5", "model-4"], value => { selected = value; return Task.CompletedTask; });
+        var panel = Assert.IsType<StackPanel>(picker.Content);
+        var search = panel.Children.OfType<TextBox>().Single(); var list = panel.Children.OfType<ListBox>().Single();
+        Assert.Equal(new[] { "model-9", "model-8", "model-7", "model-6", "model-5" }, list.Items.Cast<SessionValue>().Select(v => v.Value));
+        picker.Content = null;
+        var window = new Window { Content = panel, Width = 360, Height = 500 }; window.Show();
+        try
+        {
+            search.Text = "Model"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent)); window.UpdateLayout();
+            Assert.Equal(1000, list.ItemCount);
+            Assert.InRange(list.GetVisualDescendants().OfType<ListBoxItem>().Count(), 1, 50);
+            search.Text = "Model 999"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent));
+            Assert.Equal("model-999", Assert.IsType<SessionValue>(Assert.Single(list.Items)).Value);
+            search.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter }); Assert.Equal("model-999", selected);
+            search.Text = " "; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent)); Assert.Equal(5, list.ItemCount);
+            var fresh = ModelPicker.Create(option, [], _ => Task.CompletedTask);
+            Assert.Empty(Assert.IsType<StackPanel>(fresh.Content).Children.OfType<ListBox>().Single().Items);
+        }
+        finally { window.Close(); }
     }
 
     [AvaloniaFact]

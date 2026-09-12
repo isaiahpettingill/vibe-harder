@@ -111,12 +111,18 @@ jobs:
           name: ${{ matrix.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
+  linux-installer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sh -n install.sh && python3 tools/check-latest-installer.py
   publish:
-    needs: [desktop, musl, android]
+    needs: [desktop, musl, android, linux-installer]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: release
@@ -127,6 +133,7 @@ jobs:
           RELEASE_VERSION: ${{ inputs.version }}
           GH_REPO: ${{ github.repository }}
         run: |
+          cp install.sh release/install.sh
           cd release
           sha256sum * > SHA256SUMS.txt
           gh release create "v$RELEASE_VERSION" --target '${{ github.sha }}' --title "Vibe Harder $RELEASE_VERSION" --generate-notes ./*

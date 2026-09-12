@@ -5,6 +5,17 @@
 - **macOS:** unzip and drag `Vibe Harder.app` to Applications. Bundles are ad-hoc signed; Developer ID notarization requires your own Apple credentials.
 - **Android:** install `VibeHarder-Android.apk`, the remote-only client for Android API 24+ (ARM64/x64). Its stable asset name works with Obtainium.
 
+## Linux latest-release installer
+
+```sh
+curl -fsSL https://github.com/isaiahpettingill/vibe-harder/releases/latest/download/install.sh -o /tmp/vibe-harder-install.sh
+sh /tmp/vibe-harder-install.sh
+```
+
+The standalone [install.sh](../install.sh) detects x64/ARM64 and glibc/musl, downloads the latest stable release, verifies the package checksum, and runs its per-user installer. It prefers Native AOT, with a bundled-runtime fallback for glibc older than 2.38. Run it again to update. It supports curl or wget and needs tar plus sha256sum or shasum. Other CPU architectures are not currently published.
+
+The script does not change system packages. Desktop use requires X11/XWayland, fontconfig, and native Skia dependencies. On Debian/Ubuntu these include `libfontconfig1 libx11-6 libice6 libsm6 libicu-dev`; on Alpine, `fontconfig libx11 libice libsm icu-libs`. The glibc packages require glibc 2.34 or newer (for example Ubuntu 22.04+ or Debian 12+). Headless use is described in [REMOTE.md](../REMOTE.md).
+
 The default desktop package is stripped Native AOT. `bundled` packages contain
 the .NET runtime; `framework` packages require .NET 11 installed separately.
 macOS releases provide both managed modes and exclude AOT.
