@@ -151,18 +151,57 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
                 if (inline is CSpan span) Walk(span.Content); else offset += inline.AsString().Length;
                 if (inline is CHyperlink link)
                 {
-                    link.Command = async target => await OpenLink(target);
+                    // Handle activation ourselves so a hold can copy without
+                    // the renderer also opening the link on pointer release.
+                    link.Command = _ => { };
                     links.Add((link, from, offset));
                 }
             }
         }
         Walk(block.Content);
         if (links.Count == 0) return;
-        block.SetValue(InputElement.IsHoldingEnabledProperty, true);
-        block.AddHandler(InputElement.HoldingEvent, (_, e) =>
+        CHyperlink? pressed = null;
+        Point start = default;
+        IDisposable? hold = null;
+        CHyperlink? At(Point point)
         {
-            if (e.HoldingState == HoldingState.Started) { block.RaiseEvent(new ContextRequestedEventArgs()); e.Handled = true; }
-        });
+            var index = block.CalcuatePointerFrom(point.X, point.Y).Index;
+            return links.FirstOrDefault(l => index >= l.From && index < l.To).Link;
+        }
+        void Cancel() { pressed = null; hold?.Dispose(); hold = null; }
+        block.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            Cancel();
+            if (!e.GetCurrentPoint(block).Properties.IsLeftButtonPressed) return;
+            start = e.GetPosition(block); pressed = At(start);
+            if (pressed is null) return;
+            if (e.Pointer.Type == PointerType.Touch)
+                hold = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+                {
+                    if (pressed is not { } link) return;
+                    Cancel(); ShowCopyMenu([link]);
+                }, TimeSpan.FromMilliseconds(500));
+            e.Handled = true;
+        }, RoutingStrategies.Tunnel);
+        block.AddHandler(PointerMovedEvent, (_, e) => { var delta = e.GetPosition(block) - start; if (delta.X * delta.X + delta.Y * delta.Y > 100) Cancel(); }, RoutingStrategies.Tunnel, true);
+        block.AddHandler(PointerReleasedEvent, async (_, e) =>
+        {
+            var link = pressed; Cancel();
+            if (link?.CommandParameter is { } target && ReferenceEquals(link, At(e.GetPosition(block)))) { e.Handled = true; await OpenLink(target); }
+        }, RoutingStrategies.Tunnel, true);
+        block.PointerCaptureLost += (_, _) => Cancel();
+        block.DetachedFromVisualTree += (_, _) => Cancel();
+        void ShowCopyMenu(CHyperlink[] selected)
+        {
+            var menu = new ContextMenu();
+            foreach (var link in selected)
+            {
+                var copy = new MenuItem { Header = selected.Length == 1 ? "Copy link" : "Copy link: " + link.AsString() };
+                copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(link.CommandParameter); };
+                menu.Items.Add(copy);
+            }
+            block.ContextMenu = menu; menu.Open(block);
+        }
         block.ContextRequested += (_, e) =>
         {
             var choices = links.AsEnumerable();
@@ -173,14 +212,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             }
             var selected = choices.ToArray();
             if (selected.Length == 0) return;
-            var menu = new ContextMenu();
-            foreach (var entry in selected)
-            {
-                var copy = new MenuItem { Header = selected.Length == 1 ? "Copy link" : "Copy link: " + entry.Link.AsString() };
-                copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(entry.Link.CommandParameter); };
-                menu.Items.Add(copy);
-            }
-            block.ContextMenu = menu; menu.Open(block); e.Handled = true;
+            ShowCopyMenu(selected.Select(l => l.Link).ToArray()); e.Handled = true;
         };
     }
     private async Task OpenLink(string target)
