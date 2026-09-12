@@ -8,7 +8,8 @@
     <ApplicationVersion>1</ApplicationVersion><ApplicationDisplayVersion>1.0.0</ApplicationDisplayVersion>
     <AndroidPackageFormats>apk</AndroidPackageFormats>
     <!-- Phone builds contain one runtime. Pass -r android-x64 for Intel devices/emulators. -->
-    <RuntimeIdentifiers>android-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">android-arm64</RuntimeIdentifiers>
+    <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</RuntimeIdentifiers>
     <PublishAot>false</PublishAot>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
