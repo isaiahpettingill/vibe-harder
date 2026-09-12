@@ -112,6 +112,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             chat.ConfigOptions = chat.ConfigOptions.Select(c => c.Id == config.Id ? c with { Current = value } : c).ToArray(); chat.ConfigVersion++;
             Configure(result);
             if (FullAccess(config) is not null) store.Setting(AccessKey(config), value);
+            if (ModelPicker.IsModel(config)) ModelPicker.Remember(store, chat.Provider, value);
         }
         catch (Exception error) { chat.Status = "Could not change " + config.Name + ": " + error.Message; chat.ConfigVersion++; }
         finally { IsConfiguring = false; Changed?.Invoke(); }
@@ -215,6 +216,11 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         var session = await client!.Request("session/new", RpcJson.Object(("cwd", workspace.Path), ("mcpServers", new JsonArray())), token);
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
+        if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model)
+        {
+            var recent = ModelPicker.Recent(store, chat.Provider).FirstOrDefault(v => model.Values.Any(option => option.Value == v));
+            if (recent is not null && recent != model.Current) await SetConfigCore(model, recent);
+        }
     }
 
     public Task LoadHistory() => chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = LoadHistoryCore();

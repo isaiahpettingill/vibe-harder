@@ -12,6 +12,20 @@ public sealed class AndroidApplication(nint handle, JniHandleOwnership ownership
     public override void OnCreate()
     {
         base.OnCreate();
+        FileLinks.CacheDirectory = Path.Combine(CacheDir!.AbsolutePath, "linked-files");
+        FileLinks.OpenNativeFile = path =>
+        {
+            var uri = global::AndroidX.Core.Content.FileProvider.GetUriForFile(this, PackageName + ".files", new Java.IO.File(path));
+            var extension = Path.GetExtension(path).TrimStart('.').ToLowerInvariant();
+            var type = global::Android.Webkit.MimeTypeMap.Singleton!.GetMimeTypeFromExtension(extension) ?? "application/octet-stream";
+            var intent = new global::Android.Content.Intent(global::Android.Content.Intent.ActionView);
+            intent.SetDataAndType(uri, type);
+            intent.AddFlags(global::Android.Content.ActivityFlags.GrantReadUriPermission | global::Android.Content.ActivityFlags.NewTask);
+            intent.ClipData = global::Android.Content.ClipData.NewRawUri("File", uri);
+            try { StartActivity(intent); }
+            catch (global::Android.Content.ActivityNotFoundException) { throw new IOException("No installed app can open this file type."); }
+            return Task.CompletedTask;
+        };
         // Preserve connections from the previous Android client on upgrade.
         using var store = new Store();
         if (store.Setting("androidConnectionsMigrated") == "1") return;

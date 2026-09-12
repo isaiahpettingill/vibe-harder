@@ -68,6 +68,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
             block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "ChatFontSize"));
             StyleInlineCode(block.Content);
+            DecorateLinks(block);
             block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
         }
         foreach (var border in this.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("CodeBlock")).ToArray())
@@ -136,6 +137,66 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
                 inline.Bind(CInline.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
             }
             if (inline is CSpan span) StyleInlineCode(span.Content);
+        }
+    }
+    private void DecorateLinks(CTextBlock block)
+    {
+        var links = new List<(CHyperlink Link, int From, int To)>();
+        var offset = 0;
+        void Walk(IEnumerable<CInline> content)
+        {
+            foreach (var inline in content)
+            {
+                var from = offset;
+                if (inline is CSpan span) Walk(span.Content); else offset += inline.AsString().Length;
+                if (inline is CHyperlink link)
+                {
+                    link.Command = async target => await OpenLink(target);
+                    links.Add((link, from, offset));
+                }
+            }
+        }
+        Walk(block.Content);
+        if (links.Count == 0) return;
+        block.SetValue(InputElement.IsHoldingEnabledProperty, true);
+        block.AddHandler(InputElement.HoldingEvent, (_, e) =>
+        {
+            if (e.HoldingState == HoldingState.Started) { block.RaiseEvent(new ContextRequestedEventArgs()); e.Handled = true; }
+        });
+        block.ContextRequested += (_, e) =>
+        {
+            var choices = links.AsEnumerable();
+            if (e.TryGetPosition(block, out var point))
+            {
+                var index = block.CalcuatePointerFrom(point.X, point.Y).Index;
+                choices = links.Where(l => index >= l.From && index < l.To);
+            }
+            var selected = choices.ToArray();
+            if (selected.Length == 0) return;
+            var menu = new ContextMenu();
+            foreach (var entry in selected)
+            {
+                var copy = new MenuItem { Header = selected.Length == 1 ? "Copy link" : "Copy link: " + entry.Link.AsString() };
+                copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(entry.Link.CommandParameter); };
+                menu.Items.Add(copy);
+            }
+            block.ContextMenu = menu; menu.Open(block); e.Handled = true;
+        };
+    }
+    private async Task OpenLink(string target)
+    {
+        try
+        {
+            if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" or "mailto")
+            { if (TopLevel.GetTopLevel(this) is { } top) await top.Launcher.LaunchUriAsync(uri); return; }
+            if (Uri.TryCreate(target, UriKind.Absolute, out uri) && !uri.IsFile) throw new IOException("Unsupported link type.");
+            if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.OpenFileLink(target);
+            else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) main.OpenFileLink(target);
+        }
+        catch (Exception error)
+        {
+            var popup = new Flyout { Content = new TextBlock { Text = "Could not open link: " + error.Message, MaxWidth = 300, TextWrapping = TextWrapping.Wrap } };
+            popup.ShowAt(this);
         }
     }
     public async Task Copy(bool selection = false)

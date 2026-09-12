@@ -9,6 +9,7 @@ let turn;
 let permissionTurn;
 const configOptions=[{id:'model',name:'Model',type:'select',currentValue:'small',options:[{value:'small',name:'Small'},{value:'large',name:'Large'}]},{id:'reasoning',name:'Thinking',type:'select',currentValue:'low',options:[{value:'low',name:'Low'},{value:'high',name:'High'}]},{id:'fast',name:'Fast mode',type:'boolean',currentValue:false}];
 if(process.argv.includes('--access')) configOptions.push({id:'mode',name:'Access',type:'select',currentValue:'ask',options:[{value:'ask',name:'Approve'},{value:'full-access',name:'Full access'}]});
+if(process.argv.includes('--claude-access')) configOptions.push({id:'mode',name:'Mode',type:'select',currentValue:'default',options:[{value:'default',name:'Manual'},{value:'bypassPermissions',name:'Bypass permissions'}]});
 createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
  switch(m.method){

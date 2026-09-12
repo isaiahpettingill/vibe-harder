@@ -19,6 +19,11 @@ namespace CodexManager;
 
 public partial class MainView : UserControl
 {
+    public void OpenFileLink(string target)
+    {
+        if (workspace is null) throw new IOException("Select a workspace first.");
+        FileLinks.Reveal(FileLinks.Resolve(target, workspace));
+    }
     private readonly Store store;
     private SessionService remoteSessions = null!;
     private RemoteServer? remoteServer;
@@ -466,6 +471,11 @@ public partial class MainView : UserControl
                 {
                     var picker = new Button { Name = "Config_" + option.Id, Content = new OptionContent(option), MaxWidth = 190, MinHeight = 24, FontSize = 11, Padding = new Thickness(4, 2) };
                     ToolTip.SetTip(picker, option.Name);
+                    if (configured.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
+                    {
+                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value));
+                        ConfigOptionsPanel.Children.Add(picker); continue;
+                    }
                     var menu = new MenuFlyout();
                     foreach (var value in option.Values)
                     {

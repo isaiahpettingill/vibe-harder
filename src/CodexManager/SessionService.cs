@@ -86,6 +86,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             pending.Completion.TrySetResult(RpcJson.Permission(option)); return JsonValue.Create(true);
         }
         var chat = chats.Single(c => c.Id == Text("chatId")); var workspaceOwner = workspaces.Single(w => w.Id == chat.WorkspaceId);
+        if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
         var active = runtime(chat, workspaceOwner);
         if (method == "chat")
         {
@@ -110,6 +111,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());
             result["config"] = new JsonArray(chat.ConfigOptions.Select(c => (JsonNode)new JsonObject { ["id"] = c.Id, ["name"] = c.Name, ["current"] = c.Current, ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)new JsonObject { ["value"] = v.Value, ["name"] = v.Name }).ToArray()) }).ToArray());
             result["canSteer"] = active.SupportsSteering && active.IsPrompting && !active.IsSteering;
+            result["recentModels"] = new JsonArray(ModelPicker.Recent(store, chat.Provider).Select(v => (JsonNode)JsonValue.Create(v)!).ToArray());
             result["queue"] = new JsonArray(chat.QueuedInputs.Select(q => (JsonNode)new JsonObject { ["id"] = q.Id, ["text"] = q.Text, ["attachments"] = q.Attachments.Length }).ToArray());
             return result;
         }

@@ -15,6 +15,15 @@ namespace CodexManager;
 
 public sealed class RemoteView : UserControl, IDisposable
 {
+    public async Task OpenFileLink(string target)
+    {
+        if (chatId is not { } id) throw new IOException("Select a chat first.");
+        var path = await FileLinks.Download(Call, id, target, lifetime.Token);
+        if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
+        if (TopLevel.GetTopLevel(this) is not { } top) return;
+        var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
+        if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
+    }
     public Control ConnectionStatus => status;
     public void ReconnectHost() => _ = Connect();
     private Workspace[] workspaceHistory = [];
@@ -164,6 +173,13 @@ public sealed class RemoteView : UserControl, IDisposable
                     {
                         var option = new SessionConfig(config!["id"]!.GetValue<string>(), config["name"]!.GetValue<string>(), "select", config["current"]!.GetValue<string>(), config["values"]!.AsArray().Select(v => new SessionValue(v!["value"]!.GetValue<string>(), v["name"]!.GetValue<string>())).ToArray());
                         var button = new Button { Content = new OptionContent(option), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
+                        if (result["provider"]?.GetValue<string>() == "OpenCode" && ModelPicker.IsModel(option))
+                        {
+                            var selectedChat = id;
+                            button.Flyout = ModelPicker.Create(option, result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [],
+                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }));
+                            configs.Children.Add(button); continue;
+                        }
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
                     }
                 }
