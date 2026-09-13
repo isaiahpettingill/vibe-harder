@@ -24,7 +24,15 @@ public sealed class RemoteView : UserControl, IDisposable
         var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
         if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
     }
-    public Control ConnectionStatus => status;
+    public Control CreateConnectionStatus()
+    {
+        // Sidebar sections are rebuilt after settings and workspace changes.
+        // Each section needs its own visual; the status source is shared.
+        var text = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
+        text.Bind(TextBlock.TextProperty, status.GetObservable(TextBlock.TextProperty));
+        text.Bind(IsVisibleProperty, status.GetObservable(IsVisibleProperty));
+        return text;
+    }
     public void RestorePresentation()
     {
         if (lifetime.IsCancellationRequested) return;

@@ -34,7 +34,7 @@ public partial class MainView
         foreach (var (remoteHost, catalog) in remoteCatalogs)
         {
             if (!remoteViews.TryGetValue(remoteHost, out var view) || !remoteSections.TryGetValue(remoteHost.Address + ":" + remoteHost.Port, out var section)) continue;
-            var host = view.Host; section.Children.Clear(); section.Children.Add(view.ConnectionStatus);
+            var host = view.Host; section.Children.Clear(); section.Children.Add(view.CreateConnectionStatus());
             foreach (var workspace in catalog["workspaces"]!.AsArray())
             {
                 var ownerId = workspace!["id"]!.GetValue<string>(); var key = "remote:" + host.Address + ":" + ownerId;

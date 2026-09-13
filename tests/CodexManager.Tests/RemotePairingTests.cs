@@ -294,6 +294,16 @@ public class RemotePairingTests
             Assert.True(view.FindControl<IconButton>("MobileTerminalButton")!.IsVisible);
             Assert.Single(view.GetLogicalDescendants().OfType<RemoteView>());
             Assert.False(view.FindControl<IconButton>("ToggleTerminalButton")!.IsVisible);
+            // Closing mobile settings rebuilds the host sections. A status
+            // control still owned by the old section must not be reparented.
+            for (var i = 0; i < 2; i++)
+            {
+                view.FindControl<IconButton>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Single(view.GetLogicalDescendants().OfType<ConnectionSettingsView>());
+                view.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Done")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.Empty(view.GetLogicalDescendants().OfType<ConnectionSettingsView>());
+                Assert.Contains(view.GetLogicalDescendants().OfType<Button>(), b => Equals(b.Content, "Remote project · Files on Test host"));
+            }
         }
         finally { view.DisposeMobile(); window.Close(); }
     }
