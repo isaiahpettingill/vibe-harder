@@ -23,9 +23,10 @@ public static class PlatformIcons
             if (name.Contains(match, StringComparison.Ordinal)) return icon;
         return "linux";
     }
-    public static Image For(Workspace workspace)
+    public static Image For(Workspace workspace, string? remotePlatform = null)
     {
-        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Platforms/{Identify(workspace.Distro)}.svg"));
+        var platform = workspace.IsWsl ? Identify(workspace.Distro) : remotePlatform is "windows" or "apple" or "linux" ? remotePlatform : Identify(workspace.Distro);
+        using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Platforms/{platform}.svg"));
         var svg = XDocument.Load(stream).Root!;
         var bounds = svg.Attribute("viewBox")!.Value.Split(' ').Select(n => double.Parse(n, CultureInfo.InvariantCulture)).ToArray();
         var drawing = new DrawingGroup();

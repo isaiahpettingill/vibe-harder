@@ -41,6 +41,49 @@ public class RemotePairingTests
     private static string DirectoryPath() => Path.Combine(Path.GetTempPath(), "vibe-pairing", Guid.NewGuid().ToString("N"));
 
     [AvaloniaFact]
+    public async Task WorkspaceComputerPickerKeepsLocalAndRemoteFoldersSeparate()
+    {
+        var directory = DirectoryPath(); var port = Port(); string? openedDistro = null;
+        await using var server = new RemoteServer(Path.Combine(directory, "host"), "127.0.0.1", port, request =>
+        {
+            JsonNode response = request["method"]!.GetValue<string>() switch
+            {
+                "list" => new JsonObject { ["platform"] = "linux", ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "remote", ["name"] = "Remote project", ["path"] = "/srv/project" }), ["chats"] = new JsonArray() },
+                "locations" => new JsonObject { ["distros"] = new JsonArray("Debian") },
+                "directories" => new JsonObject { ["path"] = "/srv/project", ["parent"] = "/srv", ["directories"] = new JsonArray() },
+                "workspace" => JsonValue.Create("opened-remote")!,
+                _ => throw new InvalidOperationException("Unexpected routing: " + request["method"])
+            };
+            if (request["method"]!.GetValue<string>() == "workspace") openedDistro = request["distro"]?.GetValue<string>();
+            return Task.FromResult<JsonNode?>(response);
+        });
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(Path.Combine(directory, "host"), "localhost", port, "Remote Linux"), Path.Combine(directory, "key"), "Desktop", TestContext.Current.CancellationToken);
+        using var store = new Store(Path.Combine(directory, "client")); var local = new Workspace("local", "Local project", directory); store.Save(local); RemoteSettings.SaveHosts(store, [host]);
+        using var picker = new WorkspaceComputerPicker(store, remoteOnly: false); var window = new Window { Content = picker }; window.Show();
+        string? chosen = null; picker.RemoteChosen += (computer, id) => { Assert.Equal(host, computer); chosen = id; };
+        T Field<T>(string name) where T : Control => picker.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
+        try
+        {
+            var computers = Field<ComboBox>("WorkspaceComputer"); Assert.Equal(2, computers.ItemCount);
+            Assert.Equal("This computer", computers.SelectedItem!.ToString());
+            Assert.Equal(local, Assert.Single(Field<ListBox>("WorkspaceHistoryList").Items.OfType<Workspace>()));
+            computers.SelectedIndex = 1;
+            await Wait(() => picker.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == "WorkspaceHistoryList" && l.Items.OfType<Workspace>().Any(w => w.Id == "remote")));
+            Field<Button>("BrowseWorkspaceHistory").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => picker.GetLogicalDescendants().OfType<ComboBox>().Any(c => c.Name == "RemoteLocation" && c.ItemCount == 2));
+            var locations = Field<ComboBox>("RemoteLocation"); Assert.StartsWith("Files on ", locations.Items[0]!.ToString()); Assert.EndsWith("(WSL)", locations.Items[1]!.ToString());
+            Assert.DoesNotContain(locations.Items, item => item!.ToString() == "Local" || item.ToString() == WorkspaceDialog.RemoteOption);
+            locations.SelectedIndex = 1; await Wait(() => Field<TextBox>("RemoteFolderPath").Text == "/srv/project");
+            Field<Button>("OpenRemoteFolder").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => chosen is not null); Assert.Equal("opened-remote", chosen); Assert.Equal("Debian", openedDistro);
+            Assert.Equal(local, Assert.Single(store.Workspaces()));
+            computers.SelectedIndex = 0; Assert.Equal(local, Assert.Single(Field<ListBox>("WorkspaceHistoryList").Items.OfType<Workspace>()));
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task CancelledRemoteRequestUnblocksAndFreshConnectionWorks()
     {
         var directory = DirectoryPath(); var port = Port();
@@ -168,7 +211,7 @@ public class RemotePairingTests
         try
         {
             window.Show();
-            await Wait(() => view.GetLogicalDescendants().OfType<Button>().Any(c => Equals(c.Content, "Remote project")));
+            await Wait(() => view.GetLogicalDescendants().OfType<Button>().Any(c => Equals(c.Content, "Remote project · Files on Test host")));
             Assert.True(view.FindControl<TextBox>("SearchBox")!.IsVisible);
             Assert.True(view.FindControl<Button>("ImportChatsButton")!.IsVisible);
             Assert.True(view.FindControl<IconButton>("MobileTerminalButton")!.IsVisible);
@@ -226,7 +269,7 @@ public class RemotePairingTests
             picker.SelectedItem = WorkspaceDialog.RemoteOption;
             Assert.False(Field<TextBox>("FolderPath").IsVisible);
             Assert.True(Field<TextBox>("ConnectionAddress").IsEffectivelyVisible);
-            picker.SelectedItem = "Local";
+            picker.SelectedItem = WorkspaceDialog.LocalOption;
             await Wait(() => Field<TextBox>("FolderPath").Text == directory);
             Assert.True(Field<TextBox>("FolderPath").IsVisible);
             Assert.Empty(dialog.GetLogicalDescendants().OfType<ConnectionSettingsView>());

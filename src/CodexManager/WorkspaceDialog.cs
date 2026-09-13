@@ -10,6 +10,7 @@ namespace CodexManager;
 
 public sealed class WorkspaceDialog : Window
 {
+    public const string LocalOption = "This computer";
     public const string RemoteOption = "Remote computer…";
     public RemoteHost? PairedHost { get; private set; }
     private readonly ComboBox host = new() { Name = "HostPicker", HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -84,12 +85,12 @@ public sealed class WorkspaceDialog : Window
         Opened += async (_, _) =>
         {
             host.IsEnabled = false; error.Text = "Discovering WSL distributions…";
-            try { host.ItemsSource = new[] { "Local" }.Concat(await Hosts.Distros()).Append(RemoteOption).ToArray(); }
-            catch (Exception ex) { host.ItemsSource = new[] { "Local", RemoteOption }; error.Text = ex.Message; }
-            finally { host.IsEnabled = true; host.SelectedItem = initial?.Distro ?? "Local"; if (host.SelectedIndex < 0) host.SelectedIndex = 0; }
+            try { host.ItemsSource = new[] { LocalOption }.Concat(await Hosts.Distros()).Append(RemoteOption).ToArray(); }
+            catch (Exception ex) { host.ItemsSource = new[] { LocalOption, RemoteOption }; error.Text = ex.Message; }
+            finally { host.IsEnabled = true; host.SelectedItem = initial?.Distro ?? LocalOption; if (host.SelectedIndex < 0) host.SelectedIndex = 0; }
         };
     }
-    private string? Distro => host.SelectedItem is string selected && selected != "Local" && selected != RemoteOption ? selected : null;
+    private string? Distro => host.SelectedItem is string selected && selected != LocalOption && selected != RemoteOption ? selected : null;
     private async Task Home()
     {
         try

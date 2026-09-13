@@ -50,6 +50,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         if (method == "list") return new JsonObject
         {
+            ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
             ["workspaces"] = new JsonArray(workspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
             ["chats"] = new JsonArray(chats.Select(c => (JsonNode)Summary(c)).ToArray())
         };

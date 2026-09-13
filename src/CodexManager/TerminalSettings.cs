@@ -38,14 +38,18 @@ public sealed class TerminalSettings : Window
         shells.SelectionChanged += (_, _) => ShowCommand();
         save.Click += (_, _) =>
         {
-            var key = (string)platform.SelectedItem!;
-            if (key == "windows")
+            try
             {
-                var selected = (ShellChoice)shells.SelectedItem!;
-                if (selected.Id == "custom" && string.IsNullOrWhiteSpace(command.Text)) { error.Text = "Enter a command to start your shell."; return; }
-                store.Setting("terminalShell:windows", selected.Id);
+                var key = (string)platform.SelectedItem!;
+                if (key == "windows")
+                {
+                    var selected = (ShellChoice)shells.SelectedItem!;
+                    if (selected.Id == "custom" && string.IsNullOrWhiteSpace(command.Text)) { error.Text = "Enter a command to start your shell."; return; }
+                    store.Setting("terminalShell:windows", selected.Id);
+                }
+                store.Setting("terminalCommand:" + key, command.Text ?? ""); Close();
             }
-            store.Setting("terminalCommand:" + key, command.Text ?? ""); Close();
+            catch (Exception failure) { error.Text = AppDiagnostics.Message("Could not save terminal settings", failure); }
         };
         platform.SelectedIndex = 0;
     }

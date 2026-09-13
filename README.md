@@ -18,6 +18,12 @@ Android phones should use `VibeHarder-Android.apk` (ARM64). Intel Android device
 
 Desktop releases check GitHub at startup and every four hours. When a newer matching package is available, a **Download update** button appears in the status bar. After download and checksum verification, **Restart to update** installs it, reopens your chats, and resumes requests that were active at restart. Nothing appears when you are current or a check fails. Android has no built-in updater.
 
+With paired computers, **Open workspace** separates **This computer** from each remote host. Remote folder browsing offers that host's filesystem and WSL distributions; remote workspaces are never saved as local workspaces or used to hop through another remote host.
+
+Ordinary UI failures trigger a partial chat-view reload while preserving running agents and unsent drafts. Repeated failures leave a **Reload chat** screen instead of repeatedly rebuilding the view. Startup failures offer a retry screen. Resource exhaustion and memory-corruption failures remain unrecoverable.
+
+For troubleshooting, use **Settings → Open diagnostic logs** on desktop or **Copy diagnostic log** in connection settings. Error logs include stack traces, rotate at 512 KiB, and retain one previous file. Expected UI cancellation is contained; unexpected process failures are recorded for diagnosis.
+
 ### Start
 
 On Linux (x64/ARM64, glibc or musl), install or update to the latest release:

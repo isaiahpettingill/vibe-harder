@@ -30,7 +30,7 @@ public partial class MainView
     }
     private void RefreshRemoteSidebar()
     {
-        if (remoteView is not { } view || remoteCatalog is not { } catalog || !remoteSections.TryGetValue(view.Host.Name, out var section)) return;
+        if (remoteView is not { } view || remoteCatalog is not { } catalog || !remoteSections.TryGetValue(view.Host.Address + ":" + view.Host.Port, out var section)) return;
         ImportChatsButton.IsEnabled = view.HasWorkspace;
         var host = view.Host; section.Children.Clear(); section.Children.Add(view.ConnectionStatus);
         foreach (var workspace in catalog["workspaces"]!.AsArray())
@@ -48,11 +48,11 @@ public partial class MainView
             var list = new ListBox { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = store.Setting("collapsed:" + key) != "1" };
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, anchor => view.RenameChat(anchor, chat.Id, chat.Title), () => view.ArchiveChat(chat.Id, !chat.Archived)));
             list.SelectedItem = rows.FirstOrDefault(c => c.Id == view.SelectedChatId);
-            list.SelectionChanged += (_, _) => { if (list.SelectedItem is Chat chat) { chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); CollapseSidebar(); } };
+            list.SelectionChanged += (_, _) => { if (list.SelectedItem is Chat chat) { ClearRecoveryNotice(); view.SetPresentationSleeping(false); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); CollapseSidebar(); } };
             var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
             var collapse = new IconButton { Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = "Collapse or expand workspace" };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; store.Setting("collapsed:" + key, list.IsVisible ? "0" : "1"); }; header.Children.Add(collapse);
-            var title = new Button { Content = workspace["name"]!.GetValue<string>(), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            var title = new Button { Content = workspace["name"]!.GetValue<string>() + (workspace["distro"]?.GetValue<string>() is { } distro ? " · " + distro + " (WSL)" : " · Files on " + host.Name), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             title.Click += (_, _) => { if (rows.FirstOrDefault() is { } chat) { view.SelectChat(chat.Id); CollapseSidebar(); } }; Grid.SetColumn(title, 1); header.Children.Add(title);
             var create = new IconButton { Icon = "add", Label = "New chat" }; create.Click += (_, _) => view.ShowNewChat(create, ownerId); Grid.SetColumn(create, 2); header.Children.Add(create);
             var close = new IconButton { Icon = "remove", Label = "Close workspace (keep chats)" }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);

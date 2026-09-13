@@ -25,13 +25,20 @@ public sealed class RemoteView : UserControl, IDisposable
         if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
     }
     public Control ConnectionStatus => status;
+    public void RestorePresentation()
+    {
+        if (lifetime.IsCancellationRequested) return;
+        configJson = permissionsJson = queueJson = "";
+        configs.Children.Clear(); approvals.Children.Clear(); queuedMessages.Children.Clear();
+        output.ItemsSource = null; output.ItemsSource = messages;
+        ReconnectHost(); SetPresentationSleeping(false);
+    }
     public void ReconnectHost()
     {
         connectAttempt?.Cancel(); connection?.Dispose(); connection = null;
         reconnectAfter = default; reconnectFailures = 0;
         _ = Connect();
     }
-    private Workspace[] workspaceHistory = [];
     private readonly WrapPanel attachmentChips = new();
     private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
@@ -55,6 +62,15 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly ComboBox workspaces = new();
     private readonly ObservableCollection<Message> messages = [];
     private string? chatId;
+    private string? requestedWorkspace;
+    public void SelectWorkspaceId(string id)
+    {
+        requestedWorkspace = id;
+        if (workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == id) is { } selected)
+        {
+            workspaces.SelectedItem = selected; requestedWorkspace = null; FilterChats(); WorkspaceOpened?.Invoke(id);
+        }
+    }
     private bool polling;
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private string permissionsJson = "";
@@ -224,7 +240,7 @@ public sealed class RemoteView : UserControl, IDisposable
             }
             catch (Exception error)
             {
-                System.Diagnostics.Trace.WriteLine("Remote chat refresh: " + error);
+                AppDiagnostics.Record("Remote chat refresh", error);
                 if (!lifetime.IsCancellationRequested) { status.IsVisible = true; status.Text = "Could not refresh chat: " + error.Message; }
             }
             finally { polling = false; }
@@ -327,9 +343,9 @@ public sealed class RemoteView : UserControl, IDisposable
     private async Task RefreshList()
     {
         var result = await Call(new() { ["method"] = "list" }); if (result is null || lifetime.IsCancellationRequested) return;
-        workspaceHistory = result["workspaces"]!.AsArray().Select(w => new Workspace(w!["id"]!.GetValue<string>(), w["name"]!.GetValue<string>(), w["path"]?.GetValue<string>() ?? "", w["distro"]?.GetValue<string>())).ToArray();
         chatRows = result["chats"]!.AsArray();
-        var selected = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
+        var requested = requestedWorkspace;
+        var selected = requested ?? chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         selected ??= chatRows.FirstOrDefault(c => c?["archived"]?.GetValue<bool>() != true)?["workspaceId"]?.GetValue<string>();
         refreshing = true;
         workspaces.ItemsSource = result["workspaces"]!.AsArray().Select(w => new RemoteItem(w!["id"]!.GetValue<string>(), w["name"]!.GetValue<string>())).ToArray();
@@ -337,6 +353,7 @@ public sealed class RemoteView : UserControl, IDisposable
         refreshing = false;
         FilterChats();
         CatalogChanged?.Invoke(result.DeepClone());
+        if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
     }
     private void FilterChats()
     {
@@ -351,7 +368,7 @@ public sealed class RemoteView : UserControl, IDisposable
         }
         finally { refreshing = false; }
         if (chats.SelectedItem is RemoteItem selected && selected.Id != chatId) SelectChat(selected.Id);
-        if (chats.SelectedItem is null) { chatId = null; busy = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear(); }
+        if (chats.SelectedItem is null) { chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear(); }
     }
     private async Task<JsonNode?> Call(JsonObject request)
     {
@@ -410,21 +427,6 @@ public sealed class RemoteView : UserControl, IDisposable
             };
             menu.Items.Add(item);
         }
-        menu.ShowAt(anchor);
-    }
-    public void ShowWorkspacePicker(Control anchor)
-    {
-        var selector = new WorkspaceSelector(workspaceHistory, allowRemoval: false) { Width = Math.Min(330, Math.Max(220, Bounds.Width - 24)) };
-        var menu = new Flyout { Content = selector };
-        selector.Chosen += workspace => { WorkspaceOpened?.Invoke(workspace.Id); workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == workspace.Id); menu.Hide(); WorkspaceNavigation?.Invoke(); };
-        selector.Browse += () =>
-        {
-            menu.Hide(); WorkspaceNavigation?.Invoke();
-            var browser = new RemoteWorkspacePicker(Call);
-            var overlay = new Border { Background = Background, Child = browser, ZIndex = 100 };
-            var grid = (Grid)Content!; Grid.SetRowSpan(overlay, 4); grid.Children.Add(overlay);
-            browser.Closed += async () => { grid.Children.Remove(overlay); await RefreshList(); if (browser.OpenedWorkspaceId is { } id) { WorkspaceOpened?.Invoke(id); workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == id); } };
-        };
         menu.ShowAt(anchor);
     }
     public void Dispose() { timer.Stop(); terminal.Dispose(); var client = connection; connection = null; lifetime.Cancel(); if (client is not null) _ = CloseConnection(client, terminal.TerminalId); CatalogChanged = null; WorkspaceNavigation = null; WorkspaceOpened = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }

@@ -9,6 +9,7 @@ public partial class App : Application
 {
     public override void Initialize()
     {
+        AppDiagnostics.Install();
         AvaloniaXamlLoader.Load(this);
         if (OperatingSystem.IsAndroid())
             Styles.Add(new Avalonia.Styling.Style(selector => selector.OfType<Avalonia.Controls.Primitives.ScrollBar>())
@@ -20,8 +21,7 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            var state = await Task.Run(() => { var store = new Store(backgroundWrites: true); return (Store: store, Workspaces: store.Workspaces(), Chats: store.Chats()); });
-            desktop.MainWindow = new MainWindow(state.Store, state.Workspaces, state.Chats); desktop.MainWindow.Show();
+            await OpenDesktop(desktop);
         }
         else if (ApplicationLifetime is IActivityApplicationLifetime activity)
         {
@@ -32,5 +32,30 @@ public partial class App : Application
             single.MainView = new MainView(new Store(), remoteOnly: true);
         }
         base.OnFrameworkInitializationCompleted();
+    }
+
+    private static async Task OpenDesktop(IClassicDesktopStyleApplicationLifetime desktop, Avalonia.Controls.Window? recovery = null)
+    {
+        Store? openedStore = null;
+        try
+        {
+            var state = await Task.Run(() => { openedStore = new Store(backgroundWrites: true); return (Store: openedStore, Workspaces: openedStore.Workspaces(), Chats: openedStore.Chats()); });
+            var window = new MainWindow(state.Store, state.Workspaces, state.Chats);
+            desktop.MainWindow = window; window.Show(); recovery?.Close();
+        }
+        catch (Exception error) when (!AppDiagnostics.IsUnrecoverable(error))
+        {
+            try { openedStore?.Dispose(); } catch (Exception cleanup) { AppDiagnostics.Record("Startup cleanup", cleanup); }
+            AppDiagnostics.Record("Restore application", error);
+            var window = recovery ?? new Avalonia.Controls.Window { Title = "Restore Vibe Harder", Width = 520, Height = 280 };
+            var retry = new Avalonia.Controls.Button { Content = "Retry" };
+            retry.Click += async (_, _) => { retry.IsEnabled = false; await OpenDesktop(desktop, window); retry.IsEnabled = true; };
+            window.Content = new Avalonia.Controls.StackPanel
+            {
+                Margin = new Thickness(24), Spacing = 16,
+                Children = { new Avalonia.Controls.TextBlock { Text = "Could not restore the app. Your saved chats have been kept.\n\n" + error.Message, TextWrapping = Avalonia.Media.TextWrapping.Wrap }, retry }
+            };
+            desktop.MainWindow = window; window.Show();
+        }
     }
 }

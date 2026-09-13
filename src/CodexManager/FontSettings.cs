@@ -36,7 +36,12 @@ public sealed class FontSettings : Window
         var reset = new Button { Content = "Reset fonts and sizes" };
         reset.Click += (_, _) => { foreach (var (kind, field) in fields) field.Text = Default(kind); foreach (var size in sizes.Values) size.Value = 13; };
         var save = new Button { Name = "SaveFonts", Content = "Save" };
-        save.Click += (_, _) => { foreach (var (kind, field) in fields) { store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()); store.Setting("fontSize:" + kind, (sizes[kind].Value ?? 13).ToString(System.Globalization.CultureInfo.InvariantCulture)); } Apply(store); Close(); };
-        panel.Children.Add(reset); panel.Children.Add(save); Content = panel;
+        var errorText = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        save.Click += (_, _) =>
+        {
+            try { foreach (var (kind, field) in fields) { store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()); store.Setting("fontSize:" + kind, (sizes[kind].Value ?? 13).ToString(System.Globalization.CultureInfo.InvariantCulture)); } Apply(store); Close(); }
+            catch (Exception error) { errorText.Text = AppDiagnostics.Message("Could not save fonts", error); }
+        };
+        panel.Children.Add(reset); panel.Children.Add(errorText); panel.Children.Add(save); Content = panel;
     }
 }

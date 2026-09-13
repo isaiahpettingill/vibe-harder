@@ -94,7 +94,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             model.Feed(result["text"]!.GetValue<string>()); offset = result["offset"]!.GetValue<long>();
         }
-        catch (Exception error) { if (!disposed) status.Text = "Terminal refresh failed: " + error.Message; }
+        catch (Exception error) { if (!disposed) status.Text = AppDiagnostics.Message("Terminal refresh failed", error); }
         finally { polling = false; }
     }
     public void Dispose() { disposed = true; timer.Stop(); Back = null; }

@@ -11,6 +11,44 @@ namespace CodexManager.Tests;
 public class SettingsUiTests
 {
     [AvaloniaFact]
+    public async Task SavingSettingsAndTogglingReuseTrayUntilShutdown()
+    {
+        var directory = Directory.CreateTempSubdirectory("settings-tray-").FullName;
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory, backgroundWrites: true); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "1");
+        var window = new MainWindow(store); window.Show();
+        var field = typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        var original = Assert.IsType<TrayIcon>(field.GetValue(window.View));
+        async Task Wait(Func<bool> check) { var until = DateTime.UtcNow.AddSeconds(5); while (!check() && DateTime.UtcNow < until) await Task.Delay(20); Assert.True(check()); }
+        try
+        {
+            for (var i = 0; i < 3; i++)
+            {
+                window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var dialog = window.OwnedWindows.Single(w => w.Title == "Settings");
+                dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                await Wait(() => !dialog.IsVisible);
+                Assert.Same(original, field.GetValue(window.View));
+                Assert.Contains(original, TrayIcon.GetIcons(Application.Current!)!);
+            }
+            window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var settings = window.OwnedWindows.Single(w => w.Title == "Settings");
+            var toggle = settings.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "RunInTray");
+            toggle.IsChecked = false;
+            Assert.Same(original, field.GetValue(window.View)); Assert.False(original.IsVisible);
+            toggle.IsChecked = true;
+            var replacement = Assert.IsType<TrayIcon>(field.GetValue(window.View)); Assert.Same(original, replacement); Assert.True(replacement.IsVisible);
+            settings.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => !settings.IsVisible); Assert.Same(replacement, field.GetValue(window.View));
+        }
+        finally
+        {
+            var closed = false; window.Closed += (_, _) => closed = true; window.RequestExit(); await Wait(() => closed);
+            Assert.Null(field.GetValue(window.View));
+        }
+    }
+
+    [AvaloniaFact]
     public async Task FontSettingsSaveIndependentFamiliesAndDefaultToNeoSpleen()
     {
         using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-fonts", Guid.NewGuid().ToString("N")));

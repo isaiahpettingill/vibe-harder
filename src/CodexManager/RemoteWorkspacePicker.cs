@@ -20,15 +20,16 @@ public sealed class RemoteWorkspacePicker : UserControl
     private string[] entries = [];
     private string current = "", parent = "";
     private int generation;
-    private string? Distro => location.SelectedItem is string s && s != "Local" ? s : null;
-    public RemoteWorkspacePicker(Func<JsonObject, Task<JsonNode?>> call)
+    private sealed record Location(string? Distro, string Caption) { public override string ToString() => Caption; }
+    private string? Distro => (location.SelectedItem as Location)?.Distro;
+    public RemoteWorkspacePicker(Func<JsonObject, Task<JsonNode?>> call, string computerName = "remote computer")
     {
         this.call = call;
         ScrollViewer.SetHorizontalScrollBarVisibility(folders, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
         if (OperatingSystem.IsAndroid()) ScrollViewer.SetVerticalScrollBarVisibility(folders, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
         var grid = new Grid { Margin = new Thickness(16), RowDefinitions = new("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto"), RowSpacing = 8 };
         void Row(Control c, int r) { Grid.SetRow(c, r); grid.Children.Add(c); }
-        Row(new TextBlock { Text = "Choose where Codex works", TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 22 }, 0); Row(location, 1); Row(path, 2);
+        Row(new TextBlock { Text = "Open folder on " + computerName, TextWrapping = Avalonia.Media.TextWrapping.Wrap, FontSize = 22 }, 0); Row(location, 1); Row(path, 2);
         var up = new IconButton { Icon = "chevron-up", Label = "Parent folder" }; up.Click += async (_, _) => await Navigate(parent);
         var home = new Button { Content = "Home" }; home.Click += async (_, _) => await Navigate("");
         var go = new Button { Content = "Go" }; go.Click += async (_, _) => await Navigate(path.Text ?? "");
@@ -59,9 +60,15 @@ public sealed class RemoteWorkspacePicker : UserControl
         Content = grid;
         AttachedToVisualTree += async (_, _) =>
         {
-            var locations = await call(new() { ["method"] = "locations" });
-            location.ItemsSource = new[] { "Local" }.Concat(locations?["distros"]?.AsArray().Select(d => d!.GetValue<string>()) ?? []).ToArray();
-            location.SelectedIndex = 0;
+            var revision = generation;
+            try
+            {
+                var locations = await call(new() { ["method"] = "locations" });
+                if (revision != generation) return;
+                location.ItemsSource = new[] { new Location(null, "Files on " + computerName) }.Concat(locations?["distros"]?.AsArray().Select(d => new Location(d!.GetValue<string>(), d.GetValue<string>() + " (WSL)")) ?? []).ToArray();
+                location.SelectedIndex = 0;
+            }
+            catch (Exception ex) { if (revision == generation) error.Text = "Could not load locations: " + ex.Message; }
         };
         DetachedFromVisualTree += (_, _) => ++generation;
     }

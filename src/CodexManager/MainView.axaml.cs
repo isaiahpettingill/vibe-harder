@@ -45,10 +45,13 @@ public partial class MainView : UserControl
         }
     }
     private void CloseRemoteView()
-    { if (remoteView is null) return; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; MobileTerminalButton.IsEnabled = false; }
-    private void OpenRemoteHost(RemoteHost host)
+    { if (remoteView is null) return; foreach (var section in remoteSections.Values) section.Children.Clear(); remoteCatalog = null; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; MobileTerminalButton.IsEnabled = false; }
+    private void OpenRemoteHost(RemoteHost host, string? workspaceId = null)
     {
+        ClearRecoveryNotice();
+        if (remoteView?.Host == host) { remoteView.SetPresentationSleeping(false); if (workspaceId is not null) remoteView.SelectWorkspaceId(workspaceId); CollapseSidebar(); return; }
         CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view; MobileTerminalButton.IsEnabled = true;
+        if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
         if (current is not null) DeferHistoryEviction(current);
         MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
@@ -148,6 +151,7 @@ public partial class MainView : UserControl
         InitializeLayout();
         if (workspaces.Count > 0) SelectWorkspace(workspaces.FirstOrDefault(w => w.Id == store.Setting("workspace")) ?? workspaces[0]);
         UpdateControls();
+        AppDiagnostics.RecoveryRequested += RecoverAfterError;
     }
     private async void OpenWorkspaceClick(object? sender, RoutedEventArgs e)
     {
@@ -168,7 +172,23 @@ public partial class MainView : UserControl
     }
     private async void WorkspaceSelectorClick(object? sender, RoutedEventArgs e)
     {
-        if (remoteView is not null) { remoteView.ShowWorkspacePicker(OpenWorkspaceButton); return; }
+        if (RemoteSettings.Hosts(store).Count > 0)
+        {
+            var chooser = new WorkspaceComputerPicker(store, remoteOnly, remoteView?.Host) { Width = Math.Min(440, Math.Max(220, Bounds.Width - 32)), MaxHeight = Math.Max(300, Bounds.Height - 120) };
+            var popup = new Flyout { Content = chooser };
+            popup.Closed += (_, _) => chooser.Dispose();
+            chooser.LocalChosen += selected => { popup.Hide(); OpenWorkspace(selected); };
+            chooser.BrowseLocal += () => { popup.Hide(); OpenWorkspaceClick(this, new()); };
+            chooser.RemoteChosen += (host, id) => { popup.Hide(); OpenRemoteHost(host, id); };
+            chooser.PairComputer += async () =>
+            {
+                popup.Hide();
+                if (remoteOnly) { ShowConnectionSettings(); return; }
+                var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(desktopWindow!);
+                BuildWorkspaceTree(); if (host is not null) OpenRemoteHost(host);
+            };
+            Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(OpenWorkspaceButton, popup); popup.ShowAt(OpenWorkspaceButton); return;
+        }
         if (remoteOnly) { ShowConnectionSettings(); return; }
         var history = new WorkspaceHistory(store);
         var selector = new WorkspaceSelector(history.Entries());
@@ -194,6 +214,7 @@ public partial class MainView : UserControl
     }
     private void SelectWorkspace(Workspace selected, bool startChat = false)
     {
+        ClearRecoveryNotice();
         CloseRemoteView();
         if (workspace?.Id != selected.Id) ClearChat();
         workspace = selected; store.Setting("workspace", selected.Id);
@@ -257,11 +278,12 @@ public partial class MainView : UserControl
     }
     private void BuildWorkspaceTree()
     {
-        WorkspaceTree.Children.Clear(); workspaceLists.Clear();
+        WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear();
+        if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
         foreach (var owner in workspaces)
         {
             var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
-            var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
             title.Click += (_, _) => SelectWorkspace(owner, true);
             var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", Label = "New chat" };
@@ -288,11 +310,12 @@ public partial class MainView : UserControl
         }
         foreach (var host in RemoteSettings.Hosts(store))
         {
-            var button = new Button { Content = "Remote · " + host.Name, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            var button = new Button { Content = "Remote · " + host.Name + " (" + host.Address + ")", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             button.Click += (_, _) => OpenRemoteHost(host); WorkspaceTree.Children.Add(button);
-            var section = new StackPanel(); remoteSections[host.Name] = section; WorkspaceTree.Children.Add(section);
+            var section = new StackPanel(); remoteSections[host.Address + ":" + host.Port] = section; WorkspaceTree.Children.Add(section);
         }
         RefreshChats();
+        RefreshRemoteSidebar();
     }
     private MenuFlyout ProviderMenu(Workspace owner)
     {
@@ -328,7 +351,7 @@ public partial class MainView : UserControl
         refreshingChats = true;
         foreach (var (id, list) in workspaceLists)
         {
-            var selected = list.SelectedItem;
+            var selected = list.SelectedItem ?? (remoteView is null && current?.WorkspaceId == id ? current : null);
             list.ItemsSource = chats.Where(c => c.WorkspaceId == id && c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).OrderByDescending(c => c.Updated).ToArray();
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
         }
@@ -345,6 +368,8 @@ public partial class MainView : UserControl
     private async void ChatChanged(object? sender, SelectionChangedEventArgs e)
     {
         if (refreshingChats || sender is not ListBox { SelectedItem: Chat chat, Tag: Workspace owner }) return;
+        if (!recoveringPresentation) ClearRecoveryNotice();
+        if (!ReferenceEquals(current, chat)) recoveryAttempts = 0;
         CloseRemoteView();
         if (workspace?.Id != owner.Id)
         {
@@ -773,31 +798,45 @@ public partial class MainView : UserControl
     }
     private async void SettingsClick(object? sender, RoutedEventArgs e)
     {
+        try { await ShowSettings(); }
+        catch (Exception error) { StatusText.Text = AppDiagnostics.Message("Could not open settings", error); }
+    }
+    private async Task ShowSettings()
+    {
         if (remoteOnly) { ShowConnectionSettings(); return; }
         var dialog = new Window { Title = "Settings", Width = 680, Height = 600, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
+        var saveError = new TextBlock { Name = "SettingsSaveError", TextWrapping = TextWrapping.Wrap };
+        void ApplyChange(Action change) { try { change(); saveError.Text = ""; } catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not apply settings", error); } }
+        async Task OpenChild(Func<Window> create) { try { await create().ShowDialog(dialog); } catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not open settings", error); } }
         var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") == "1" };
-        sleep.IsCheckedChanged += (_, _) => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); };
+        sleep.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); });
         panel.Children.Add(sleep);
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
-        syntax.IsCheckedChanged += (_, _) => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); };
+        syntax.IsCheckedChanged += (_, _) => ApplyChange(() => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); });
         panel.Children.Add(syntax);
         var traySetting = new CheckBox { Name = "RunInTray", Content = "Keep agents running in the system tray when the window closes", IsChecked = store.Setting("runInTray") != "0" };
-        traySetting.IsCheckedChanged += (_, _) => { store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray(); };
+        traySetting.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray(); });
         panel.Children.Add(traySetting);
         var autoResume = new CheckBox { Name = "AutoResumeInterrupted", Content = "Automatically resume interrupted chats when the app starts", IsChecked = store.Setting("autoResume") == "1" };
-        autoResume.IsCheckedChanged += (_, _) => store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0");
+        autoResume.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0"));
         var startAtLogin = new CheckBox { Name = "StartAtLogin", Content = "Start Vibe Harder when I sign in (including after a restart)", IsChecked = store.Setting("startAtLogin") == "1" };
         panel.Children.Add(autoResume); panel.Children.Add(startAtLogin);
         panel.Children.Add(new TextBlock { Text = "Enable both for unattended recovery after a restart. Explicitly stopped chats stay stopped. Agents still use their existing permission settings.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var terminalSettings = new Button { Content = "Terminal settings…" };
-        terminalSettings.Click += async (_, _) => await new TerminalSettings(store, store.Workspaces()).ShowDialog(dialog);
+        terminalSettings.Click += async (_, _) => await OpenChild(() => new TerminalSettings(store, store.Workspaces()));
         panel.Children.Add(terminalSettings);
         var fontSettings = new Button { Content = "Fonts…" };
-        fontSettings.Click += async (_, _) => await new FontSettings(store).ShowDialog(dialog);
+        fontSettings.Click += async (_, _) => await OpenChild(() => new FontSettings(store));
         panel.Children.Add(fontSettings);
+        var diagnostics = new Button { Content = "Open diagnostic logs" };
+        diagnostics.Click += (_, _) => ApplyChange(() => { Directory.CreateDirectory(AppDiagnostics.DirectoryPath); FileLinks.Reveal(AppDiagnostics.DirectoryPath); }); panel.Children.Add(diagnostics);
         var remote = new Button { Content = "Remote hosts and server…" };
-        remote.Click += async (_, _) => { var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(dialog); BuildWorkspaceTree(); if (host is not null) { dialog.Close(); OpenRemoteHost(host); } };
+        remote.Click += async (_, _) =>
+        {
+            try { var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(dialog); BuildWorkspaceTree(); if (host is not null) { dialog.Close(); OpenRemoteHost(host); } }
+            catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not open remote settings", error); }
+        };
         panel.Children.Add(remote);
         panel.Children.Add(new TextBlock { Text = "Color theme" }); panel.Children.Add(AppTheme.Picker(store));
         var fields = new Dictionary<string, TextBox>();
@@ -822,15 +861,22 @@ public partial class MainView : UserControl
             var field = new TextBox { Text = store.Setting(key) ?? ChatHistory.DefaultCodexCommand }; fields[key] = field; panel.Children.Add(field);
         }
         panel.Children.Add(new TextBlock { Text = "Sign in to each agent in its own environment. OpenCode uses opencode acp; Claude uses the Claude Agent SDK adapter. Commands apply to new connections and imports.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
-        var save = new Button { Content = "Save settings", Classes = { "accent" } }; panel.Children.Add(save);
-        save.Click += (_, _) =>
+        panel.Children.Add(saveError);
+        var save = new Button { Name = "SaveSettings", Content = "Save settings", Classes = { "accent" } }; panel.Children.Add(save);
+        save.Click += async (_, _) =>
         {
-            if (fields.Values.Any(f => string.IsNullOrWhiteSpace(f.Text))) return;
-            try { if ((startAtLogin.IsChecked == true) != (store.Setting("startAtLogin") == "1")) StartupRegistration.SetEnabled(startAtLogin.IsChecked == true); }
-            catch (Exception error) { StatusText.Text = "Could not update startup registration: " + error.Message; return; }
-            foreach (var (key, field) in fields) store.Setting(key, field.Text!);
-            store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0"); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0");
-            store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray(); dialog.Close();
+            if (fields.Values.Any(f => string.IsNullOrWhiteSpace(f.Text))) { saveError.Text = "Fill in all agent commands before saving."; return; }
+            save.IsEnabled = false; saveError.Text = "";
+            try
+            {
+                if ((startAtLogin.IsChecked == true) != (store.Setting("startAtLogin") == "1")) StartupRegistration.SetEnabled(startAtLogin.IsChecked == true);
+                foreach (var (key, field) in fields) store.Setting(key, field.Text!);
+                store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0"); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0");
+                store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray();
+                await store.FlushAsync(); dialog.Close();
+            }
+            catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not save settings", error); }
+            finally { save.IsEnabled = true; }
         };
         dialog.Content = new ScrollViewer { Content = panel }; await dialog.ShowDialog(desktopWindow!);
     }
@@ -1071,17 +1117,34 @@ public partial class MainView : UserControl
         catch (Exception error) { chat.Status = "Delete failed"; StatusText.Text = "History deletion failed; the chat was kept. " + error.Message; }
         finally { chat.Busy = false; var status = StatusText.Text; UpdateControls(); StatusText.Text = status; }
     }
-    private bool TrayAvailable => tray is not null && Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || tray.NativeMenuExporter is not null);
+    private bool TrayAvailable => tray?.IsVisible == true && store.Setting("runInTray") != "0" && Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || tray.NativeMenuExporter is not null);
     private void ConfigureTray()
     {
-        tray?.Dispose(); tray = null;
-        if (remoteOnly || desktopWindow is null || store.Setting("runInTray") == "0") return;
+        if (remoteOnly || desktopWindow is null) return;
+        // Linux's asynchronous D-Bus watcher can throw on cancellation during disposal.
+        // Keep one icon for the window lifetime and toggle visibility instead.
+        if (store.Setting("runInTray") == "0") { if (tray is not null) tray.IsVisible = false; return; }
+        if (tray is not null) { tray.IsVisible = true; UpdateTray(); return; }
         var show = new NativeMenuItem("Open Vibe Harder"); show.Click += (_, _) => ShowFromTray();
         var quit = new NativeMenuItem("Quit and interrupt agents"); quit.Click += (_, _) => RequestExit();
         tray = new TrayIcon { Icon = desktopWindow.Icon, ToolTipText = "Vibe Harder — no agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
         UpdateTray();
         tray.Clicked += (_, _) => ShowFromTray();
-        if (Application.Current is { } app) TrayIcon.SetIcons(app, new TrayIcons { tray });
+        if (Application.Current is { } app)
+        {
+            var icons = TrayIcon.GetIcons(app);
+            if (icons is null) { icons = new TrayIcons(); TrayIcon.SetIcons(app, icons); }
+            icons.Add(tray);
+        }
+    }
+    private void ReleaseTray()
+    {
+        var previous = tray; tray = null; trayState = "";
+        if (previous is null) return;
+        // Avalonia disposes registered icons when they are removed. Do not dispose twice.
+        var icons = Application.Current is { } app ? TrayIcon.GetIcons(app) : null;
+        if (icons?.Contains(previous) == true) icons.Remove(previous);
+        else previous.Dispose();
     }
     private string trayState = "";
     private void UpdateTray()
@@ -1106,7 +1169,7 @@ public partial class MainView : UserControl
         var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += (_, _) => RequestExit(); menu.Items.Add(quit);
         tray.Menu = menu;
     }
-    public void ShowFromTray() { desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
+    public void ShowFromTray() { if (closing) return; desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
     public void RequestExit() { exitRequested = true; desktopWindow?.Close(); }
     private async Task OfferInterruptedChats()
     {
@@ -1175,6 +1238,7 @@ public partial class MainView : UserControl
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
         { e.Cancel = true; SaveAll(); desktopWindow?.Hide(); return; }
         if (closing) { e.Cancel = !shutdownComplete; return; }
+        AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
         e.Cancel = true; closing = true; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
         var errors = new List<Exception>();
@@ -1201,8 +1265,7 @@ public partial class MainView : UserControl
         }
         finally
         {
-            tray?.Dispose(); tray = null;
-            if (Application.Current is { } app) TrayIcon.SetIcons(app, new TrayIcons());
+            ReleaseTray();
             remoteSessions.Changed -= BuildWorkspaceTree;
             MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
             runtimes.Clear(); terminals.Clear(); loginSessions.Clear(); discoveries.Clear(); workspaceClosures.Clear();

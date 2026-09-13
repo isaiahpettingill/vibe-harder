@@ -168,6 +168,7 @@ public partial class MainView
     public void ResumeRemotePresentation() => remoteView?.SetPresentationSleeping(false);
     public void DisposeMobile()
     {
+        AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (inputTopLevel is not null) inputTopLevel.ScalingChanged -= MobileScalingChanged;
         if (inputTopLevel?.InputPane is { } pane) pane.StateChanged -= InputPaneChanged;
         if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged -= SafeAreaChanged;
@@ -180,6 +181,7 @@ public partial class MainView
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             token.ThrowIfCancellationRequested();
+            if (closing) throw new OperationCanceledException("The host is shutting down.", token);
             ShowFromTray();
             var popup = new Window { Title = "Pair a device", Width = 380, Height = 250, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner, Topmost = true };
             popup.Content = new StackPanel

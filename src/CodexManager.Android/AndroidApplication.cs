@@ -11,6 +11,7 @@ public sealed class AndroidApplication(nint handle, JniHandleOwnership ownership
     protected override AppBuilder CustomizeAppBuilder(AppBuilder builder) => base.CustomizeAppBuilder(builder).LogToTrace();
     public override void OnCreate()
     {
+        AndroidEnvironment.UnhandledExceptionRaiser += (_, e) => AppDiagnostics.Record("Android runtime", e.Exception);
         base.OnCreate();
         FileLinks.CacheDirectory = Path.Combine(CacheDir!.AbsolutePath, "linked-files");
         FileLinks.OpenNativeFile = path =>

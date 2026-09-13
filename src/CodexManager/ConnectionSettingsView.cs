@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 
@@ -77,6 +78,19 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         }
         panel.Children.Add(new Separator()); panel.Children.Add(new TextBlock { Text = "Saved computers" }); panel.Children.Add(hosts); RefreshHosts();
         panel.Children.Add(new TextBlock { Text = "Color theme" }); panel.Children.Add(AppTheme.Picker(store));
+        var copyLog = new Button { Content = "Copy diagnostic log" };
+        copyLog.Click += async (_, _) =>
+        {
+            try
+            {
+                var path = Path.Combine(AppDiagnostics.DirectoryPath, "errors.log");
+                var text = File.Exists(path) ? await File.ReadAllTextAsync(path, lifetime.Token) : "No errors recorded.";
+                if (text.Length > 32 * 1024) text = text[^(32 * 1024)..];
+                if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) { await clipboard.SetTextAsync(text); status.Text = "Diagnostic log copied."; }
+            }
+            catch (Exception error) { status.Text = AppDiagnostics.Message("Could not copy diagnostics", error); }
+        };
+        panel.Children.Add(copyLog);
         if (!remoteOnly)
         {
             var enabled = new CheckBox { Name = "AllowRemoteConnections", Content = "Allow my other devices to connect", IsChecked = store.Setting("remoteEnabled") != "0" };

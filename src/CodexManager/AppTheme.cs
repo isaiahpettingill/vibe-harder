@@ -61,7 +61,11 @@ public static class AppTheme
     public static ComboBox Picker(Store store)
     {
         var picker = new ComboBox { Name = "ThemePicker", ItemsSource = All, SelectedItem = All.FirstOrDefault(t => t.Name == store.Setting("theme")) ?? All[0], HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Stretch };
-        picker.SelectionChanged += (_, _) => { if (picker.SelectedItem is ThemePalette palette) { store.Setting("theme", palette.Name); Apply(palette); } };
+        picker.SelectionChanged += (_, _) =>
+        {
+            try { if (picker.SelectedItem is ThemePalette palette) { store.Setting("theme", palette.Name); Apply(palette); } }
+            catch (Exception error) { ToolTip.SetTip(picker, AppDiagnostics.Message("Could not apply theme", error)); }
+        };
         return picker;
     }
 }

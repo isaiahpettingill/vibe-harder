@@ -15,7 +15,7 @@ public sealed class WorkspaceSelector : StackPanel
     public event Action<Workspace>? Chosen;
     public event Action<Workspace>? Removed;
     public event Action? Browse;
-    public WorkspaceSelector(IReadOnlyList<Workspace> history, bool allowRemoval = true)
+    public WorkspaceSelector(IReadOnlyList<Workspace> history, bool allowRemoval = true, string? remotePlatform = null)
     {
         if (OperatingSystem.IsAndroid()) ScrollViewer.SetVerticalScrollBarVisibility(list, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
         entries = history; Width = 330; Spacing = 6;
@@ -26,7 +26,7 @@ public sealed class WorkspaceSelector : StackPanel
         {
             if (workspace is null) return null;
             var row = new Grid { ColumnDefinitions = new("*,Auto") };
-            var label = new DockPanel(); var icon = PlatformIcons.For(workspace); DockPanel.SetDock(icon, Dock.Left); label.Children.Add(icon);
+            var label = new DockPanel(); var icon = PlatformIcons.For(workspace, remotePlatform); DockPanel.SetDock(icon, Dock.Left); label.Children.Add(icon);
             label.Children.Add(new TextBlock { Text = workspace.Name + (workspace.IsWsl ? $" ({workspace.Distro})" : ""), TextTrimming = TextTrimming.CharacterEllipsis });
             var choose = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(choose, workspace.Path); choose.Click += (_, _) => Chosen?.Invoke(workspace);
