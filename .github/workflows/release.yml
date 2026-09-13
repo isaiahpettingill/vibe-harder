@@ -92,7 +92,7 @@ jobs:
           distribution: microsoft
           java-version: '21'
       - uses: android-actions/setup-android@v3
-      - run: dotnet workload install android
+      - run: dotnet workload install android --from-rollback-file packaging/android-workload.json
       - run: dotnet build src/CodexManager.Android -t:InstallAndroidDependencies -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AcceptAndroidSdkLicenses=True
       - name: Sign APK with stable release identity
         env:
