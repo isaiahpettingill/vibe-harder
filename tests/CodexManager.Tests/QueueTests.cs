@@ -4,6 +4,25 @@ namespace CodexManager.Tests;
 
 public class QueueTests
 {
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task EmptyEnterAdvancesOnlyFirstQueuedMessage(bool steering)
+    {
+        var directory = Directory.CreateTempSubdirectory("advance-queue-").FullName;
+        using var store = new Store(directory); var workspace = new Workspace("w", "Queue", directory); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"" + (steering ? " --steering" : ""));
+        var original = runtime.Send("hang", []);
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!chat.Messages.Any(m => m.Text == "Working") && DateTime.UtcNow < until) await Task.Delay(20);
+        Assert.True(runtime.IsPrompting);
+        runtime.Queue(new("hang", [])); runtime.Queue(new("still queued", []));
+        await runtime.AdvanceQueued();
+        Assert.Single(chat.QueuedInputs); Assert.Equal("still queued", chat.QueuedInputs[0].Text);
+        Assert.Equal(steering, !original.IsCompleted);
+        await runtime.Stop();
+    }
     [AvaloniaFact]
     public async Task QueueDrainsAfterCompletionButSurvivesStopAndRestart()
     {

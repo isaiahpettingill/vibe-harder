@@ -22,6 +22,7 @@
     <Compile Include="Program.cs;HeadlessHost.cs" />
     <AvaloniaResource Remove="**/*.axaml" />
     <AvaloniaXaml Remove="**/*.axaml" />
+    <PackageReference Include="Avalonia.Wayland" Version="12.1.2" />
     <ProjectReference Include="../CodexManager.UI/CodexManager.UI.csproj" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Headless" Version="12.1.2" />

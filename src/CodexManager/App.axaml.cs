@@ -21,6 +21,17 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            if (this.TryGetFeature<IActivatableLifetime>() is { } activation)
+            {
+                void Reopen(object? sender, ActivatedEventArgs args)
+                {
+                    if (args.Kind != ActivationKind.Reopen) return;
+                    if (desktop.MainWindow is MainWindow main) main.ShowFromTray();
+                    else if (desktop.MainWindow is { } recovery) { recovery.Show(); recovery.Activate(); }
+                }
+                activation.Activated += Reopen;
+                desktop.Exit += (_, _) => activation.Activated -= Reopen;
+            }
             await OpenDesktop(desktop);
         }
         else if (ApplicationLifetime is IActivityApplicationLifetime activity)
@@ -52,7 +63,8 @@ public partial class App : Application
             retry.Click += async (_, _) => { retry.IsEnabled = false; await OpenDesktop(desktop, window); retry.IsEnabled = true; };
             window.Content = new Avalonia.Controls.StackPanel
             {
-                Margin = new Thickness(24), Spacing = 16,
+                Margin = new Thickness(24),
+                Spacing = 16,
                 Children = { new Avalonia.Controls.TextBlock { Text = "Could not restore the app. Your saved chats have been kept.\n\n" + error.Message, TextWrapping = Avalonia.Media.TextWrapping.Wrap }, retry }
             };
             desktop.MainWindow = window; window.Show();

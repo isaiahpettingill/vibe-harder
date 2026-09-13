@@ -126,6 +126,8 @@ public partial class MainView : UserControl
     {
         this.store = store; this.remoteOnly = remoteOnly;
         InitializeComponent();
+        ((StackPanel)SlashCommands.Parent!).Children.Remove(SlashCommands);
+        RootPanes.Children.Add(new SlashCommandOverlay(Composer, SlashCommands));
         historyNavigation = new TranscriptNavigation(MessageList, HistoryNavigation, () => viewingHistory, BrowseHistory);
         TerminalDrawer.PropertyChanged += (_, e) =>
         {
@@ -145,8 +147,8 @@ public partial class MainView : UserControl
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
         DragDrop.SetAllowDrop(ComposerBorder, true);
-        ComposerBorder.AddHandler(DragDrop.DragOverEvent, (_, e) => e.DragEffects = DragDropEffects.Copy);
-        ComposerBorder.AddHandler(DragDrop.DropEvent, DropFiles);
+        ComposerBorder.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
+        ComposerBorder.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
         {
@@ -154,7 +156,7 @@ public partial class MainView : UserControl
         }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, async (_, e) =>
         {
-            if (e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
+            if (remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
             e.Handled = true;
             if (SlashCommands.IsVisible) { SlashCommands.IsVisible = false; return; }
             var twice = ReferenceEquals(escapeChat, current) && DateTimeOffset.UtcNow - lastEscape < TimeSpan.FromMilliseconds(650);
@@ -665,13 +667,21 @@ public partial class MainView : UserControl
     { try { if (current is not null && runtimes.TryGetValue(current.Id, out var runtime)) await runtime.Stop(); } catch (OperationCanceledException) { } catch (Exception ex) { StatusText.Text = ex.Message; } }
     private async void ComposerKeyDown(object? sender, KeyEventArgs e)
     {
+        if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
+        { e.Handled = true; Composer.SelectedText = "\n"; return; }
         if (SlashCommands.IsVisible && e.KeyModifiers == KeyModifiers.None)
         {
             if (e.Key is Key.Enter or Key.Tab) { e.Handled = true; InsertSlashCommand(); return; }
             if (e.Key is Key.Up or Key.Down) { e.Handled = true; SlashCommands.SelectedIndex = Math.Clamp(SlashCommands.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, SlashCommands.ItemCount - 1); SlashCommands.ScrollIntoView(SlashCommands.SelectedItem!); return; }
             if (e.Key == Key.Escape) { e.Handled = true; SlashCommands.IsVisible = false; return; }
         }
-        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift)) { e.Handled = true; await Send(); }
+        if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+        {
+            e.Handled = true;
+            if (current is { } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
+                await Runtime(chat, owner).AdvanceQueued();
+            else await Send();
+        }
         else if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
         {
             e.Handled = true;
@@ -692,7 +702,16 @@ public partial class MainView : UserControl
         await AddFiles(files);
     }
     private async void DropFiles(object? sender, DragEventArgs e)
-    { e.Handled = true; await AddFiles(e.DataTransfer.TryGetFiles() ?? []); }
+    {
+        e.Handled = true; if (current is not { } target) return;
+        try
+        {
+            var files = e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
+            if (files.Length > 0) await AddFiles(files, target);
+            else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) target.Attachments.Add(image);
+        }
+        catch (Exception error) { StatusText.Text = "Drop failed: " + error.Message; }
+    }
     private async Task AddFiles(IEnumerable<IStorageItem> files, Chat? target = null)
     {
         target ??= current; if (target is null) return;
@@ -700,14 +719,8 @@ public partial class MainView : UserControl
         {
             try
             {
-                var path = file.TryGetLocalPath(); if (path is null) continue;
-                if (Directory.Exists(path)) throw new IOException("Drop individual files, or use Open workspace for a folder.");
-                if (new FileInfo(path).Length > 20 * 1024 * 1024) throw new IOException("Attachments must be smaller than 20 MB.");
-                var extension = System.IO.Path.GetExtension(path).ToLowerInvariant();
-                var mime = extension switch { ".png" => "image/png", ".jpg" or ".jpeg" => "image/jpeg", ".webp" => "image/webp", ".gif" => "image/gif", _ => "text/plain" };
-                var data = mime.StartsWith("image/") ? Convert.ToBase64String(await File.ReadAllBytesAsync(path)) : await File.ReadAllTextAsync(path);
-                if (data.Contains('\0')) throw new IOException("This binary file cannot be included as text.");
-                target.Attachments.Add(new(file.Name, mime, data, path));
+                if (file is not IStorageFile storageFile) throw new IOException("Drop individual files, or use Open workspace for a folder.");
+                target.Attachments.Add(await AttachmentFiles.Read(storageFile));
             }
             catch (Exception ex) { StatusText.Text = file.Name + ": " + ex.Message; }
         }
@@ -730,15 +743,12 @@ public partial class MainView : UserControl
             if (data is null) return;
             if (!textOnly)
             {
-                using var bitmap = await data.TryGetBitmapAsync();
-                if (bitmap is not null)
+                if (await AttachmentClipboard.Image(data) is { } image)
                 {
-                    using var stream = new MemoryStream(); bitmap.Save(stream, Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
-                    if (stream.Length > 20 * 1024 * 1024) throw new IOException("Attachments must be smaller than 20 MB.");
                     var index = 1;
                     while (target.Attachments.Any(a => a.Reference == $"[Image #{index}]")) index++;
                     var reference = $"[Image #{index}]";
-                    target.Attachments.Add(new($"Pasted image {index}.png", "image/png", Convert.ToBase64String(stream.ToArray()), Reference: reference));
+                    target.Attachments.Add(image with { Name = $"Pasted image {index}" + Path.GetExtension(image.Name), Reference = reference });
                     InsertPaste(target, draft, start, end, reference);
                     return;
                 }

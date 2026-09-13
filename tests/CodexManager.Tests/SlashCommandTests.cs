@@ -1,6 +1,7 @@
 using Avalonia.Headless.XUnit;
 using Avalonia.Controls;
 using Avalonia.Input;
+using Avalonia.LogicalTree;
 
 namespace CodexManager.Tests;
 
@@ -13,6 +14,7 @@ public class SlashCommandTests
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
         using (var store = new Store(directory))
         {
+            store.Setting("runInTray", "0"); store.Setting("remoteEnabled", "0");
             store.Save(new Workspace("w", "Commands", directory));
             store.Save(new Chat { WorkspaceId = "w", SessionId = "fixture-session" });
             foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
@@ -26,10 +28,26 @@ public class SlashCommandTests
             var composer = window.FindControl<TextBox>("Composer")!; composer.Text = "/go";
             await Task.Delay(50);
             Assert.True(window.FindControl<ListBox>("SlashCommands")!.IsVisible);
+            Assert.True(window.View.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Assert.Equal("/go", composer.Text); Assert.False(window.FindControl<ListBox>("SlashCommands")!.IsVisible);
+            // Polling/configuration refreshes must not reopen a dismissed query.
+            window.FindControl<ListBox>("SlashCommands")!.IsVisible = true;
+            Assert.False(window.View.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
+            composer.Text = ""; await Task.Delay(50);
+            composer.Text = "/go"; await Task.Delay(50);
+            Assert.True(window.View.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
+            window.FindControl<ListBox>("SlashCommands")!.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            Assert.False(window.View.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
+            composer.Text = "/g";
+            await Task.Delay(50);
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             Assert.Equal("/goal ", composer.Text);
             Assert.DoesNotContain(chat.Messages, m => m.Role == "user");
             Assert.False(window.FindControl<ListBox>("SlashCommands")!.IsVisible);
+            composer.CaretIndex = composer.Text.Length;
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter, KeyModifiers = KeyModifiers.Control });
+            Assert.Equal("/goal \n", composer.Text);
         }
         finally { window.Close(); }
     }

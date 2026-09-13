@@ -44,6 +44,62 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
     private readonly StackPanel queuedMessages = new() { Spacing = 4 };
     private bool busy, sending, preparing;
+    private bool advancingQueue;
+    private readonly ListBox slashCommands = new() { Name = "RemoteSlashCommands", IsVisible = false, MaxHeight = 150 };
+    private SlashCommand[] availableCommands = [];
+    private void UpdateSlashCommands()
+    {
+        var matches = SlashCommand.Match(availableCommands, composer.Text ?? "");
+        var selected = slashCommands.SelectedItem as SlashCommand;
+        slashCommands.ItemsSource = matches; slashCommands.SelectedItem = matches.FirstOrDefault(c => c.Name == selected?.Name) ?? matches.FirstOrDefault();
+        slashCommands.IsVisible = matches.Count > 0;
+    }
+    private void InsertSlashCommand()
+    {
+        if (slashCommands.SelectedItem is not SlashCommand command) return;
+        composer.Text = "/" + command.Name + " "; composer.CaretIndex = composer.Text.Length;
+        slashCommands.IsVisible = false; composer.Focus();
+    }
+    private async Task AddFiles(IEnumerable<IStorageItem> files, string? selectedChat)
+    {
+        foreach (var item in files)
+        {
+            try
+            {
+                if (item is not IStorageFile file) throw new IOException("Drop individual files, not folders.");
+                var attachment = await AttachmentFiles.Read(file, lifetime.Token);
+                if (lifetime.IsCancellationRequested || chatId != selectedChat) return;
+                attachments.Add(attachment);
+            }
+            catch (Exception error) { attachmentError.Text = item.Name + ": " + error.Message; }
+        }
+        RefreshAttachments();
+    }
+    private async Task PasteClipboard(bool textOnly)
+    {
+        if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+        var selectedChat = chatId; var draft = composer.Text ?? "";
+        var start = Math.Min(composer.SelectionStart, composer.SelectionEnd); var end = Math.Max(composer.SelectionStart, composer.SelectionEnd);
+        try
+        {
+            using var data = await clipboard.TryGetDataAsync(); if (data is null) return;
+            if (!textOnly)
+            {
+                if (await AttachmentClipboard.Image(data) is { } image)
+                {
+                    if (lifetime.IsCancellationRequested || chatId != selectedChat) return;
+                    attachments.Add(image); RefreshAttachments(); return;
+                }
+                var files = (await data.TryGetFilesAsync())?.ToArray() ?? [];
+                if (files.Length > 0) { await AddFiles(files, selectedChat); return; }
+            }
+            var text = await data.TryGetTextAsync();
+            if (text is null || lifetime.IsCancellationRequested || chatId != selectedChat) return;
+            composer.Text = composer.Text == draft ? draft[..start] + text + draft[end..] : composer.Text + text;
+            composer.CaretIndex = composer.Text.Length;
+        }
+        catch (Exception error) { attachmentError.Text = "Paste failed: " + error.Message; }
+    }
     private ListBox output = null!;
     private RemoteTerminalView terminal = null!;
     private string? terminalWorkspace;
@@ -100,7 +156,7 @@ public sealed class RemoteView : UserControl, IDisposable
     public bool HasWorkspace => workspaces.SelectedItem is RemoteItem;
     public void SelectChat(string id)
     {
-        viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
     }
@@ -139,7 +195,21 @@ public sealed class RemoteView : UserControl, IDisposable
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
         Grid.SetRow(approvals, 2); panel.Children.Add(approvals);
-        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(new ScrollViewer { Content = queuedMessages, MaxHeight = 120 }); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(composer);
+        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(new ScrollViewer { Content = queuedMessages, MaxHeight = 120 }); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(new SlashCommandOverlay(composer, slashCommands)); input.Children.Add(composer);
+        slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
+        DragDrop.SetAllowDrop(input, true);
+        input.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
+        input.AddHandler(DragDrop.DropEvent, async (_, e) =>
+        {
+            e.Handled = true; var selectedChat = chatId;
+            try
+            {
+                var files = e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
+                if (files.Length > 0) await AddFiles(files, selectedChat);
+                else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) { attachments.Add(image); RefreshAttachments(); }
+            }
+            catch (Exception error) { attachmentError.Text = "Drop failed: " + error.Message; }
+        }, RoutingStrategies.Bubble, true);
         var footer = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6 }; input.Children.Add(footer); footer.Children.Add(configs);
         var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Spacing = 4 }; Grid.SetColumn(actions, 1); footer.Children.Add(actions);
         var attach = new IconButton { Name = "RemoteAttach", Icon = "add", Label = "Attach images or files" };
@@ -164,9 +234,30 @@ public sealed class RemoteView : UserControl, IDisposable
             finally { attach.IsEnabled = true; }
         }; actions.Children.Add(attach);
         actions.Children.Add(send);
-        composer.TextChanged += (_, _) => UpdateSendAction();
+        composer.TextChanged += (_, _) => { UpdateSendAction(); UpdateSlashCommands(); };
         send.Click += async (_, _) => await SendOrStop();
-        composer.KeyDown += async (_, e) => { if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift) && !OperatingSystem.IsAndroid()) { e.Handled = true; if (HasDraft) await SendOrStop(); } };
+        composer.AddHandler(KeyDownEvent, async (_, e) =>
+        {
+            if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
+            { e.Handled = true; await PasteClipboard(e.KeyModifiers.HasFlag(KeyModifiers.Shift)); return; }
+            if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
+            { e.Handled = true; composer.SelectedText = "\n"; return; }
+            if (slashCommands.IsVisible && e.KeyModifiers == KeyModifiers.None)
+            {
+                if (e.Key is Key.Enter or Key.Tab) { e.Handled = true; InsertSlashCommand(); return; }
+                if (e.Key is Key.Up or Key.Down) { e.Handled = true; slashCommands.SelectedIndex = Math.Clamp(slashCommands.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, slashCommands.ItemCount - 1); slashCommands.ScrollIntoView(slashCommands.SelectedItem!); return; }
+                if (e.Key == Key.Escape) { e.Handled = true; slashCommands.IsVisible = false; return; }
+            }
+            if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
+            e.Handled = true;
+            if (HasDraft) await SendOrStop();
+            else if (!advancingQueue && chatId is { } id && connection is not null)
+            {
+                advancingQueue = true;
+                try { await Call(new() { ["method"] = "queue/advance", ["chatId"] = id }); }
+                finally { advancingQueue = false; }
+            }
+        }, RoutingStrategies.Tunnel);
         UpdateSendAction();
         terminal = new RemoteTerminalView(Call) { IsVisible = false, ZIndex = 20 };
         terminal.Bind(Panel.BackgroundProperty, this.GetResourceObservable("AppBackground"));
@@ -195,6 +286,10 @@ public sealed class RemoteView : UserControl, IDisposable
                 status.IsVisible = false;
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting")))); UpdateSendAction();
                 UpdateRemoteQueue(result);
+                var commands = result["commandOptions"] is JsonArray detailed
+                    ? detailed.Select(c => new SlashCommand(c!["name"]!.GetValue<string>(), c["description"]?.GetValue<string>() ?? "", c["hint"]?.GetValue<string>())).ToArray()
+                    : result["commands"]?.AsArray().Select(c => new SlashCommand(c!.GetValue<string>().TrimStart('/'), "", null)).ToArray() ?? [];
+                if (!commands.SequenceEqual(availableCommands)) { availableCommands = commands; UpdateSlashCommands(); }
                 navigation.Update();
                 var configText = result["config"]!.ToJsonString();
                 if (configText != configJson)

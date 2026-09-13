@@ -8,7 +8,7 @@ The logo source is [LOGO.png](LOGO.png). Code is [MIT licensed](LICENSE).
 
 **Themes:** Original, Catppuccin Mocha, Monokai, Solarized Dark, Gruvbox, and Solarized Light, shared by chat, controls, and terminal ANSI colors.
 
-**Remote access:** [Paired hosts, headless mode, and Android](REMOTE.md). Agents stay on their owning host when a client disconnects. Android is a remote-only client with a chat drawer and no terminal or tray mode.
+**Remote access:** [Paired hosts, headless mode, and Android](REMOTE.md). Agents stay on their owning host when a client disconnects. Android is a remote-only client with a shared chat sidebar and remote terminal. Use the terminal button or swipe right to open it; swipe left or use Back to return to chat. Android has no tray mode.
 
 ## Run
 
@@ -32,7 +32,7 @@ On Windows, `./run.ps1` builds and launches the app. A prepared Windows build is
 
 Workspace chevrons collapse chat lists without stopping agents. A spinner shows busy chats; a dot marks a completed reply until you open that chat. The tray tooltip reports the actual number of running local agents, and its menu lists their provider, workspace, title, and status.
 
-The transcript virtualizes rendered rows and keeps a 200-message window. The up/down history controls fetch earlier/newer pages asynchronously; the latest control returns to the live conversation. Older history stays in SQLite, including during provider replay. Full-chat copy and history search run against the saved history in background work.
+The transcript virtualizes rendered rows and keeps a 200-message window. Scrolling fetches earlier/newer history asynchronously; Return to latest appears after scrolling away from the live conversation. Older history stays in SQLite, including during provider replay. Full-chat copy and history search run against the saved history in background work.
 
 Archiving hides the chat immediately and cancels its active history loader or turn. Database writes use an ordered background writer with durable flushes before starting a provider prompt. The recovery marker is cleared only after the completed transcript is saved.
 
@@ -48,7 +48,7 @@ Archiving hides the chat immediately and cancels its active history loader or tu
 - When an agent reports that you are signed out, **Log in to Codex**, **Log in to Claude**, or **Add provider** appears inside the chat pane. Account setup runs there in the current local/WSL environment. It uses the configured provider CLI's login command; default commands download the CLI through npm. When the command exits, idle chats reconnect and history refreshes. Account commands can be customized in connection settings, and login is always available from the command palette.
 - **Ctrl+Shift+P** (Cmd+Shift+P on macOS), or **⌘** beside Settings, opens the command palette. Search for chats, terminals, login, imports, reconnect, connection settings, or global instruction/configuration files. Files open through the OS default file association; WSL files use `\\wsl.localhost\<distro>`. Discovery respects the selected environment’s `CODEX_HOME`, `CLAUDE_CONFIG_DIR`, `XDG_CONFIG_HOME`, `OPENCODE_CONFIG_DIR`, and `OPENCODE_CONFIG`, plus home-directory fallbacks. It includes Codex Markdown/TOML, Claude Markdown/JSON, and OpenCode Markdown/JSON/JSONC and its optional Claude fallback. Only existing local files appear. Environment overrides hidden inside arbitrary adapter wrappers must also be exported to the app or WSL login shell for discovery.
 - Startup/load failures retry up to five times with backoff. Idle and active ACP process exits reconnect automatically; repeated immediate exits stop after four recovery cycles. **↻** reconnects a stuck server. Session IDs, partial transcripts, and in-flight input survive failures and app restarts. Uncertain prompts are not automatically resent; input and attachments are recovered for review. Chats remain saved if WSL is still unavailable.
-- Enter sends; Shift+Enter inserts a newline. **Stop** or Escape interrupts a running turn. A stuck adapter is terminated after eight seconds so the chat can reconnect.
+- Enter sends or queues the draft. Ctrl+Enter and Shift+Enter insert a newline. With an empty draft, Enter promotes the first queued message using ACP steering when supported, otherwise interrupting the current turn. **Stop** interrupts a running turn. A stuck adapter is terminated after eight seconds so the chat can reconnect.
 - Ctrl+V (Cmd+V on macOS) pastes images with a thumbnail and an inline `[Image #1]` reference at the cursor. It also accepts copied files and preserves text/URLs, including query strings and fragments. Ctrl+Shift+V pastes text only. **＋ Files** and drag-and-drop attach images or embed text files. Files are embedded, so a Windows file can be referenced by a WSL chat without pretending its Windows path exists in Linux. Click an attachment to remove it and its image reference before sending. Individual attachments are limited to 20 MB.
 - Markdown renders headings, lists, links, code blocks, and tables. Tool activity and permission requests appear in the chat. Permission choices come from the agent; closing the dialog rejects the request.
 - **Terminal** opens a pane to the right of the chat with compact tabs; drag its left edge to resize. **Ctrl+`** toggles the pane from the chat or terminal, preserving running shells and the selected tab when hidden. **＋ Terminal** starts another independent shell. Windows uses PowerShell through ConPTY; WSL uses the selected distro’s default shell in the workspace folder; Linux/macOS use `$SHELL` through a native PTY. Switching folders restores their running terminal tabs. Terminal processes end when the workspace or app closes.
@@ -68,7 +68,7 @@ OpenCode:  opencode acp
 Codex CLI: npx -y @openai/codex@0.154.0
 ```
 
-Default agent commands download on first use through npm. Packaged builds bundle Node.js 22.23.2 for local agents; WSL environments need their own Node.js. Each adapter uses its provider’s authentication and configuration. The app does not store API keys. Custom commands may use installed binaries, environment variables, or wrappers. Existing saved command overrides are preserved. Use the same configuration-directory overrides for ACP, account, and deletion commands. Existing chat processes retain their command until the app restarts.
+Default agent commands download on first use through npm. Packaged builds do not bundle Node.js; install it in each environment where you use an npx-based adapter. Each adapter uses its provider’s authentication and configuration. The app does not store API keys. Custom commands may use installed binaries, environment variables, or wrappers. Existing saved command overrides are preserved. Use the same configuration-directory overrides for ACP, account, and deletion commands. Existing chat processes retain their command until the app restarts.
 
 SQLite lives in the OS local application-data directory under `CodexManager/sessions.db` (on Windows, `%LOCALAPPDATA%\CodexManager`). Set `CODEX_MANAGER_DATA` to an alternate directory for isolated profiles. Back up the entire directory while the app is closed. This is ordinary local storage, not an encrypted vault.
 
@@ -134,3 +134,5 @@ Model and thinking options use compact bottom-toolbar menus. Copy and collapse a
 - [NeoSpleen](https://github.com/mbwilding/NeoSpleen) Nerd Font Regular and Bold are embedded. Font licensing notices ship under `Assets/Fonts` in published builds.
 
 `node tools/acp-history-check.mjs <codex|claude|opencode> [workspace] [WSL-distro]` checks the real ACP handshake and paginated history without creating a session or sending a prompt.
+
+Type / at the start of the composer to open the floating command autocomplete. Up/Down select, Enter or Tab completes, and Escape or clicking outside dismisses it without sending or stopping a turn. Commands come from the current provider session. Paste images with Ctrl+V (Cmd+V on macOS), or drop files/images into either a local or remote composer; Ctrl+Shift+V pastes plain text.

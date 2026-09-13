@@ -24,5 +24,14 @@ internal static class Program
         using var termination = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, context => { context.Cancel = true; Interrupt(); });
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().With(new X11PlatformOptions { WmClass = "CodexManager" }).LogToTrace();
+    public static AppBuilder BuildAvaloniaApp()
+    {
+        var builder = AppBuilder.Configure<App>().UsePlatformDetect().With(new X11PlatformOptions { WmClass = "CodexManager" }).LogToTrace();
+        // Keep KDE's mature X11/XWayland integration when available; also support
+        // native Wayland-only sessions and an explicit native-backend preference.
+        var backend = Environment.GetEnvironmentVariable("VIBE_HARDER_LINUX_BACKEND");
+        if (OperatingSystem.IsLinux() && (backend == "wayland" || backend != "x11" && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY")) && !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY"))))
+            builder = builder.UseWayland();
+        return builder;
+    }
 }

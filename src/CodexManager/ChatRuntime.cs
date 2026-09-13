@@ -19,6 +19,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private Task? recoveryTask;
     private CancellationTokenSource? recoveryCancellation;
     private bool lastTurnRecoverable;
+    private bool advancingQueue;
     public bool IsRecovering { get; private set; }
     private Task<bool>? steeringTask;
     private bool reconnecting;
@@ -74,6 +75,24 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         if (IsPrompting) await Stop();
         if (chat.Busy || lifetime.IsCancellationRequested) return;
         RemoveQueued(input); await Send(input.Text, input.Attachments);
+    }
+    public async Task AdvanceQueued()
+    {
+        if (advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
+        advancingQueue = true;
+        try
+        {
+            if (IsPrompting && SupportsSteering)
+            {
+                if (await Steer(input)) RemoveQueued(input);
+                // An uncertain steering failure must not duplicate an accepted input.
+                return;
+            }
+            if (IsPrompting) await Stop();
+            if (chat.Busy || lifetime.IsCancellationRequested || !chat.QueuedInputs.Contains(input)) return;
+            RemoveQueued(input); _ = Send(input.Text, input.Attachments);
+        }
+        finally { advancingQueue = false; }
     }
     private void Configure(JsonElement response)
     {

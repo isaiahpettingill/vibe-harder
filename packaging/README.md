@@ -1,7 +1,7 @@
 # Install Vibe Harder
 
 - **Windows:** run `VibeHarder-<version>-win-<arch>-aot-Setup.exe`. The per-user installer creates Start menu/desktop shortcuts and an uninstaller, without administrator access. Quit from the tray before upgrading.
-- **Linux:** extract the matching `.tar.gz` and run `sh install.sh`. This creates an application-menu `.desktop` entry and installs under `~/.local/share/codex-manager` (or `$XDG_DATA_HOME/codex-manager`). Desktop use requires Avalonia/Skia dependencies, fontconfig, and an X11/XWayland session.
+- **Linux:** extract the matching `.tar.gz` and run `sh install.sh`. This creates an application-menu `.desktop` entry and installs under `~/.local/share/codex-manager` (or `$XDG_DATA_HOME/codex-manager`). Desktop use requires Avalonia/Skia dependencies, fontconfig, and an X11/XWayland or Wayland session (see backend options below).
 - **macOS:** unzip and drag `Vibe Harder.app` to Applications. Bundles are ad-hoc signed; Developer ID notarization requires your own Apple credentials.
 - **Android:** install `VibeHarder-Android.apk`, the remote-only client for Android API 24+ (ARM64/x64). Its stable asset name works with Obtainium.
 
@@ -55,3 +55,5 @@ version, and wait for all builds. Only after every platform succeeds does the
 workflow publish a release with all assets and `SHA256SUMS.txt`.
 
 See [remote and headless setup](../REMOTE.md) for persistent pairing and Android access.
+
+Linux uses X11/XWayland when DISPLAY is available, including Wayland desktops with XWayland. Native Wayland is selected in Wayland-only sessions; set VIBE_HARDER_LINUX_BACKEND=wayland to opt in, or VIBE_HARDER_LINUX_BACKEND=x11 to force X11. Avalonia native Wayland support is experimental; XWayland is preferred for KDE launcher and tray integration.

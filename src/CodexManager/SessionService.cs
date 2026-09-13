@@ -110,12 +110,14 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             result["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["id"] = m.Id, ["sequence"] = m.Sequence, ["role"] = m.Role, ["text"] = m.Text, ["attachments"] = JsonSerializer.SerializeToNode(m.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray) }).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());
+            result["commandOptions"] = new JsonArray(chat.Commands.Select(c => (JsonNode)new JsonObject { ["name"] = c.Name, ["description"] = c.Description, ["hint"] = c.Hint }).ToArray());
             result["config"] = new JsonArray(chat.ConfigOptions.Select(c => (JsonNode)new JsonObject { ["id"] = c.Id, ["name"] = c.Name, ["current"] = c.Current, ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)new JsonObject { ["value"] = v.Value, ["name"] = v.Name }).ToArray()) }).ToArray());
             result["canSteer"] = active.SupportsSteering && active.IsPrompting && !active.IsSteering;
             result["recentModels"] = new JsonArray(ModelPicker.Recent(store, chat.Provider).Select(v => (JsonNode)JsonValue.Create(v)!).ToArray());
             result["queue"] = new JsonArray(chat.QueuedInputs.Select(q => (JsonNode)new JsonObject { ["id"] = q.Id, ["text"] = q.Text, ["attachments"] = q.Attachments.Length }).ToArray());
             return result;
         }
+        if (method == "queue/advance") { await active.AdvanceQueued(); return Summary(chat); }
         if (method is "queue/steer" or "queue/remove")
         {
             var queued = chat.QueuedInputs.FirstOrDefault(q => q.Id == Text("queueId")) ?? throw new IOException("This message is no longer queued.");
