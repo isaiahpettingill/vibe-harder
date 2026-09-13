@@ -45,13 +45,7 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
         credential.Click += (_, _) => Authenticate(true); panel.AddView(credential);
         cover.AddView(panel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.WrapContent, GravityFlags.Center));
         activity.AddContentView(cover, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent));
-        Locked = Enabled; UpdateCover(); UpdateSecureWindow();
-    }
-
-    private void UpdateSecureWindow()
-    {
-        if (Enabled) activity.Window?.AddFlags(WindowManagerFlags.Secure);
-        else activity.Window?.ClearFlags(WindowManagerFlags.Secure);
+        Locked = Enabled; UpdateCover();
     }
 
     private void UpdateCover()
@@ -162,7 +156,7 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
             {
                 using var editor = preferences.Edit()!;
                 if (!editor.PutBoolean("enabled", requested)!.Commit()) throw new IOException("Could not persist app lock.");
-                enabled = requested; UpdateSecureWindow();
+                enabled = requested;
             }
             catch (Exception exception)
             {

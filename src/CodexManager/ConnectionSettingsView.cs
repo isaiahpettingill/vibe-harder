@@ -85,7 +85,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             void UpdateSecurityLabel() => biometric.Content = security.Enabled ? "Turn off biometric unlock" : "Enable biometric unlock";
             UpdateSecurityLabel();
             panel.Children.Add(new TextBlock { Text = "App security", FontSize = 18 });
-            panel.Children.Add(new TextBlock { Text = "Require biometrics or your device screen lock when opening or returning to the app. Hides the app preview and blocks screenshots while enabled.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Require biometrics or your device screen lock before accessing your remote sessions when opening or returning to the app. Screenshots remain available while unlocked.", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(biometric);
             panel.Children.Add(securityStatus);
             biometric.Click += async (_, _) =>
