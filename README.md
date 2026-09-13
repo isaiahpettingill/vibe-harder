@@ -20,6 +20,10 @@ Desktop releases check GitHub at startup and every four hours. When a newer matc
 
 With paired computers, **Open workspace** separates **This computer** from each remote host. Remote folder browsing offers that host's filesystem and WSL distributions; remote workspaces are never saved as local workspaces or used to hop through another remote host.
 
+Switching to a local chat keeps remote workspaces in the sidebar and preserves remote drafts. Inactive remote views pause polling until reopened. Interrupted live Codex turns automatically recover from network/adapter disconnections, reload the same session, and continue from saved history with retry backoff. Authentication errors and explicit Stop require user action; the startup auto-resume preference remains separate.
+
+Linux releases use a profile file lock to prevent duplicate instances, including Native AOT builds. Additional launches activate the existing window. Its X11/XWayland class matches the installed launcher, and reinstalling preserves custom desktop-entry icons and actions. If KDE already created an unmatched task-manager pin with an older build, remove that pin once and pin the installed **Vibe Harder** application again.
+
 Ordinary UI failures trigger a partial chat-view reload while preserving running agents and unsent drafts. Repeated failures leave a **Reload chat** screen instead of repeatedly rebuilding the view. Startup failures offer a retry screen. Resource exhaustion and memory-corruption failures remain unrecoverable.
 
 For troubleshooting, use **Settings → Open diagnostic logs** on desktop or **Copy diagnostic log** in connection settings. Error logs include stack traces, rotate at 512 KiB, and retain one previous file. Expected UI cancellation is contained; unexpected process failures are recorded for diagnosis.

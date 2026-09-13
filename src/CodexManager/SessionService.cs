@@ -131,7 +131,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (string.IsNullOrWhiteSpace(input.Text) && input.Attachments.Length == 0) throw new IOException("Enter a message.");
             if (chat.Title == "New chat" && input.Text.Length > 0) { chat.Title = input.Text[..Math.Min(80, input.Text.Length)].Replace('\n', ' '); store.Save(chat); Changed?.Invoke(); }
             if (method == "steer") return JsonValue.Create(await active.Steer(input));
-            if (method == "queue" || chat.Busy) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
+            if (method == "queue" || chat.Busy || active.IsRecovering) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
         }
         else if (method == "stop") await active.Stop();
         else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); Changed?.Invoke(); }

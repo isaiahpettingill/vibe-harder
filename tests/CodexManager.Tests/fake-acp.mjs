@@ -46,6 +46,8 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
+   const onlineFile = process.argv.find(a=>a.startsWith('--network-outage='))?.slice(17);
+   if(onlineFile && !existsSync(onlineFile)) { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'stream disconnected: connection reset by peer'}}); break; }
    if(m.params.prompt[0]?.text==='background-tools') {
     const tool = value => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:value}});
     tool({sessionUpdate:'tool_call',toolCallId:'one',title:'First command',status:'in_progress',rawInput:{command:'echo first'}});

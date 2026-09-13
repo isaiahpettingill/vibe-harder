@@ -222,6 +222,44 @@ public class RemotePairingTests
     }
 
     [AvaloniaFact]
+    public async Task SwitchingToLocalKeepsRemoteSidebarAndDraft()
+    {
+        var directory = DirectoryPath(); Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("local", "Local project", directory)); store.Save(new Chat { Id = "local-chat", WorkspaceId = "local" });
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        var port = Port(); var hostDirectory = Path.Combine(directory, "host");
+        await using var server = new RemoteServer(hostDirectory, "127.0.0.1", port, request => Task.FromResult<JsonNode?>(
+            request["method"]!.GetValue<string>() == "list"
+                ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "remote", ["name"] = "Remote project" }), ["chats"] = new JsonArray(new JsonObject { ["id"] = "remote-chat", ["workspaceId"] = "remote", ["title"] = "Remote chat", ["provider"] = "Codex", ["status"] = "Ready", ["busy"] = false, ["archived"] = false }) }
+                : request["method"]!.GetValue<string>() == "chat"
+                    ? new JsonObject { ["status"] = "Ready", ["queued"] = 0, ["busy"] = false, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray() }
+                    : JsonValue.Create(true)));
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(hostDirectory, "localhost", port, "Test host"), Path.Combine(directory, "key"), "Desktop", TestContext.Current.CancellationToken);
+        RemoteSettings.SaveHosts(store, [host]);
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            window.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Remote · Test host (localhost)")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => window.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == "Chats_remote_remote"));
+            var remote = window.GetLogicalDescendants().OfType<RemoteView>().Single();
+            remote.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "RemoteComposer").Text = "Remote draft";
+            for (var i = 0; i < 3; i++)
+            {
+                var local = UiTests.Named<ListBox>(window, "Chats_local"); local.SelectedItem = local.Items[0];
+                Assert.False(remote.IsVisible);
+                var remoteList = UiTests.Named<ListBox>(window, "Chats_remote_remote"); Assert.Single(remoteList.Items);
+                remoteList.SelectedItem = remoteList.Items[0];
+                Assert.True(remote.IsVisible); Assert.Equal("remote-chat", remote.SelectedChatId);
+                Assert.Equal("Remote draft", remote.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "RemoteComposer").Text);
+                Assert.Same(remote, window.GetLogicalDescendants().OfType<RemoteView>().Single());
+            }
+        }
+        finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+
+    [AvaloniaFact]
     public async Task ConnectionSettingsSavesPairingAndOffersSavedComputer()
     {
         var directory = DirectoryPath(); Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);

@@ -115,7 +115,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev
       - run: sh -n install.sh && python3 tools/check-latest-installer.py
+      - run: sh tools/check-linux-instance.sh
   publish:
     needs: [desktop, musl, android, linux-installer]
     runs-on: ubuntu-24.04

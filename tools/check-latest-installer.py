@@ -76,6 +76,14 @@ shutil.copy(Path(os.environ['FIXTURE'])/name, args[args.index('--output')+1])
                 self.assertIn(asset, result.stdout)
                 self.assertTrue((data / "codex-manager/VibeHarder").is_file())
                 self.assertTrue((data / "applications/codex-manager.desktop").is_file())
+                desktop = data / "applications/codex-manager.desktop"
+                self.assertIn("StartupWMClass=CodexManager", desktop.read_text())
+                customized = desktop.read_text().replace("Icon=codex-manager", "Icon=/custom/my-icon.svg")
+                customized += "Actions=custom;\n\n[Desktop Action custom]\nName=My action\nExec=custom-command\n"
+                desktop.write_text(customized)
+                reinstall = subprocess.run(["sh", str(package / "install.sh")], env=env, text=True, capture_output=True)
+                self.assertEqual(0, reinstall.returncode, reinstall.stdout + reinstall.stderr)
+                self.assertEqual(customized, desktop.read_text())
 
     def test_supported_architectures_and_libcs(self):
         for arch in ("x86_64", "aarch64"):

@@ -18,6 +18,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private Task? reconnectTask;
     private Task? recoveryTask;
     private CancellationTokenSource? recoveryCancellation;
+    private bool lastTurnRecoverable;
     public bool IsRecovering { get; private set; }
     private Task<bool>? steeringTask;
     private bool reconnecting;
@@ -29,7 +30,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public bool IsReconnecting => reconnecting;
     public bool IsPrompting => (turn is not null || detachedTurn) && chat.Busy;
     public bool IsConfiguring { get; private set; }
-    public bool IsPreparing => chat.Busy && (!IsConnected || loading || reconnecting || IsLoadingHistory || !IsPrompting);
+    public bool IsPreparing => IsRecovering || chat.Busy && (!IsConnected || loading || reconnecting || IsLoadingHistory || !IsPrompting);
     public bool IsConnected => connected && client?.Alive == true;
     public bool SupportsSteering { get; private set; }
     public bool IsSteering { get; private set; }
@@ -252,6 +253,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private async Task SendCore(string text, Attachment[] attachments)
     {
         if (chat.Busy) return;
+        lastTurnRecoverable = false;
         chat.HasUnreadCompletion = false; chat.Busy = true; chat.Status = "Connecting…"; Changed?.Invoke();
         turn = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         chat.PendingInput = new(text, attachments); store.Save(chat);
@@ -287,12 +289,13 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         catch (Exception error)
         {
             chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error);
-            recoverConnection = client?.Alive != true && !turn.IsCancellationRequested && !chat.NeedsLogin;
+            recoverConnection = (client?.Alive != true || IsNetworkFailure(error)) && !turn.IsCancellationRequested && !chat.NeedsLogin;
+            lastTurnRecoverable = recoverConnection;
             chat.InterruptedInput = new(text, attachments);
             chat.Status = "Connection error";
-            Add("system", "**Could not complete the turn.**\n\n" + error.Message + $"\n\nCheck the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment.");
+            if (!IsRecovering) Add("system", recoverConnection ? "**Connection interrupted.** Waiting to reconnect and restore this session.\n\n" + error.Message : "**Could not complete the turn.**\n\n" + error.Message + $"\n\nCheck the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment.");
             // Keep failed input available to retry, including attachments.
-            RestoreInput(text, attachments);
+            if (!IsRecovering) RestoreInput(text, attachments);
         }
         finally
         {
@@ -319,6 +322,11 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     {
         chat.RecoverInput(new(text, attachments));
     }
+    public static bool IsNetworkFailure(Exception error) => !AgentProviders.IsAuthenticationError(error) &&
+        (error is System.Net.Http.HttpRequestException or System.Net.Sockets.SocketException ||
+        new[] { "connection reset", "connection refused", "connection closed", "network is unreachable", "network unreachable", "network error", "network request failed", "error sending request", "failed to fetch", "fetch failed", "stream disconnected", "stream closed", "dns", "name resolution", "econnreset", "econnrefused", "enotfound", "etimedout", "connection timed out" }
+            .Any(value => error.Message.Contains(value, StringComparison.OrdinalIgnoreCase)) ||
+        error.InnerException is { } inner && IsNetworkFailure(inner));
     private async Task RecoverConnection(PendingInput input)
     {
         IsRecovering = true; recoveryCancellation = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -334,11 +342,13 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
                 if (chat.NeedsLogin) { chat.Status = "Interrupted — sign in to resume"; return; }
                 if (IsConnected)
                 {
-                    if (store.Setting("autoResume") != "1") { chat.Status = "Interrupted — resume required"; return; }
+                    // Network recovery continues an already-authorized live Codex turn.
+                    // The startup auto-resume preference is a separate decision.
+                    if (chat.Provider != AgentProvider.Codex && store.Setting("autoResume") != "1") { chat.Status = "Interrupted — resume required"; return; }
                     if (chat.Draft == input.Text) chat.Draft = "";
                     foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
                     await Send("Continue the interrupted request below. Inspect saved history and current workspace state before taking action; do not repeat completed actions.\n\n" + input.Text, input.Attachments);
-                    if (chat.InterruptedInput is null || IsConnected || token.IsCancellationRequested) return;
+                    if (chat.InterruptedInput is null || !lastTurnRecoverable || token.IsCancellationRequested) return;
                 }
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, attempt * 2)), token);
             }

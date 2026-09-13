@@ -28,6 +28,7 @@ public partial class MainView : UserControl
     private SessionService remoteSessions = null!;
     private RemoteServer? remoteServer;
     private RemoteView? remoteView;
+    private readonly Dictionary<RemoteHost, RemoteView> remoteViews = [];
     private readonly Dictionary<string, StackPanel> remoteSections = [];
     private readonly Dictionary<string, Chat> remoteActivity = [];
     private async Task ConfigureRemoteServer()
@@ -45,17 +46,36 @@ public partial class MainView : UserControl
         }
     }
     private void CloseRemoteView()
-    { if (remoteView is null) return; foreach (var section in remoteSections.Values) section.Children.Clear(); remoteCatalog = null; remoteView.Dispose(); RootPanes.Children.Remove(remoteView); remoteView = null; MobileTerminalButton.IsEnabled = false; }
+    {
+        if (remoteView is not null) { remoteView.SetPresentationSleeping(true); remoteView.IsVisible = false; }
+        remoteView = null; MobileTerminalButton.IsEnabled = false;
+        if (closing)
+        {
+            foreach (var view in remoteViews.Values) { view.Dispose(); RootPanes.Children.Remove(view); }
+            remoteViews.Clear(); remoteCatalogs.Clear();
+        }
+        else RefreshRemoteSidebar();
+    }
     private void OpenRemoteHost(RemoteHost host, string? workspaceId = null)
     {
         ClearRecoveryNotice();
         if (remoteView?.Host == host) { remoteView.SetPresentationSleeping(false); if (workspaceId is not null) remoteView.SelectWorkspaceId(workspaceId); CollapseSidebar(); return; }
-        CollapseSidebar(); CloseRemoteView(); var view = new RemoteView(host); remoteView = view; MobileTerminalButton.IsEnabled = true;
+        CollapseSidebar(); CloseRemoteView();
+        refreshingChats = true;
+        try { foreach (var list in workspaceLists.Values) list.SelectedItem = null; }
+        finally { refreshingChats = false; }
+        if (current is not null) { current.Draft = Composer.Text ?? ""; DeferHistoryEviction(current); }
+        MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
+        if (remoteViews.TryGetValue(host, out var existing))
+        {
+            remoteView = existing; existing.IsVisible = true; existing.SetPresentationSleeping(false); MobileTerminalButton.IsEnabled = true;
+            if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
+            RefreshRemoteSidebar(); return;
+        }
+        var view = new RemoteView(host); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
-        if (current is not null) DeferHistoryEviction(current);
-        MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
-        view.CatalogChanged += catalog => { remoteCatalog = catalog; RefreshRemoteSidebar(); };
+        view.CatalogChanged += catalog => { if (closing) return; remoteCatalogs[host] = catalog; RefreshRemoteSidebar(); };
         view.WorkspaceOpened += id => { store.Setting("closed:remote:" + host.Address + ":" + id, "0"); RefreshRemoteSidebar(); };
         Grid.SetColumn(view, 2); Grid.SetRow(view, 1); view.Bind(BackgroundProperty, this.GetResourceObservable("AppBackground")); RootPanes.Children.Add(view);
     }
@@ -278,6 +298,12 @@ public partial class MainView : UserControl
     }
     private void BuildWorkspaceTree()
     {
+        var savedHosts = RemoteSettings.Hosts(store);
+        foreach (var host in remoteViews.Keys.Where(host => !savedHosts.Contains(host)).ToArray())
+        {
+            var view = remoteViews[host]; if (ReferenceEquals(remoteView, view)) { remoteView = null; MobileTerminalButton.IsEnabled = false; }
+            view.Dispose(); RootPanes.Children.Remove(view); remoteViews.Remove(host); remoteCatalogs.Remove(host);
+        }
         WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear();
         if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
         foreach (var owner in workspaces)
@@ -544,7 +570,7 @@ public partial class MainView : UserControl
         DeleteChatButton.IsEnabled = current is { Busy: false };
         StatusText.Text = current is null ? "Ready — open a workspace to begin" : $"{workspace?.Host}  ·  {current.Status}";
     }
-    private bool ComposerLoading => current?.Busy == true && (runtimes.GetValueOrDefault(current.Id)?.IsPreparing ?? true);
+    private bool ComposerLoading => current is { } chat && (runtimes.GetValueOrDefault(chat.Id)?.IsRecovering == true || chat.Busy && (runtimes.GetValueOrDefault(chat.Id)?.IsPreparing ?? true));
     private bool ComposerShowsStop => current?.Busy == true && !ComposerLoading && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
     private void UpdateComposerAction()
     {
@@ -581,7 +607,7 @@ public partial class MainView : UserControl
         if (text.Length == 0 && attachments.Length == 0) return;
         if (chat.Title == "New chat") chat.Title = text.Length == 0 ? attachments[0].Name : text.Split('\n')[0][..Math.Min(70, text.Split('\n')[0].Length)];
         var runtime = Runtime(chat, workspace);
-        if (runtime.IsReconnecting || runtime.IsConfiguring) return;
+        if (runtime.IsReconnecting || runtime.IsConfiguring || runtime.IsRecovering) return;
         if (chat.Busy)
         {
             if (!runtime.IsPrompting) return;

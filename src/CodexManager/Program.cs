@@ -24,5 +24,5 @@ internal static class Program
         using var termination = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, context => { context.Cancel = true; Interrupt(); });
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
-    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().LogToTrace();
+    public static AppBuilder BuildAvaloniaApp() => AppBuilder.Configure<App>().UsePlatformDetect().With(new X11PlatformOptions { WmClass = "CodexManager" }).LogToTrace();
 }
