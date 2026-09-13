@@ -12,6 +12,83 @@ namespace CodexManager.Tests;
 
 public class RemotePairingTests
 {
+    [AvaloniaFact]
+    public async Task TerminalRetainsSessionAndRetriesAfterTransportLoss()
+    {
+        var online = true; var reads = 0;
+        using var terminal = new RemoteTerminalView(request =>
+        {
+            var method = request["method"]!.GetValue<string>();
+            if (method == "terminal/open") return Task.FromResult<JsonNode?>(new JsonObject { ["id"] = "persistent-shell" });
+            if (method == "terminal/read")
+            {
+                reads++;
+                Assert.Equal("persistent-shell", request["terminalId"]!.GetValue<string>());
+                return Task.FromResult<JsonNode?>(online ? new JsonObject { ["text"] = "", ["offset"] = 0 } : null);
+            }
+            return Task.FromResult<JsonNode?>(JsonValue.Create(true));
+        });
+        var window = new Window { Content = terminal }; window.Show();
+        try
+        {
+            await terminal.Open("workspace", "Host shell");
+            var input = terminal.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "TerminalInput");
+            online = false; await Wait(() => !input.IsEnabled);
+            Assert.Equal("persistent-shell", terminal.TerminalId);
+            var before = reads; online = true; await Wait(() => reads > before && input.IsEnabled);
+            Assert.Equal("persistent-shell", terminal.TerminalId);
+        }
+        finally { window.Close(); }
+    }
+    [AvaloniaFact]
+    public async Task QueuedPollTimeoutKeepsHealthyConnectionAndActiveRequest()
+    {
+        var directory = DirectoryPath(); var port = Port();
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await using var server = new RemoteServer(directory, "127.0.0.1", port, async request =>
+        {
+            if (request["method"]!.GetValue<string>() == "slow") { started.SetResult(); await release.Task; }
+            return JsonValue.Create("ready");
+        });
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), Path.Combine(directory, "key"), "Phone", TestContext.Current.CancellationToken);
+        using var client = new RemoteConnection(host); await client.Connect(TestContext.Current.CancellationToken);
+        var active = client.Request(new() { ["method"] = "slow" }, TestContext.Current.CancellationToken);
+        try
+        {
+            await started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            using var timeout = new CancellationTokenSource(100);
+            await Assert.ThrowsAsync<RemoteRequestBusyException>(() => client.Request(new() { ["method"] = "chat" }, timeout.Token));
+            Assert.False(active.IsCompleted);
+        }
+        finally { release.TrySetResult(); }
+        Assert.Equal("ready", (await active)!.GetValue<string>());
+        Assert.Equal("ready", (await client.Request(new() { ["method"] = "list" }, TestContext.Current.CancellationToken))!.GetValue<string>());
+    }
+
+    [AvaloniaFact]
+    public async Task EmptyRemoteWorkspaceReconnectsWithoutUserInput()
+    {
+        var directory = DirectoryPath(); var port = Port(); var lists = 0;
+        await using var server = new RemoteServer(directory, "127.0.0.1", port, request =>
+        {
+            lists++;
+            return Task.FromResult<JsonNode?>(new JsonObject { ["workspaces"] = new JsonArray(), ["chats"] = new JsonArray() });
+        });
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), Path.Combine(directory, "key"), "Phone", TestContext.Current.CancellationToken);
+        using var view = new RemoteView(host); var window = new Window { Content = view }; window.Show();
+        try
+        {
+            await Wait(() => lists > 0);
+            var field = typeof(RemoteView).GetField("connection", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+            var original = Assert.IsType<RemoteConnection>(field.GetValue(view)); original.Dispose();
+            await Wait(() => field.GetValue(view) is RemoteConnection replacement && !ReferenceEquals(replacement, original) && lists > 1);
+            Assert.Null(view.SelectedChatId);
+        }
+        finally { window.Close(); }
+    }
     [Theory]
     [InlineData("desktop", "desktop", 2222)]
     [InlineData("desktop.tail123.ts.net", "desktop.tail123.ts.net", 2222)]

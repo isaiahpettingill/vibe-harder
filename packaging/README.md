@@ -57,3 +57,7 @@ workflow publish a release with all assets and `SHA256SUMS.txt`.
 See [remote and headless setup](../REMOTE.md) for persistent pairing and Android access.
 
 Linux uses X11/XWayland when DISPLAY is available, including Wayland desktops with XWayland. Native Wayland is selected in Wayland-only sessions; set VIBE_HARDER_LINUX_BACKEND=wayland to opt in, or VIBE_HARDER_LINUX_BACKEND=x11 to force X11. Avalonia native Wayland support is experimental; XWayland is preferred for KDE launcher and tray integration.
+
+Android release APKs use .NET 11 Native AOT and full trimming. The mobile UI compiles the same shared Avalonia source through `CodexManager.Mobile.UI`, with desktop startup and the local `Porta.Pty` dependency excluded. The terminal renderer remains for remote shells; SQLite remains for saved connections/settings. Markdown/editor libraries retain the existing explicit trimming roots needed by their reflection-based templates. Debug Android builds remain managed for debugging. Android Native AOT is experimental in the pinned SDK; release packages are checked for a native application binary and the absence of CoreCLR, JIT, and assembly-store payloads.
+
+Android reconnects when the activity resumes or the default network becomes available. Empty remote workspaces also poll for connectivity. A poll waiting behind a slow host operation no longer closes a healthy socket, and remote terminals retain their session IDs and output offsets while reconnecting.

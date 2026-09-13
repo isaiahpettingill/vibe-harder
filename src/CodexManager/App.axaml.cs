@@ -19,6 +19,7 @@ public partial class App : Application
     }
     public override async void OnFrameworkInitializationCompleted()
     {
+#if !MOBILE_CLIENT
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             if (this.TryGetFeature<IActivatableLifetime>() is { } activation)
@@ -34,17 +35,20 @@ public partial class App : Application
             }
             await OpenDesktop(desktop);
         }
-        else if (ApplicationLifetime is IActivityApplicationLifetime activity)
-        {
-            activity.MainViewFactory = () => new MainView(new Store(), remoteOnly: true);
-        }
-        else if (ApplicationLifetime is ISingleViewApplicationLifetime single)
-        {
-            single.MainView = new MainView(new Store(), remoteOnly: true);
-        }
+        else
+#endif
+            if (ApplicationLifetime is IActivityApplicationLifetime activity)
+            {
+                activity.MainViewFactory = () => new MainView(new Store(), remoteOnly: true);
+            }
+            else if (ApplicationLifetime is ISingleViewApplicationLifetime single)
+            {
+                single.MainView = new MainView(new Store(), remoteOnly: true);
+            }
         base.OnFrameworkInitializationCompleted();
     }
 
+#if !MOBILE_CLIENT
     private static async Task OpenDesktop(IClassicDesktopStyleApplicationLifetime desktop, Avalonia.Controls.Window? recovery = null)
     {
         Store? openedStore = null;
@@ -70,4 +74,5 @@ public partial class App : Application
             desktop.MainWindow = window; window.Show();
         }
     }
+#endif
 }

@@ -10,12 +10,16 @@
     <!-- Phone builds contain one runtime. Pass -r android-x64 for Intel devices/emulators. -->
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' == ''">android-arm64</RuntimeIdentifiers>
     <RuntimeIdentifiers Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</RuntimeIdentifiers>
-    <PublishAot>false</PublishAot>
+    <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
+    <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
+    <TrimMode>full</TrimMode>
+    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
+    <StripSymbols>true</StripSymbols>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia.Android" Version="12.1.2" />
-    <ProjectReference Include="../CodexManager.UI/CodexManager.UI.csproj" />
+    <ProjectReference Include="../CodexManager.Mobile.UI/CodexManager.Mobile.UI.csproj" />
     <TrimmerRootDescriptor Include="../CodexManager/TrimmerRoots.xml" />
     <AndroidResource Include="../CodexManager/Assets/app.png" Link="Resources/drawable/app.png" />
   </ItemGroup>

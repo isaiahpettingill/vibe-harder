@@ -13,6 +13,10 @@ public sealed record RemoteHost(string Name, string Address, int Port, string Ke
     public override string ToString() => Name;
 }
 public sealed class RemoteOperationException(string message) : Exception(message);
+public sealed class RemoteRequestBusyException : IOException
+{
+    public RemoteRequestBusyException() : base("Waiting for another host request to finish.") { }
+}
 
 public sealed class RemoteConnection : IDisposable
 {
@@ -57,7 +61,10 @@ public sealed class RemoteConnection : IDisposable
     }
     public async Task<JsonNode?> Request(JsonObject request, CancellationToken token)
     {
-        await gate.WaitAsync(token).ConfigureAwait(false);
+        // A queued poll expiring does not mean the socket is broken. In particular,
+        // a slow send/import may legitimately hold this connection for 90 seconds.
+        try { await gate.WaitAsync(token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { throw new RemoteRequestBusyException(); }
         try
         {
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);

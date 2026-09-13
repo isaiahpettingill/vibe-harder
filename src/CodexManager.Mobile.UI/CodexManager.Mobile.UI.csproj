@@ -1,0 +1,4 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup><MobileClient>true</MobileClient></PropertyGroup>
+  <Import Project="../CodexManager.UI/SharedUI.props" />
+</Project>

@@ -1,4 +1,6 @@
+#if !MOBILE_CLIENT
 using Porta.Pty;
+#endif
 
 namespace CodexManager;
 
@@ -28,6 +30,7 @@ public static class TerminalPreferences
         Add("nu", "Nushell", "nu.exe", [], Path.Combine(programFiles, "nu", "bin", "nu.exe"), Path.Combine(local, "Programs", "nu", "bin", "nu.exe"));
         return choices;
     }
+#if !MOBILE_CLIENT
     public static void Apply(PtyOptions options, Workspace workspace, Store store)
     {
         var platform = Platform(workspace);
@@ -57,4 +60,5 @@ public static class TerminalPreferences
             else { options.App = "/bin/sh"; options.CommandLine = ["-lc", Hosts.LocalShellCommand(command)]; }
         }
     }
+#endif
 }

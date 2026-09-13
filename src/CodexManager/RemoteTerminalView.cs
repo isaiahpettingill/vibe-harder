@@ -21,6 +21,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private string keyboardText = "";
     private long offset;
     private (int Cols, int Rows) size;
+    private string caption = "Remote terminal";
     public string? TerminalId { get; private set; }
     public event Action? Back;
     public RemoteTerminalView(Func<JsonObject, Task<JsonNode?>> call)
@@ -64,6 +65,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     public void FocusInput() { if (OperatingSystem.IsAndroid() && IsVisible && TerminalId is not null) keyboard.Focus(); }
     public async Task Open(string workspaceId, string caption)
     {
+        this.caption = caption;
         if (TerminalId is { } previous) await call(new() { ["method"] = "terminal/close", ["terminalId"] = previous });
         keyboard.IsEnabled = false; keyboardText = ""; keyboard.Text = ""; TerminalId = null; offset = 0; model.Feed("\u001bc");
         var result = await call(new() { ["method"] = "terminal/open", ["workspaceId"] = workspaceId });
@@ -90,7 +92,9 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             if (size != next) { await call(new() { ["method"] = "terminal/resize", ["terminalId"] = id, ["cols"] = next.Cols, ["rows"] = next.Rows }); size = next; }
             var result = await call(new() { ["method"] = "terminal/read", ["terminalId"] = id, ["offset"] = offset });
             if (disposed || id != TerminalId) return;
-            if (result is null) { TerminalId = null; status.Text = "Terminal disconnected. Return to chat and reconnect."; timer.Stop(); return; }
+            if (result is null) { keyboard.IsEnabled = false; status.Text = "Reconnecting to the host terminal…"; return; }
+            if (result["error"] is { } error) { TerminalId = null; keyboard.IsEnabled = false; status.Text = error.GetValue<string>(); timer.Stop(); return; }
+            keyboard.IsEnabled = true; status.Text = caption;
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             model.Feed(result["text"]!.GetValue<string>()); offset = result["offset"]!.GetValue<long>();
         }

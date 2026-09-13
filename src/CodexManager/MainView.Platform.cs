@@ -165,7 +165,11 @@ public partial class MainView
     }
 
     public void SuspendRemotePresentation() => remoteView?.SetPresentationSleeping(true);
-    public void ResumeRemotePresentation() => remoteView?.SetPresentationSleeping(false);
+    public void ResumeRemotePresentation()
+    {
+        remoteView?.SetPresentationSleeping(false);
+        remoteView?.ReconnectHost();
+    }
     public void DisposeMobile()
     {
         AppDiagnostics.RecoveryRequested -= RecoverAfterError;

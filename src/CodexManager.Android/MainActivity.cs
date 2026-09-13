@@ -11,15 +11,35 @@ namespace CodexManager.Android;
     WindowSoftInputMode = global::Android.Views.SoftInput.AdjustResize)]
 public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.ViewTreeObserver.IOnGlobalLayoutListener
 {
+    private bool resumePending;
+    private global::Android.Net.ConnectivityManager? connectivity;
+    private NetworkObserver? networkObserver;
+    private sealed class NetworkObserver(MainActivity owner) : global::Android.Net.ConnectivityManager.NetworkCallback
+    {
+        public override void OnAvailable(global::Android.Net.Network network) => owner.RunOnUiThread(() =>
+        {
+            owner.resumePending = true;
+            if (owner.HasWindowFocus) owner.ResumeConnection();
+        });
+    }
+    private void ResumeConnection()
+    {
+        if (!resumePending || Content is not MainView view) return;
+        resumePending = false; view.ResumeRemotePresentation();
+    }
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
         Window?.DecorView.ViewTreeObserver?.AddOnGlobalLayoutListener(this);
+        connectivity = GetSystemService(ConnectivityService) as global::Android.Net.ConnectivityManager;
+        networkObserver = new NetworkObserver(this);
+        connectivity?.RegisterDefaultNetworkCallback(networkObserver);
     }
     public void OnGlobalLayout() => UpdateInsets();
     private void UpdateInsets()
     {
         if (Content is not MainView view || Window?.DecorView is not { } decor) return;
+        if (HasWindowFocus) ResumeConnection();
         var insets = global::AndroidX.Core.View.ViewCompat.GetRootWindowInsets(decor);
         var content = decor.FindViewById<global::Android.Views.View>(global::Android.Resource.Id.Content);
         if (insets is null || content is null || content.Height == 0) return;
@@ -36,6 +56,12 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         view.UpdateNativeMobileInsets(new Thickness(bars.Left / density, bars.Top / density, bars.Right / density, keyboardVisible ? 0 : bars.Bottom / density), occlusion);
     }
     protected override void OnPause() { (Content as MainView)?.SuspendRemotePresentation(); base.OnPause(); }
-    protected override void OnResume() { base.OnResume(); UpdateInsets(); (Content as MainView)?.ResumeRemotePresentation(); }
-    protected override void OnDestroy() { Window?.DecorView.ViewTreeObserver?.RemoveOnGlobalLayoutListener(this); (Content as MainView)?.DisposeMobile(); base.OnDestroy(); }
+    protected override void OnResume() { base.OnResume(); resumePending = true; UpdateInsets(); ResumeConnection(); }
+    public override void OnWindowFocusChanged(bool hasFocus) { base.OnWindowFocusChanged(hasFocus); if (hasFocus) ResumeConnection(); }
+    protected override void OnDestroy()
+    {
+        if (networkObserver is not null) connectivity?.UnregisterNetworkCallback(networkObserver);
+        networkObserver?.Dispose(); networkObserver = null;
+        Window?.DecorView.ViewTreeObserver?.RemoveOnGlobalLayoutListener(this); (Content as MainView)?.DisposeMobile(); base.OnDestroy();
+    }
 }
