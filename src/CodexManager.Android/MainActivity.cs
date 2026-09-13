@@ -12,6 +12,7 @@ namespace CodexManager.Android;
 public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.ViewTreeObserver.IOnGlobalLayoutListener
 {
     private bool resumePending;
+    private BiometricAppLock? appLock;
     private global::Android.Net.ConnectivityManager? connectivity;
     private NetworkObserver? networkObserver;
     private sealed class NetworkObserver(MainActivity owner) : global::Android.Net.ConnectivityManager.NetworkCallback
@@ -24,12 +25,14 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
     }
     private void ResumeConnection()
     {
-        if (!resumePending || Content is not MainView view) return;
+        if (!resumePending || appLock?.Locked == true || Content is not MainView view) return;
         resumePending = false; view.ResumeRemotePresentation();
     }
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        appLock = new BiometricAppLock(this);
+        MobileAppSecurity.Current = appLock;
         Window?.DecorView.ViewTreeObserver?.AddOnGlobalLayoutListener(this);
         connectivity = GetSystemService(ConnectivityService) as global::Android.Net.ConnectivityManager;
         networkObserver = new NetworkObserver(this);
@@ -55,11 +58,24 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         var occlusion = keyboardVisible ? Math.Max(0, location[1] + content.Height - visible.Bottom) / density : 0;
         view.UpdateNativeMobileInsets(new Thickness(bars.Left / density, bars.Top / density, bars.Right / density, keyboardVisible ? 0 : bars.Bottom / density), occlusion);
     }
-    protected override void OnPause() { (Content as MainView)?.SuspendRemotePresentation(); base.OnPause(); }
-    protected override void OnResume() { base.OnResume(); resumePending = true; UpdateInsets(); ResumeConnection(); }
+    internal void OnAppUnlocked() { resumePending = true; UpdateInsets(); ResumeConnection(); }
+    protected override void OnPause() { appLock?.Pause(); (Content as MainView)?.SuspendRemotePresentation(); base.OnPause(); }
+    protected override void OnStop() { appLock?.Stop(); base.OnStop(); }
+    protected override void OnResume() { base.OnResume(); resumePending = true; appLock?.Resume(); UpdateInsets(); ResumeConnection(); }
+    protected override void OnActivityResult(int requestCode, Result resultCode, global::Android.Content.Intent? data)
+    {
+        if (requestCode == BiometricAppLock.CredentialRequest) appLock?.CredentialResult(resultCode);
+        else base.OnActivityResult(requestCode, resultCode, data);
+    }
+    public override void OnBackPressed()
+    {
+        if (appLock?.Locked == true) MoveTaskToBack(true);
+        else base.OnBackPressed();
+    }
     public override void OnWindowFocusChanged(bool hasFocus) { base.OnWindowFocusChanged(hasFocus); if (hasFocus) ResumeConnection(); }
     protected override void OnDestroy()
     {
+        appLock?.Dispose();
         if (networkObserver is not null) connectivity?.UnregisterNetworkCallback(networkObserver);
         networkObserver?.Dispose(); networkObserver = null;
         Window?.DecorView.ViewTreeObserver?.RemoveOnGlobalLayoutListener(this); (Content as MainView)?.DisposeMobile(); base.OnDestroy();

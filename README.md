@@ -16,6 +16,8 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 
 Android phones should use `VibeHarder-Android.apk` (ARM64). Intel Android devices and x64 emulators have a separate `VibeHarder-Android-x64.apk`, so each download contains only its own runtime.
 
+Android **Settings → App security → Enable biometric unlock** optionally requires authentication on launch and when returning from the background. Android handles fingerprint/strong face authentication and device PIN, pattern, or password fallback; Android 6–8 use the device screen lock. Enabling and disabling the lock both require authentication. While enabled, screenshots and recent-app previews are hidden. This protects access to the app UI; it does not add encryption to stored chats or pairing keys.
+
 Desktop releases check GitHub at startup and every four hours. When a newer matching package is available, a **Download update** button appears in the status bar. After download and checksum verification, **Restart to update** installs it, reopens your chats, and resumes requests that were active at restart. Nothing appears when you are current or a check fails. Android has no built-in updater.
 
 With paired computers, **Open workspace** separates **This computer** from each remote host. Remote folder browsing offers that host's filesystem and WSL distributions; remote workspaces are never saved as local workspaces or used to hop through another remote host.

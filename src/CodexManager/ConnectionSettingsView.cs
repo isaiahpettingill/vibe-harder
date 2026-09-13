@@ -78,6 +78,24 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         }
         panel.Children.Add(new Separator()); panel.Children.Add(new TextBlock { Text = "Saved computers" }); panel.Children.Add(hosts); RefreshHosts();
         panel.Children.Add(new TextBlock { Text = "Color theme" }); panel.Children.Add(AppTheme.Picker(store));
+        if (MobileAppSecurity.Current is { } security)
+        {
+            var biometric = new Button { Name = "BiometricUnlock", MinHeight = 44 };
+            var securityStatus = new TextBlock { Name = "BiometricUnlockStatus", TextWrapping = TextWrapping.Wrap };
+            void UpdateSecurityLabel() => biometric.Content = security.Enabled ? "Turn off biometric unlock" : "Enable biometric unlock";
+            UpdateSecurityLabel();
+            panel.Children.Add(new TextBlock { Text = "App security", FontSize = 18 });
+            panel.Children.Add(new TextBlock { Text = "Require biometrics or your device screen lock when opening or returning to the app. Hides the app preview and blocks screenshots while enabled.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(biometric);
+            panel.Children.Add(securityStatus);
+            biometric.Click += async (_, _) =>
+            {
+                biometric.IsEnabled = false;
+                try { securityStatus.Text = await security.ChangeEnabled(!security.Enabled); }
+                catch (Exception error) { securityStatus.Text = AppDiagnostics.Message("Could not change app lock", error); }
+                finally { UpdateSecurityLabel(); biometric.IsEnabled = true; }
+            };
+        }
         var copyLog = new Button { Content = "Copy diagnostic log" };
         copyLog.Click += async (_, _) =>
         {
