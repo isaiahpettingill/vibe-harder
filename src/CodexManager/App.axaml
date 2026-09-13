@@ -39,6 +39,7 @@
     <Style Selector="TextBox"><Setter Property="CornerRadius" Value="4"/></Style>
     <Style Selector="ListBoxItem"><Setter Property="Padding" Value="6,3"/></Style>
     <Style Selector="ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
+    <Style Selector="ListBox.slashCommands ListBoxItem:selected /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppBorder}"/></Style>
     <Style Selector="TextBox#Composer /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
     <Style Selector="TextBox#Composer:focus /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
     <Style Selector="edit|TextEditor"><Setter Property="FontFamily" Value="{DynamicResource CodeFont}"/></Style>

@@ -21,6 +21,7 @@ public sealed class SlashCommandOverlay : Popup
             e.Handled = true; commands.IsVisible = false; composer.Focus();
         }, RoutingStrategies.Tunnel);
         commands.MaxHeight = 220;
+        commands.Classes.Add("slashCommands");
         commands.ItemTemplate = new FuncDataTemplate<SlashCommand>((command, _) => command is null ? null : new StackPanel
         {
             Spacing = 2,
