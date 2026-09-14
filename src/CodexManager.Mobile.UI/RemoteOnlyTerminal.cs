@@ -11,7 +11,9 @@ public sealed class TerminalSession : IDisposable
     public event Action? Completed { add { } remove { } }
     public event Action? OutputChanged { add { } remove { } }
     public event Action<string>? RawOutput { add { } remove { } }
-    public Task Start(Workspace workspace, string? command = null, Store? settings = null) => Task.FromException(new PlatformNotSupportedException("Use the remote terminal on Android."));
+    public string? DurableId => null;
+    public Task Start(Workspace workspace, string? command = null, Store? settings = null, string? durableId = null, bool resumeOnly = false) => Task.FromException(new PlatformNotSupportedException("Use the remote terminal on Android."));
+    public Task Close() => Task.CompletedTask;
     public void Input(string text) => throw new PlatformNotSupportedException("Use the remote terminal on Android.");
     public void Resize(int cols, int rows) { }
     public void Dispose() { }

@@ -12,7 +12,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
     {
         var id = Guid.NewGuid().ToString("N");
-        var value = JsonNode.Parse(request.GetRawText())!.AsObject(); value["chatId"] = chat.Id; value["id"] = id;
+        var value = JsonNode.Parse(request.GetRawText())!.AsObject(); value["chatId"] = chat.Id; value["chatTitle"] = chat.Title; value["id"] = id;
         permissions[id] = (value, completion); return id;
     }
     public void ForgetPermission(string id) => permissions.Remove(id);
@@ -50,6 +50,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         if (method == "list") return new JsonObject
         {
+            ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
             ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
             ["workspaces"] = new JsonArray(workspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
             ["chats"] = new JsonArray(chats.Select(c => (JsonNode)Summary(c)).ToArray())
@@ -145,7 +146,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (chat.Busy) throw new IOException("The chat is already running.");
             if (chat.InterruptedInput is not { } input) throw new IOException("This chat has no interrupted request.");
             chat.InterruptedInput = null;
-            _ = active.Send("Continue the interrupted request. Inspect saved history and current state; do not repeat completed actions.\n\n" + input.Text, input.Attachments);
+            _ = active.Send(" ", []);
         }
         else if (method == "config") await active.SetConfig(chat.ConfigOptions.Single(c => c.Id == Text("configId")), Text("value"));
         else throw new IOException("Unknown remote operation.");

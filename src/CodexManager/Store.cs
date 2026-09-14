@@ -15,9 +15,11 @@ public sealed class Store : IDisposable
     private readonly Dictionary<string, (WeakReference<Message> Message, int Revision)> savedMessages = [];
     private readonly Dictionary<string, WeakReference<Attachment[]>> savedAttachments = [];
     public static string DataDirectory => Environment.GetEnvironmentVariable("CODEX_MANAGER_DATA") ?? System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CodexManager");
+    public string DirectoryPath { get; }
     public Store(string? directory = null, bool backgroundWrites = false)
     {
         directory ??= DataDirectory;
+        DirectoryPath = Path.GetFullPath(directory);
         Directory.CreateDirectory(directory);
         recovery = new RecoveryJournal(directory);
         db = new(new SqliteConnectionStringBuilder { DataSource = System.IO.Path.Combine(directory, "sessions.db") }.ToString());
@@ -110,7 +112,7 @@ public sealed class Store : IDisposable
         {
             foreach (var a in LoadAttachments(m.Id)) m.Attachments.Add(a);
             if (savedMessages.Count >= 2048) savedMessages.Clear();
-        savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
+            savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
         }
     }
     public async Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false)

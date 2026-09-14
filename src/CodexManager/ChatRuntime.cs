@@ -199,6 +199,8 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         client.PermissionRequested = async (request, token) =>
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, turn?.Token ?? lifetime.Token);
+            linked.Token.ThrowIfCancellationRequested();
+            if (PermissionPolicy.AutoApprove(store, request) is { } approved) return approved;
             return Permission is null ? RpcJson.Permission() : await Permission(request, linked.Token);
         };
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, turn?.Token ?? lifetime.Token);
@@ -291,7 +293,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             chat.Messages.Add(user); store.SaveMessage(chat, user);
             chat.Status = "Working…"; Changed?.Invoke();
             var content = new JsonArray();
-            if (!string.IsNullOrWhiteSpace(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
+            if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
@@ -366,7 +368,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
                     if (chat.Provider != AgentProvider.Codex && store.Setting("autoResume") != "1") { chat.Status = "Interrupted — resume required"; return; }
                     if (chat.Draft == input.Text) chat.Draft = "";
                     foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
-                    await Send("Continue the interrupted request below. Inspect saved history and current workspace state before taking action; do not repeat completed actions.\n\n" + input.Text, input.Attachments);
+                    await Send(" ", []);
                     if (chat.InterruptedInput is null || !lastTurnRecoverable || token.IsCancellationRequested) return;
                 }
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, attempt * 2)), token);

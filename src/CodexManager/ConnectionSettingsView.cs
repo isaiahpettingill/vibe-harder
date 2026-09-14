@@ -78,6 +78,12 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         }
         panel.Children.Add(new Separator()); panel.Children.Add(new TextBlock { Text = "Saved computers" }); panel.Children.Add(hosts); RefreshHosts();
         panel.Children.Add(new TextBlock { Text = "Color theme" }); panel.Children.Add(AppTheme.Picker(store));
+        if (remoteOnly)
+        {
+            var allowAll = new CheckBox { Name = "AllowAllPermissions", Content = "Allow all permission prompts", IsChecked = store.Setting("allowAllPermissions") == "1" };
+            allowAll.IsCheckedChanged += (_, _) => { try { store.Setting("allowAllPermissions", allowAll.IsChecked == true ? "1" : "0"); } catch (Exception error) { status.Text = error.Message; } };
+            panel.Children.Add(allowAll);
+        }
         if (MobileAppSecurity.Current is { } security)
         {
             var biometric = new Button { Name = "BiometricUnlock", MinHeight = 44 };

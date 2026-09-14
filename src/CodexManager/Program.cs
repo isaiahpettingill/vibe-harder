@@ -1,4 +1,5 @@
 using Avalonia;
+using Avalonia.Headless;
 
 namespace CodexManager;
 
@@ -7,6 +8,18 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        if (args is ["--terminal-broker", var profile])
+        {
+            using var owner = new AppInstance(Path.Combine(profile, "terminal-owner"));
+            if (!owner.IsOwner) return;
+            Console.CancelKeyPress += (_, e) => e.Cancel = true;
+            using var hangup = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGHUP, context => context.Cancel = true);
+            AppBuilder.Configure<App>().UseHeadless(new Avalonia.Headless.AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
+            using var stopped = new CancellationTokenSource();
+            _ = TerminalBroker.Serve(profile, stopped.Token).ContinueWith(_ => stopped.Cancel(), TaskScheduler.Default);
+            Avalonia.Threading.Dispatcher.UIThread.MainLoop(stopped.Token);
+            return;
+        }
         string? directory;
         try { directory = args.Contains("--headless") ? null : WorkspaceLaunch.Parse(args); }
         catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException)

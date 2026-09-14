@@ -35,7 +35,7 @@ public class LifecycleTests
             if (autoResume)
             {
                 var resumed = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
-                await Wait(() => resumed.Messages.Any(m => m.Role == "user" && m.Text.StartsWith("Continue the interrupted request")) && !resumed.Busy);
+                await Wait(() => resumed.Messages.Any(m => m.Role == "user" && m.Text == " ") && !resumed.Busy);
                 Assert.DoesNotContain(window.OwnedWindows, w => w.Title == "Resume interrupted chats");
                 return;
             }

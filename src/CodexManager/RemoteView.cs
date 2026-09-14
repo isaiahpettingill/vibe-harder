@@ -147,6 +147,14 @@ public sealed class RemoteView : UserControl, IDisposable
     private JsonArray chatRows = [];
     private int polls;
     private bool presentationSleeping;
+    private bool connectionSuspended;
+    private string catalogJson = "";
+    public void SetConnectionSuspended(bool suspended)
+    {
+        connectionSuspended = suspended;
+        if (suspended) { timer.Stop(); connectAttempt?.Cancel(); terminal.SetSleeping(true); }
+        else { timer.Start(); terminal.SetSleeping(presentationSleeping); }
+    }
     private bool connecting;
     private bool reconnectRequested;
     private CancellationTokenSource? connectAttempt;
@@ -156,8 +164,7 @@ public sealed class RemoteView : UserControl, IDisposable
     {
         if (lifetime.IsCancellationRequested) return;
         presentationSleeping = sleeping; terminal.SetSleeping(sleeping);
-        if (sleeping) timer.Stop();
-        else { timer.Start(); if (connection is null) { reconnectAfter = default; _ = Connect(); } }
+        if (!connectionSuspended) { timer.Start(); if (connection is null) { reconnectAfter = default; _ = Connect(); } }
     }
     private bool refreshing;
     private bool viewingHistory;
@@ -172,8 +179,12 @@ public sealed class RemoteView : UserControl, IDisposable
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
     }
-    public RemoteView(RemoteHost host)
+    private readonly Func<bool> allowAll;
+    private readonly Action? activate;
+    private readonly HashSet<string> notifiedPermissions = [];
+    public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null)
     {
+        this.allowAll = allowAll ?? (() => false); this.activate = activate;
         this.host = host;
         var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
         var connectionNotice = new Grid { Name = "RemoteConnectionNotice", ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 6) };
@@ -206,7 +217,9 @@ public sealed class RemoteView : UserControl, IDisposable
             TranscriptNavigation.ReplacePage(output, viewingHistory ? bounded : messages);
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
-        Grid.SetRow(approvals, 2); panel.Children.Add(approvals);
+        var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
+        panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
+        Grid.SetRow(approvalScroll, 2); panel.Children.Add(approvalScroll);
         var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(new ScrollViewer { Content = queuedMessages, MaxHeight = 120 }); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(new SlashCommandOverlay(composer, slashCommands)); input.Children.Add(composer);
         slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
         DragDrop.SetAllowDrop(input, true);
@@ -275,7 +288,7 @@ public sealed class RemoteView : UserControl, IDisposable
         terminal.Bind(Panel.BackgroundProperty, this.GetResourceObservable("AppBackground"));
         Grid.SetRowSpan(terminal, 4); panel.Children.Add(terminal);
         terminal.Back += () => terminal.SetVisible(false);
-        AddHandler(PointerPressedEvent, (_, e) => { if (e.Pointer.Type == PointerType.Touch) swipeStart = e.GetPosition(this); }, RoutingStrategies.Tunnel, true);
+        AddHandler(PointerPressedEvent, (_, e) => { if (e.Pointer.Type == PointerType.Touch && (!terminal.IsVisible || e.GetPosition(terminal).Y < 52)) swipeStart = e.GetPosition(this); else swipeStart = null; }, RoutingStrategies.Tunnel, true);
         AddHandler(PointerReleasedEvent, async (_, e) =>
         {
             if (e.Pointer.Type != PointerType.Touch || swipeStart is not { } start) return;
@@ -287,11 +300,11 @@ public sealed class RemoteView : UserControl, IDisposable
         Content = panel;
         timer.Tick += async (_, _) =>
         {
-            if (presentationSleeping || polling) return;
+            if (connectionSuspended || polling) return;
             if (connection is null) { if (!connecting && DateTimeOffset.UtcNow >= reconnectAfter) await Connect(); return; }
-            if (chatId is null)
+            if (presentationSleeping || chatId is null)
             {
-                if (++polls % 5 != 0) return;
+                if (++polls % 8 != 0) return;
                 polling = true;
                 try { await RefreshList(); }
                 catch (Exception error) { AppDiagnostics.Record("Remote catalog refresh", error); }
@@ -332,7 +345,7 @@ public sealed class RemoteView : UserControl, IDisposable
                 var scroll = output.Scroll;
                 var follow = scroll is null || scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 80;
                 ApplyMessages(result["messages"]!.AsArray());
-                if (++polls % 20 == 0) await RefreshList();
+                if (++polls % 8 == 0) await RefreshList();
                 if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() =>
                 {
                     if (!lifetime.IsCancellationRequested && !presentationSleeping && !viewingHistory && id == chatId && messages.Count > 0) output.ScrollIntoView(messages[^1]);
@@ -344,12 +357,11 @@ public sealed class RemoteView : UserControl, IDisposable
                     permissionsJson = permissionText; approvals.Children.Clear();
                     foreach (var permission in result["permissions"]!.AsArray())
                     {
-                        approvals.Children.Add(new SelectableTextBlock { Text = permission!["toolCall"]?.ToJsonString(), TextWrapping = Avalonia.Media.TextWrapping.Wrap, MaxHeight = 150 });
-                        foreach (var option in permission["options"]!.AsArray())
+                        var permissionId = permission!["id"]!.GetValue<string>();
+                        approvals.Children.Add(new PermissionCard(permission.AsObject(), async option =>
                         {
-                            var button = new Button { Content = option!["name"]!.GetValue<string>(), MinHeight = 40 };
-                            button.Click += async (_, _) => await Call(new() { ["method"] = "approve", ["permissionId"] = permission["id"]!.DeepClone(), ["optionId"] = option["optionId"]!.DeepClone() }); approvals.Children.Add(button);
-                        }
+                            if (await Call(new() { ["method"] = "approve", ["permissionId"] = permissionId, ["optionId"] = option }) is null) throw new IOException("Reconnect and try again.");
+                        }));
                     }
                 }
             }
@@ -443,7 +455,7 @@ public sealed class RemoteView : UserControl, IDisposable
     }
     private async Task Connect()
     {
-        if (connecting || presentationSleeping || lifetime.IsCancellationRequested) return;
+        if (connecting || connectionSuspended || lifetime.IsCancellationRequested) return;
         reconnectRequested = false;
         connecting = true;
         connection?.Dispose(); connection = null;
@@ -458,13 +470,30 @@ public sealed class RemoteView : UserControl, IDisposable
         {
             connectAttempt = null; connecting = false;
             if (connection is null) reconnectAfter = DateTimeOffset.UtcNow.AddSeconds(Math.Min(30, Math.Pow(2, Math.Min(reconnectFailures++, 5))));
-            if (reconnectRequested && !presentationSleeping && !lifetime.IsCancellationRequested) _ = Connect();
+            if (reconnectRequested && !connectionSuspended && !lifetime.IsCancellationRequested) _ = Connect();
         }
     }
     private async Task RefreshList()
     {
         var result = await Call(new() { ["method"] = "list" }); if (result is null || lifetime.IsCancellationRequested) return;
         chatRows = result["chats"]!.AsArray();
+        if (result["permissions"] is JsonArray pending)
+        {
+            foreach (var permission in pending.OfType<JsonObject>())
+            {
+                var permissionId = permission["id"]!.GetValue<string>();
+                using var parsed = System.Text.Json.JsonDocument.Parse(permission.ToJsonString());
+                if (allowAll() && PermissionPolicy.AllowedOption(parsed.RootElement) is { } allowed)
+                {
+                    if (await Call(new() { ["method"] = "approve", ["permissionId"] = permissionId, ["optionId"] = allowed }) is not null) continue;
+                }
+                var permissionChat = permission["chatId"]!.GetValue<string>();
+                if (notifiedPermissions.Add(permissionId)) PermissionNotifications.Show(host.Address + permissionId, permission["chatTitle"]?.GetValue<string>() ?? "Remote chat", () => { activate?.Invoke(); SelectChat(permissionChat); });
+            }
+            var activePermissions = pending.Select(p => p!["id"]!.GetValue<string>()).ToHashSet();
+            foreach (var resolved in notifiedPermissions.Except(activePermissions)) PermissionNotifications.Dismiss(host.Address + resolved);
+            notifiedPermissions.IntersectWith(activePermissions);
+        }
         var requested = requestedWorkspace;
         var selected = requested ?? chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         selected ??= chatRows.FirstOrDefault(c => c?["archived"]?.GetValue<bool>() != true)?["workspaceId"]?.GetValue<string>();
@@ -473,7 +502,8 @@ public sealed class RemoteView : UserControl, IDisposable
         workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == selected) ?? workspaces.Items.OfType<RemoteItem>().FirstOrDefault();
         refreshing = false;
         FilterChats();
-        CatalogChanged?.Invoke(result.DeepClone());
+        var json = result.ToJsonString();
+        if (catalogJson != json) { catalogJson = json; CatalogChanged?.Invoke(result.DeepClone()); }
         if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
     }
     private void FilterChats()
@@ -555,13 +585,6 @@ public sealed class RemoteView : UserControl, IDisposable
         }
         menu.ShowAt(anchor);
     }
-    public void Dispose() { timer.Stop(); terminal.Dispose(); var client = connection; connection = null; lifetime.Cancel(); if (client is not null) _ = CloseConnection(client, terminal.TerminalId); CatalogChanged = null; WorkspaceNavigation = null; WorkspaceOpened = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }
-    private static async Task CloseConnection(RemoteConnection client, string? terminalId)
-    {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-        try { if (terminalId is not null) await client.Request(new() { ["method"] = "terminal/close", ["terminalId"] = terminalId }, timeout.Token); }
-        catch (Exception error) { System.Diagnostics.Trace.WriteLine(error.Message); }
-        finally { client.Dispose(); }
-    }
+    public void Dispose() { timer.Stop(); terminal.Dispose(); var client = connection; connection = null; lifetime.Cancel(); client?.Dispose(); CatalogChanged = null; WorkspaceNavigation = null; WorkspaceOpened = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null; }
     private sealed record RemoteItem(string Id, string Name) { public override string ToString() => Name; }
 }

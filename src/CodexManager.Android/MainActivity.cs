@@ -13,6 +13,8 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
 {
     private bool resumePending;
     private BiometricAppLock? appLock;
+    private AndroidTerminalKeyboard? terminalKeyboard;
+    private AndroidPermissionNotifications? notifications;
     private global::Android.Net.ConnectivityManager? connectivity;
     private NetworkObserver? networkObserver;
     private sealed class NetworkObserver(MainActivity owner) : global::Android.Net.ConnectivityManager.NetworkCallback
@@ -31,6 +33,11 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
     protected override void OnCreate(Bundle? savedInstanceState)
     {
         base.OnCreate(savedInstanceState);
+        terminalKeyboard = new AndroidTerminalKeyboard(this);
+        MobileTerminalKeyboard.Current = terminalKeyboard;
+        notifications = new AndroidPermissionNotifications(this);
+        PermissionNotifications.Mobile = notifications.Show;
+        PermissionNotifications.MobileDismiss = notifications.Dismiss;
         appLock = new BiometricAppLock(this);
         MobileAppSecurity.Current = appLock;
         Window?.DecorView.ViewTreeObserver?.AddOnGlobalLayoutListener(this);
@@ -58,7 +65,17 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         var occlusion = keyboardVisible ? Math.Max(0, location[1] + content.Height - visible.Bottom) / density : 0;
         view.UpdateNativeMobileInsets(new Thickness(bars.Left / density, bars.Top / density, bars.Right / density, keyboardVisible ? 0 : bars.Bottom / density), occlusion);
     }
-    internal void OnAppUnlocked() { resumePending = true; UpdateInsets(); ResumeConnection(); }
+    internal void OnAppUnlocked() { resumePending = true; UpdateInsets(); ResumeConnection(); notifications?.Activate(Intent); }
+    protected override void OnNewIntent(global::Android.Content.Intent? intent)
+    {
+        base.OnNewIntent(intent); Intent = intent;
+        if (appLock?.Locked != true) notifications?.Activate(intent);
+    }
+    public override void OnRequestPermissionsResult(int requestCode, string[] permissions, Permission[] grantResults)
+    {
+        base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == AndroidPermissionNotifications.PermissionRequest) notifications?.PermissionResult();
+    }
     protected override void OnPause() { appLock?.Pause(); (Content as MainView)?.SuspendRemotePresentation(); base.OnPause(); }
     protected override void OnStop() { appLock?.Stop(); base.OnStop(); }
     protected override void OnResume() { base.OnResume(); resumePending = true; appLock?.Resume(); UpdateInsets(); ResumeConnection(); }
@@ -76,6 +93,8 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
     protected override void OnDestroy()
     {
         appLock?.Dispose();
+        terminalKeyboard?.Dispose();
+        notifications?.Dispose();
         if (networkObserver is not null) connectivity?.UnregisterNetworkCallback(networkObserver);
         networkObserver?.Dispose(); networkObserver = null;
         Window?.DecorView.ViewTreeObserver?.RemoveOnGlobalLayoutListener(this); (Content as MainView)?.DisposeMobile(); base.OnDestroy();

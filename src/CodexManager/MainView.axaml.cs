@@ -72,7 +72,7 @@ public partial class MainView : UserControl
             if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
             RefreshRemoteSidebar(); return;
         }
-        var view = new RemoteView(host); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
+        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
         view.CatalogChanged += catalog => { if (closing) return; remoteCatalogs[host] = catalog; RefreshRemoteSidebar(); };
@@ -156,7 +156,7 @@ public partial class MainView : UserControl
         }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, async (_, e) =>
         {
-            if (remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
+            if (TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
             e.Handled = true;
             if (SlashCommands.IsVisible) { SlashCommands.IsVisible = false; return; }
             var twice = ReferenceEquals(escapeChat, current) && DateTimeOffset.UtcNow - lastEscape < TimeSpan.FromMilliseconds(650);
@@ -170,6 +170,7 @@ public partial class MainView : UserControl
             { e.Handled = true; PaletteClick(this, new()); }
         }, RoutingStrategies.Tunnel);
         saveTimer.Tick += async (_, _) => { try { SaveAll(); await store.FlushAsync(); } catch (Exception error) { StatusText.Text = "Could not save: " + error.Message; } }; saveTimer.Start();
+        ChatPane.SizeChanged += (_, _) => PermissionScroll.MaxHeight = Math.Clamp(ChatPane.Bounds.Height * .35, 64, 280);
         InitializeLayout();
         if (workspaces.Count > 0) SelectWorkspace(workspaces.FirstOrDefault(w => w.Id == store.Setting("workspace")) ?? workspaces[0]);
         UpdateControls();
@@ -522,6 +523,7 @@ public partial class MainView : UserControl
     }
     private void UpdateControls()
     {
+        UpdatePermissions();
         if (uiSleeping) { UpdateTray(); return; }
         UpdateTray();
         UpdateSlashCommands();
@@ -551,7 +553,6 @@ public partial class MainView : UserControl
                     ConfigOptionsPanel.Children.Add(picker);
                 }
         }
-        WorkspaceSelectorButton.Content = (workspace?.Name ?? "Workspaces") + " ▾";
         Welcome.IsVisible = current is null;
         WelcomeHeading.Text = remoteOnly ? "Connect to your computer" : workspace is null ? "Open a folder to start" : "Start a chat in " + workspace.Name;
         WelcomeHint.Text = remoteOnly ? "Enter its address, then the pairing number shown on your desktop." : workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
@@ -787,33 +788,35 @@ public partial class MainView : UserControl
         }
         store.Save(target);
     }
+    private readonly Dictionary<string, (Chat Chat, PermissionCard Card)> permissionCards = [];
+    private void UpdatePermissions()
+    {
+        InlinePermissions.Children.Clear();
+        foreach (var pending in permissionCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
+        PermissionScroll.IsVisible = InlinePermissions.Children.Count > 0;
+    }
     private async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token)
     {
         var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var remotePermissionId = remoteSessions.RegisterPermission(chat, request, completion);
-        await Dispatcher.UIThread.InvokeAsync(() =>
+        var id = remoteSessions.RegisterPermission(chat, request, completion);
+        using var cancellation = token.Register(() => completion.TrySetResult(RpcJson.Permission()));
+        try
         {
-            if (token.IsCancellationRequested) { completion.TrySetResult(RpcJson.Permission()); return; }
-            if (!IsVisible) ShowFromTray();
-            chat.Status = "Needs permission"; UpdateControls();
-            var dialog = new Window { Title = "Codex permission · " + chat.Title, Width = 650, Height = 420, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-            var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
-            foreach (var option in request.GetProperty("options").EnumerateArray())
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
-                var id = option.GetProperty("optionId").GetString();
-                var button = new Button { Content = option.GetProperty("name").GetString(), Margin = new Thickness(4) };
-                button.Click += (_, _) => { completion.TrySetResult(RpcJson.Permission(id)); dialog.Close(); };
-                buttons.Children.Add(button);
-            }
-            dialog.Content = new DockPanel { Margin = new Thickness(22), Children = { buttons, new ScrollViewer { Content = new SelectableTextBlock { Text = request.GetProperty("toolCall").ToString(), TextWrapping = TextWrapping.Wrap } } } };
-            DockPanel.SetDock(buttons, Dock.Bottom);
-            dialog.Closed += (_, _) => completion.TrySetResult(RpcJson.Permission());
-            _ = completion.Task.ContinueWith(_ => Dispatcher.UIThread.Post(() => { remoteSessions.ForgetPermission(remotePermissionId); dialog.Close(); }));
-            var registration = token.Register(() => Dispatcher.UIThread.Post(() => dialog.Close()));
-            dialog.Closed += (_, _) => registration.Dispose();
-            _ = dialog.ShowDialog(desktopWindow!);
-        });
-        return await completion.Task;
+                if (completion.Task.IsCompleted) return;
+                chat.Status = "Needs permission";
+                permissionCards[id] = (chat, new PermissionCard(JsonNode.Parse(request.GetRawText())!.AsObject(), option =>
+                { completion.TrySetResult(RpcJson.Permission(option)); return Task.CompletedTask; }));
+                UpdateControls(); UpdatePermissions();
+                PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } });
+            });
+            return await completion.Task;
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetPermission(id); permissionCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); });
+        }
     }
     private async void ImportChatsClick(object? sender, RoutedEventArgs e)
     {
@@ -859,6 +862,9 @@ public partial class MainView : UserControl
         var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") == "1" };
         sleep.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); });
         panel.Children.Add(sleep);
+        var allowAll = new CheckBox { Name = "AllowAllPermissions", Content = "Allow all permission prompts", IsChecked = store.Setting("allowAllPermissions") == "1" };
+        allowAll.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("allowAllPermissions", allowAll.IsChecked == true ? "1" : "0"));
+        panel.Children.Add(allowAll);
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
         syntax.IsCheckedChanged += (_, _) => ApplyChange(() => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); });
         panel.Children.Add(syntax);
@@ -988,20 +994,6 @@ public partial class MainView : UserControl
         var control = new ThemedTerminalControl { Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font") };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
-        control.AddHandler(KeyDownEvent, async (_, e) =>
-        {
-            if (!(e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta))) return;
-            if (e.Key == Key.V) { e.Handled = true; await control.PasteFromClipboardAsync(); }
-            else if (e.Key == Key.C && (control.HasSelection || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
-            { e.Handled = true; await control.CopySelectionAsync(); }
-        }, RoutingStrategies.Tunnel);
-        var copy = new MenuItem { Header = "Copy" };
-        copy.Click += async (_, _) => await control.CopySelectionAsync();
-        var paste = new MenuItem { Header = "Paste" };
-        paste.Click += async (_, _) => await control.PasteFromClipboardAsync();
-        var select = new MenuItem { Header = "Select all" };
-        select.Click += (_, _) => control.SelectAll();
-        control.ContextMenu = new ContextMenu { ItemsSource = new[] { copy, paste, select } };
         return control;
     }
     private async Task Login(Workspace owner, AgentProvider provider)
@@ -1038,15 +1030,21 @@ public partial class MainView : UserControl
         if (remoteOnly) return;
         TerminalDrawer.IsVisible = !TerminalDrawer.IsVisible;
         if (!TerminalDrawer.IsVisible) { Composer.Focus(); return; }
-        if (TerminalTabs.ItemCount == 0) await NewTerminal();
+        if (TerminalTabs.ItemCount == 0)
+        {
+            var saved = workspace is null ? [] : (store.Setting("terminalTabs:" + workspace.Id) ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            if (saved.Length == 0) await NewTerminal();
+            else foreach (var id in saved) await NewTerminal(durableId: id);
+        }
         else if (TerminalTabs.SelectedItem is TabItem { Content: Control terminal }) terminal.Focus();
     }
     private async void NewTerminalClick(object? sender, RoutedEventArgs e) => await NewTerminal();
-    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null)
+    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null, string? durableId = null)
     {
         if (remoteOnly) return null;
         var owner = target ?? workspace;
         if (owner is null) return null;
+        durableId = command is null ? durableId ?? "desktop:" + Guid.NewGuid().ToString("N") : null;
         var session = new TerminalSession();
         if (completed is not null) session.Completed += completed;
         var control = CreateTerminalControl(session, 13);
@@ -1056,9 +1054,27 @@ public partial class MainView : UserControl
         if (list is null) terminals[owner.Id] = list = [];
         tab.Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { new TextBlock { FontSize = 11, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis, Text = title ?? $"{owner.Host} {list.Count + 1}", VerticalAlignment = VerticalAlignment.Center }, close } };
         list.Add((tab, session));
-        close.Click += (_, _) => { session.Dispose(); list.RemoveAll(t => t.Tab == tab); TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); if (list.Count > 0) TerminalTabs.SelectedIndex = 0; };
+        close.Click += async (_, _) =>
+        {
+            try { await session.Close(); }
+            catch (Exception error) { StatusText.Text = "Could not close terminal: " + error.Message; return; }
+            list.RemoveAll(t => t.Tab == tab);
+            store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>()));
+            TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); if (list.Count > 0) TerminalTabs.SelectedIndex = 0;
+        };
         TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); TerminalTabs.SelectedItem = tab; TerminalDrawer.IsVisible = true;
-        try { await session.Start(owner, command, store); control.Focus(); return tab; } catch (Exception error) { session.Dispose(); session.Model.Feed("Could not start terminal: " + error.Message); StatusText.Text = error.Message; return null; }
+        try
+        {
+            if (durableId is not null)
+            {
+                store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>().Append(durableId).Distinct()));
+                await store.FlushAsync();
+            }
+            await session.Start(owner, command, store, durableId);
+            store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>()));
+            control.Focus(); return tab;
+        }
+        catch (Exception error) { session.Dispose(); session.Model.Feed("Could not start terminal: " + error.Message); StatusText.Text = error.Message; return null; }
     }
     private void TerminalResizeStart(object? sender, PointerPressedEventArgs e) { resizeY = e.GetPosition(this).X; resizeHeight = TerminalDrawer.Width; e.Pointer.Capture(sender as IInputElement); }
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }
@@ -1238,7 +1254,7 @@ public partial class MainView : UserControl
         }
         var dialog = new Window { Title = "Resume interrupted chats", Width = 520, Height = 350, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 10 };
-        panel.Children.Add(new TextBlock { Text = "These chats were interrupted when the app exited. Resume selected chats from their saved history? Agents will check existing progress before continuing.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "These chats were interrupted when the app exited. Resume selected chats from their saved history?", TextWrapping = TextWrapping.Wrap });
         var checks = interrupted.Select(c => (Chat: c, Check: new CheckBox { Content = c.Title, IsChecked = true })).ToArray();
         foreach (var item in checks) panel.Children.Add(item.Check);
         var resume = new Button { Name = "ResumeInterrupted", Content = "Resume selected chats" };
@@ -1277,7 +1293,7 @@ public partial class MainView : UserControl
         chat.InterruptedInput = null;
         if (chat.Draft == input.Text) { chat.Draft = ""; if (ReferenceEquals(current, chat)) Composer.Text = ""; }
         foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
-        await runtime.Send("Continue the interrupted request below. First inspect the saved conversation and current workspace state; do not repeat actions already completed.\n\n" + input.Text, input.Attachments);
+        await runtime.Send(" ", []);
     }
     private bool shutdownComplete;
     private async void OnClosing(object? sender, WindowClosingEventArgs e)

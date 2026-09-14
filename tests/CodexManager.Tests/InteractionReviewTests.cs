@@ -26,11 +26,11 @@ public class InteractionReviewTests
         }
         using var terminal = new RemoteTerminalView(Call);
         await terminal.Open("workspace", "Host");
-        var keyboard = Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(terminal).OfType<TextBox>().Single();
-        keyboard.Text = "echx"; keyboard.Text = "ech"; keyboard.Text = "echo hé";
-        keyboard.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+        await terminal.SendKeystroke(new("echx"));
+        await terminal.SendKeystroke(new(Key: XTerm.Input.Key.Backspace));
+        await terminal.SendKeystroke(new("o hé"));
+        await terminal.SendKeystroke(new(Key: XTerm.Input.Key.Enter));
         Assert.Equal("echx\x7fo hé\r", input.ToString());
-        Assert.Equal("", keyboard.Text);
     }
 
     [AvaloniaFact]

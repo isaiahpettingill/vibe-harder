@@ -13,6 +13,30 @@ namespace CodexManager.Tests;
 public class RemotePairingTests
 {
     [AvaloniaFact]
+    public async Task HiddenRemoteViewUpdatesCompletionWithoutSelectingChat()
+    {
+        var directory = DirectoryPath(); var port = Port(); var done = false; var sawBusy = false; var sawDone = false;
+        await using var server = new RemoteServer(directory, "127.0.0.1", port, request => Task.FromResult<JsonNode?>(new JsonObject
+        {
+            ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "w", ["name"] = "Workspace" }),
+            ["chats"] = new JsonArray(new JsonObject { ["id"] = "c", ["workspaceId"] = "w", ["title"] = "Chat", ["provider"] = "Codex", ["busy"] = !done, ["unread"] = done, ["status"] = done ? "Ready" : "Working", ["archived"] = false }),
+            ["permissions"] = new JsonArray()
+        }));
+        await Wait(() => server.Fingerprint is not null);
+        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), Path.Combine(directory, "key"), "Phone", TestContext.Current.CancellationToken);
+        using var view = new RemoteView(host); view.SetPresentationSleeping(true);
+        view.CatalogChanged += catalog =>
+        {
+            sawBusy |= catalog["chats"]?[0]?["busy"]?.GetValue<bool>() == true;
+            sawDone |= catalog["chats"]?[0]?["unread"]?.GetValue<bool>() == true;
+        };
+        await Wait(() => sawBusy);
+        var selected = view.SelectedChatId;
+        done = true;
+        await Wait(() => sawDone);
+        Assert.Equal(selected, view.SelectedChatId);
+    }
+    [AvaloniaFact]
     public async Task TerminalRetainsSessionAndRetriesAfterTransportLoss()
     {
         var online = true; var reads = 0;
@@ -24,7 +48,7 @@ public class RemotePairingTests
             {
                 reads++;
                 Assert.Equal("persistent-shell", request["terminalId"]!.GetValue<string>());
-                return Task.FromResult<JsonNode?>(online ? new JsonObject { ["text"] = "", ["offset"] = 0 } : null);
+                return Task.FromResult<JsonNode?>(online ? new JsonObject { ["text"] = "", ["offset"] = 0L } : null);
             }
             return Task.FromResult<JsonNode?>(JsonValue.Create(true));
         });
@@ -32,10 +56,9 @@ public class RemotePairingTests
         try
         {
             await terminal.Open("workspace", "Host shell");
-            var input = terminal.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "TerminalInput");
-            online = false; await Wait(() => !input.IsEnabled);
+            online = false; await Wait(() => !terminal.InputReady);
             Assert.Equal("persistent-shell", terminal.TerminalId);
-            var before = reads; online = true; await Wait(() => reads > before && input.IsEnabled);
+            var before = reads; online = true; await Wait(() => reads > before && terminal.InputReady);
             Assert.Equal("persistent-shell", terminal.TerminalId);
         }
         finally { window.Close(); }

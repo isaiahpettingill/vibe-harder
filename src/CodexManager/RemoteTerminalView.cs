@@ -6,6 +6,8 @@ using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Threading;
 using SvcSystems.UI.Terminal;
+using TerminalKey = XTerm.Input.Key;
+using TerminalModifiers = XTerm.Input.KeyModifiers;
 
 namespace CodexManager;
 
@@ -17,69 +19,125 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private readonly TextBlock status = new() { Text = "Connecting to the host terminal…", TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis };
     private readonly SemaphoreSlim inputGate = new(1);
     private bool polling, disposed, sleeping;
-    private readonly TextBox keyboard = new() { Name = "TerminalInput", PlaceholderText = "Type in terminal…", IsEnabled = false };
-    private string keyboardText = "";
+    private readonly bool mobile;
+    private readonly Grid keyBar = new() { Name = "TerminalKeyBar", RowDefinitions = new("Auto,Auto"), ColumnDefinitions = new("*,*,*,*,*,*,*"), IsEnabled = false };
+    private readonly Action<TerminalKeystroke> keyboardReceiver;
+    private readonly ThemedTerminalControl terminal;
+    private readonly Button control = new() { Content = "CTRL", Name = "TerminalCtrl", Focusable = false };
+    private readonly Button alt = new() { Content = "ALT", Name = "TerminalAlt", Focusable = false };
+    private bool ctrlHeld, altHeld;
+    public bool InputReady { get; private set; }
     private long offset;
     private (int Cols, int Rows) size;
     private string caption = "Remote terminal";
     public string? TerminalId { get; private set; }
     public event Action? Back;
-    public RemoteTerminalView(Func<JsonObject, Task<JsonNode?>> call)
+    public RemoteTerminalView(Func<JsonObject, Task<JsonNode?>> call, bool? mobile = null)
     {
-        this.call = call;
+        this.call = call; this.mobile = mobile ?? OperatingSystem.IsAndroid();
+        keyboardReceiver = input => _ = SendKeystroke(input);
         Name = "RemoteTerminal"; RowDefinitions = new("Auto,*,Auto"); RowSpacing = 6;
         var header = new Grid { ColumnDefinitions = new("Auto,*,Auto"), ColumnSpacing = 8 };
         var back = new IconButton { Name = "TerminalBack", Icon = "chevron-left", Label = "Return to chat" }; back.Click += (_, _) => Back?.Invoke(); header.Children.Add(back);
         status.VerticalAlignment = VerticalAlignment.Center; Grid.SetColumn(status, 1); header.Children.Add(status);
-        var interrupt = new IconButton { Icon = "stop", Label = "Interrupt command (Ctrl+C)" }; interrupt.Click += async (_, _) => { keyboardText = ""; keyboard.Text = ""; await Input("\u0003"); }; Grid.SetColumn(interrupt, 2); header.Children.Add(interrupt); Children.Add(header);
-        var terminal = new ThemedTerminalControl { Model = model, FontSize = OperatingSystem.IsAndroid() ? 12 : 13 };
+        var toggleKeyboard = new IconButton { Name = "TerminalKeyboard", Icon = "keyboard", Label = "Show keyboard", IsVisible = this.mobile, Focusable = false };
+        toggleKeyboard.Click += (_, _) => FocusInput();
+        terminal = new ThemedTerminalControl { Model = model, FontSize = this.mobile ? 12 : 13 };
+        var copy = new IconButton { Icon = "copy", Label = "Copy selection", Focusable = false, IsVisible = false };
+        copy.Click += async (_, _) => await terminal.CopyText();
+        terminal.PropertyChanged += (_, e) => { if (e.Property == ThemedTerminalControl.HasSelectionProperty) copy.IsVisible = terminal.HasSelection; };
+        var more = new IconButton { Icon = "more", Label = "Terminal actions", Focusable = false };
+        more.Click += (_, _) =>
+        {
+            var menu = new MenuFlyout();
+            void Item(string text, Func<Task> action) { var item = new MenuItem { Header = text }; item.Click += async (_, _) => { try { await action(); } catch (Exception error) { status.Text = AppDiagnostics.Message("Terminal action failed", error); } }; menu.Items.Add(item); }
+            Item("Copy", terminal.CopyText); Item("Paste", terminal.PasteText);
+            Item("Select all", () => { terminal.SelectAll(); return Task.CompletedTask; });
+            Item("Interrupt (Ctrl+C)", async () => await Input(model.Terminal.Engine.GenerateCharInput('c', TerminalModifiers.Control)));
+            Item("Close terminal", async () =>
+            {
+                if (TerminalId is not { } id) return;
+                if (await call(new() { ["method"] = "terminal/close", ["terminalId"] = id }) is null) return;
+                TerminalId = null; Ready(false); ReleaseKeyboard(); timer.Stop(); Back?.Invoke();
+            });
+            menu.ShowAt(more);
+        };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { copy, toggleKeyboard, more } };
+        Grid.SetColumn(actions, 2); header.Children.Add(actions); Children.Add(header);
         terminal.Bind(ThemedTerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         Grid.SetRow(terminal, 1); Children.Add(terminal);
-        // A TextBox supplies Android's native IME; physical keys still go directly to the terminal.
-        var line = keyboard; line.IsVisible = OperatingSystem.IsAndroid();
-        var footer = new Grid { ColumnDefinitions = new("*,Auto"), IsVisible = OperatingSystem.IsAndroid() }; footer.Children.Add(line);
-        var enter = new IconButton { Icon = "send", Label = "Send terminal input" }; Grid.SetColumn(enter, 1); footer.Children.Add(enter); Grid.SetRow(footer, 2); Children.Add(footer);
-        line.TextChanging += async (_, _) =>
+        keyBar.IsVisible = this.mobile; Grid.SetRow(keyBar, 2); Children.Add(keyBar);
+        var keys = new (string Label, TerminalKeystroke Stroke)[] {
+            ("ESC", new(Key: TerminalKey.Escape)), ("/", new("/")), ("−", new("-")),
+            ("HOME", new(Key: TerminalKey.Home)), ("↑", new(Key: TerminalKey.UpArrow)), ("END", new(Key: TerminalKey.End)), ("PGUP", new(Key: TerminalKey.PageUp)),
+            ("TAB", new(Key: TerminalKey.Tab)), ("CTRL", default), ("ALT", default),
+            ("←", new(Key: TerminalKey.LeftArrow)), ("↓", new(Key: TerminalKey.DownArrow)), ("→", new(Key: TerminalKey.RightArrow)), ("PGDN", new(Key: TerminalKey.PageDown)) };
+        for (var i = 0; i < keys.Length; i++)
         {
-            var next = line.Text ?? ""; var prior = keyboardText; keyboardText = next;
-            var common = 0; while (common < prior.Length && common < next.Length && prior[common] == next[common]) common++;
-            var edit = new string('\x7f', prior[common..].EnumerateRunes().Count()) + next[common..];
-            if (edit.Length > 0) await Input(edit);
-        };
-        async Task Submit() { keyboardText = ""; line.Text = ""; await Input("\r"); line.Focus(); }
+            var (label, stroke) = keys[i];
+            var button = label == "CTRL" ? control : label == "ALT" ? alt : new Button { Content = label, Name = "TerminalKey" + i, Focusable = false };
+            button.FontSize = 11; button.Padding = new Thickness(2, 0); button.MinHeight = 40;
+            button.HorizontalAlignment = HorizontalAlignment.Stretch; button.HorizontalContentAlignment = HorizontalAlignment.Center;
+            Grid.SetColumn(button, i % 7); Grid.SetRow(button, i / 7); keyBar.Children.Add(button);
+            button.Click += async (_, _) =>
+            {
+                if (label == "CTRL") { ctrlHeld = !ctrlHeld; UpdateModifiers(); }
+                else if (label == "ALT") { altHeld = !altHeld; UpdateModifiers(); }
+                else await SendKeystroke(stroke);
+                if (InputReady) MobileTerminalKeyboard.Current?.Focus(keyboardReceiver, false);
+            };
+        }
         Point? tapStart = null;
         terminal.AddHandler(PointerPressedEvent, (_, e) => tapStart = e.GetPosition(terminal), Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
-        terminal.AddHandler(PointerReleasedEvent, (_, e) => { if (tapStart is { } start && Math.Abs(e.GetPosition(terminal).X - start.X) < 12 && Math.Abs(e.GetPosition(terminal).Y - start.Y) < 12) FocusInput(); tapStart = null; }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
-        enter.Click += async (_, _) => await Submit();
-        line.KeyDown += async (_, e) =>
+        terminal.AddHandler(PointerReleasedEvent, (_, e) => { if (!terminal.HasSelection && tapStart is { } start && Math.Abs(e.GetPosition(terminal).X - start.X) < 12 && Math.Abs(e.GetPosition(terminal).Y - start.Y) < 12) FocusInput(); tapStart = null; }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+        model.UserInput += async (_, e) =>
         {
-            if (e.Key == Key.Enter) { e.Handled = true; await Submit(); return; }
-            var input = e.Key switch { Key.Back when string.IsNullOrEmpty(line.Text) => "\x7f", Key.Tab => "\t", Key.Escape => "\x1b", Key.Up => "\x1b[A", Key.Down => "\x1b[B", Key.Left => "\x1b[D", Key.Right => "\x1b[C", _ => null };
-            if (e.KeyModifiers.HasFlag(KeyModifiers.Control) && e.Key >= Key.A && e.Key <= Key.Z) input = ((char)(1 + e.Key - Key.A)).ToString();
-            if (input is not null) { e.Handled = true; keyboardText = ""; line.Text = ""; await Input(input); }
+            var text = Encoding.UTF8.GetString(e.Data.Span);
+            if (this.mobile && (ctrlHeld || altHeld) && text.Length == 1) await SendKeystroke(new(text));
+            else await Input(text);
         };
-        model.UserInput += async (_, e) => await Input(Encoding.UTF8.GetString(e.Data.Span));
         // Protocol replies are produced by the host's terminal model, once per query.
         timer.Tick += async (_, _) => await Poll();
     }
-    public void FocusInput() { if (OperatingSystem.IsAndroid() && IsVisible && TerminalId is not null) keyboard.Focus(); }
+    private void UpdateModifiers() { control.Classes.Set("accent", ctrlHeld); alt.Classes.Set("accent", altHeld); }
+    public void FocusInput() { if (mobile && IsVisible && InputReady && !sleeping) MobileTerminalKeyboard.Current?.Focus(keyboardReceiver, true); }
+    private void ReleaseKeyboard() { MobileTerminalKeyboard.Current?.Release(keyboardReceiver); ctrlHeld = altHeld = false; UpdateModifiers(); }
+    private void Ready(bool value) { InputReady = value; keyBar.IsEnabled = value; }
+    public async Task<bool> SendKeystroke(TerminalKeystroke input)
+    {
+        var modifiers = input.Modifiers | (ctrlHeld ? TerminalModifiers.Control : 0) | (altHeld ? TerminalModifiers.Alt : 0);
+        ctrlHeld = altHeld = false; UpdateModifiers();
+        if (terminal.HasSelection && input.Text is "c" or "C" && modifiers.HasFlag(TerminalModifiers.Control)) { await terminal.CopyText(); return true; }
+        var text = input.Key is { } key ? model.Terminal.Engine.GenerateKeyInput(key, modifiers)
+            : string.Concat((input.Text ?? "").Select(c => model.Terminal.Engine.GenerateCharInput(c, modifiers)));
+        model.EnsureCaretIsVisible();
+        return text.Length > 0 && await Input(text);
+    }
     public async Task Open(string workspaceId, string caption)
     {
         this.caption = caption;
-        if (TerminalId is { } previous) await call(new() { ["method"] = "terminal/close", ["terminalId"] = previous });
-        keyboard.IsEnabled = false; keyboardText = ""; keyboard.Text = ""; TerminalId = null; offset = 0; model.Feed("\u001bc");
+        Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; model.Feed("\u001bc");
         var result = await call(new() { ["method"] = "terminal/open", ["workspaceId"] = workspaceId });
-        TerminalId = result?["id"]?.GetValue<string>(); keyboard.IsEnabled = TerminalId is not null;
+        TerminalId = result?["id"]?.GetValue<string>(); Ready(TerminalId is not null);
         status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : caption;
-        if (disposed) { if (TerminalId is { } id) await call(new() { ["method"] = "terminal/close", ["terminalId"] = id }); return; }
+        if (disposed) return;
         size = default; timer.Start(); await Poll();
     }
-    public void SetSleeping(bool value) { sleeping = value; if (!value && IsVisible && !disposed) timer.Start(); else timer.Stop(); }
-    public void SetVisible(bool visible) { IsVisible = visible; if (visible && !disposed) timer.Start(); else timer.Stop(); }
+    public void SetSleeping(bool value) { sleeping = value; if (value) ReleaseKeyboard(); if (!value && IsVisible && !disposed) timer.Start(); else timer.Stop(); }
+    public void SetVisible(bool visible) { IsVisible = visible; if (!visible) ReleaseKeyboard(); if (visible && !disposed) timer.Start(); else timer.Stop(); }
     private async Task<bool> Input(string text)
     {
+        var id = TerminalId;
+        if (!InputReady || disposed || sleeping || !IsVisible || id is null) return false;
         await inputGate.WaitAsync();
-        try { return !disposed && TerminalId is { } id && await call(new() { ["method"] = "terminal/input", ["terminalId"] = id, ["text"] = text }) is not null; }
+        try
+        {
+            if (!InputReady || disposed || sleeping || !IsVisible || id != TerminalId) return false;
+            var result = await call(new() { ["method"] = "terminal/input", ["terminalId"] = id, ["text"] = text });
+            if (result is null) { Ready(false); status.Text = "Connection interrupted. Reconnecting…"; return false; }
+            return true;
+        }
+        catch (Exception error) { Ready(false); status.Text = AppDiagnostics.Message("Terminal input failed", error); return false; }
         finally { inputGate.Release(); }
     }
     private async Task Poll()
@@ -89,17 +147,18 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         try
         {
             var next = (model.Terminal.Cols, model.Terminal.Rows);
-            if (size != next) { await call(new() { ["method"] = "terminal/resize", ["terminalId"] = id, ["cols"] = next.Cols, ["rows"] = next.Rows }); size = next; }
+            if (size != next) { if (await call(new() { ["method"] = "terminal/resize", ["terminalId"] = id, ["cols"] = next.Cols, ["rows"] = next.Rows }) is not null) size = next; }
             var result = await call(new() { ["method"] = "terminal/read", ["terminalId"] = id, ["offset"] = offset });
             if (disposed || id != TerminalId) return;
-            if (result is null) { keyboard.IsEnabled = false; status.Text = "Reconnecting to the host terminal…"; return; }
-            if (result["error"] is { } error) { TerminalId = null; keyboard.IsEnabled = false; status.Text = error.GetValue<string>(); timer.Stop(); return; }
-            keyboard.IsEnabled = true; status.Text = caption;
+            if (result is null) { Ready(false); status.Text = "Reconnecting to the host terminal…"; return; }
+            if (result["error"] is { } error) { TerminalId = null; Ready(false); status.Text = error.GetValue<string>(); timer.Stop(); return; }
+            Ready(true); status.Text = caption;
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             model.Feed(result["text"]!.GetValue<string>()); offset = result["offset"]!.GetValue<long>();
+            if (result["exited"]?.GetValue<bool>() == true) { Ready(false); TerminalId = null; ReleaseKeyboard(); status.Text = "Shell exited. Reopen the terminal to start a new shell."; timer.Stop(); }
         }
         catch (Exception error) { if (!disposed) status.Text = AppDiagnostics.Message("Terminal refresh failed", error); }
         finally { polling = false; }
     }
-    public void Dispose() { disposed = true; timer.Stop(); Back = null; }
+    public void Dispose() { disposed = true; timer.Stop(); ReleaseKeyboard(); Back = null; }
 }

@@ -8,6 +8,8 @@ public sealed class TerminalSession : IDisposable
 {
     public TerminalControlModel Model { get; } = new(new TerminalOptions { Cols = 100, Rows = 24, ReflowOnResize = false });
     private IPtyConnection? connection;
+    private DurableTerminalConnection? durable;
+    public string? DurableId { get; private set; }
     private readonly CancellationTokenSource lifetime = new();
     private bool exited;
     private bool disposed;
@@ -19,8 +21,18 @@ public sealed class TerminalSession : IDisposable
     public void Input(string text) => Write(System.Text.Encoding.UTF8.GetBytes(text));
     public void Resize(int cols, int rows) => Model.Resize(Math.Clamp(cols, 2, 500), Math.Clamp(rows, 2, 200), 1, 1);
     public TerminalOutput Output { get; } = new();
-    public async Task Start(Workspace workspace, string? command = null, Store? settings = null)
+    public async Task Start(Workspace workspace, string? command = null, Store? settings = null, string? durableId = null, bool resumeOnly = false)
     {
+        if (durableId is not null && command is null)
+        {
+            DurableId = durableId;
+            durable = new DurableTerminalConnection(settings?.DirectoryPath ?? Store.DataDirectory, durableId, Model,
+                text => { Model.Feed(text); RawOutput?.Invoke(text); Output.Append(System.Text.Encoding.UTF8.GetBytes(text)); OutputChanged?.Invoke(); },
+                () => { exited = true; Completed?.Invoke(); });
+            await durable.Start(workspace, resumeOnly);
+            Model.UserInput += (_, e) => Write(e.Data.Span);
+            return;
+        }
         var options = Options(workspace, command);
         if (command is null && settings is not null) TerminalPreferences.Apply(options, workspace, settings);
         options.Cols = Math.Max(2, Model.Terminal.Cols); options.Rows = Math.Max(2, Model.Terminal.Rows);
@@ -37,6 +49,7 @@ public sealed class TerminalSession : IDisposable
     }
     private void Write(ReadOnlySpan<byte> data)
     {
+        if (durable is not null) { if (!disposed) durable.Input(System.Text.Encoding.UTF8.GetString(data)); return; }
         if (exited || disposed || connection is null) return;
         try { connection.WriterStream.Write(data); connection.WriterStream.Flush(); }
         catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; }
@@ -97,7 +110,13 @@ public sealed class TerminalSession : IDisposable
     {
         if (disposed) return; disposed = true;
         lifetime.Cancel();
+        durable?.Dispose();
         try { connection?.Kill(); } catch (InvalidOperationException) { }
         connection?.Dispose();
+    }
+    public async Task Close()
+    {
+        if (durable is not null) await durable.Close();
+        Dispose();
     }
 }

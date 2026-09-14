@@ -43,7 +43,10 @@ public static class AppTheme
         foreach (var key in new[] { "SystemControlBackgroundChromeMediumLowBrush", "SystemControlBackgroundAltHighBrush", "SystemControlBackgroundChromeLowBrush" }) Brush(key, palette.Surface);
         for (var i = 0; i < 16; i++) Brush("SvcSystems.UI.TerminalColor" + i, palette.Ansi[i]);
         Brush("SvcSystems.UI.TerminalCaretBrush", palette.Text);
-        Brush("SvcSystems.UI.TerminalSelectionBrush", palette.Border);
+        // The terminal paints selection after glyphs. An opaque brush hides
+        // the selected text entirely, so use a translucent accent overlay.
+        var accent = Color.Parse(palette.Accent);
+        Brush("SvcSystems.UI.TerminalSelectionBrush", Color.FromArgb(64, accent.R, accent.G, accent.B).ToString());
         app.Resources["SystemAccentColor"] = Color.Parse(palette.Accent);
         Changed?.Invoke();
     }

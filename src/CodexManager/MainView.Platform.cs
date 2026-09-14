@@ -116,7 +116,6 @@ public partial class MainView
             WelcomeOpenButton.Content = "Connect to computer";
             WelcomeHeading.Text = "Connect to your computer";
             WelcomeHint.Text = "Enter its address, then the pairing number shown on your desktop.";
-            WorkspaceSelectorButton.IsVisible = false;
             StatusText.Text = "Connect to a computer to view your chats.";
         }
     }
@@ -164,9 +163,10 @@ public partial class MainView
         CollapseSidebar();
     }
 
-    public void SuspendRemotePresentation() => remoteView?.SetPresentationSleeping(true);
+    public void SuspendRemotePresentation() { foreach (var view in remoteViews.Values) view.SetConnectionSuspended(true); remoteView?.SetPresentationSleeping(true); }
     public void ResumeRemotePresentation()
     {
+        foreach (var view in remoteViews.Values) view.SetConnectionSuspended(false);
         remoteView?.SetPresentationSleeping(false);
         remoteView?.ReconnectHost();
     }

@@ -4,18 +4,17 @@
     <local:IconButton Name="MobileTerminalButton" Icon="terminal" Label="Remote terminal" Grid.ColumnSpan="3" HorizontalAlignment="Right" MinHeight="40" Margin="6,2" IsVisible="False" IsEnabled="False" Click="MobileTerminalClick"/>
     <Border Name="SidebarDismiss" Grid.Row="1" Grid.ColumnSpan="3" ZIndex="19" Background="#66000000" IsVisible="False"/>
     <Border Name="Sidebar" ZIndex="20" Background="{DynamicResource AppBackground}" Padding="10" Grid.Row="1">
-      <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto">
-        <Grid ColumnDefinitions="24,*" Margin="2,4,0,12"><Image Source="/Assets/app.png" Width="24" Height="24"/><Button Grid.Column="1" Name="WorkspaceSelectorButton" IsVisible="False" Content="Workspaces ▾" Click="WorkspaceSelectorClick" HorizontalAlignment="Stretch" HorizontalContentAlignment="Left"/></Grid>
-        <Button Grid.Row="1" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="WorkspaceSelectorClick"/>
-        <TextBox Grid.Row="2" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
-        <Grid Grid.Row="3" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
-        <ScrollViewer Name="WorkspaceScroll" Grid.Row="4" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
-        <Grid Grid.Row="5" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><local:IconButton Name="SettingsButton" Icon="settings" Label="Settings" Click="SettingsClick" HorizontalAlignment="Left"/><local:IconButton Name="CommandPaletteButton" Grid.Column="1" Icon="command" Label="Command palette (Ctrl+Shift+P)" Click="PaletteClick" Margin="4,0,0,0"/></Grid>
+      <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
+        <Button Grid.Row="0" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="WorkspaceSelectorClick"/>
+        <TextBox Grid.Row="1" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
+        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
+        <ScrollViewer Name="WorkspaceScroll" Grid.Row="3" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
+        <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><local:IconButton Name="SettingsButton" Icon="settings" Label="Settings" Click="SettingsClick" HorizontalAlignment="Left"/><local:IconButton Name="CommandPaletteButton" Grid.Column="1" Icon="command" Label="Command palette (Ctrl+Shift+P)" Click="PaletteClick" Margin="4,0,0,0"/></Grid>
       </Grid>
     </Border>
     <GridSplitter Name="SidebarSplitter" Grid.Row="1" Grid.Column="1" Width="5" HorizontalAlignment="Stretch" Background="{DynamicResource AppBorder}" ResizeDirection="Columns" ResizeBehavior="PreviousAndNext"/>
     <Grid Grid.Row="1" Grid.Column="2" ColumnDefinitions="*,Auto">
-    <Grid Name="ChatPane" RowDefinitions="36,*,Auto">
+    <Grid Name="ChatPane" RowDefinitions="36,*,Auto,Auto">
       <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="10,0"><Grid ColumnDefinitions="*,Auto,Auto"><TextBlock Name="WorkspaceHeading" Text="No workspace selected" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><local:IconButton Name="ToggleTerminalButton" Grid.Column="2" Icon="terminal" Label="Show terminal (Ctrl+`)" Click="ToggleTerminal" VerticalAlignment="Center"/></Grid></Border>
       <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
         <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="10,6,10,4"><Grid ColumnDefinitions="22,*"><Image Name="ChatProviderIcon" Width="16" Height="16" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Name="ChatHeading" Text="Select a chat" FontSize="14" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid><StackPanel Grid.Column="1" Orientation="Horizontal"><Button Name="ReconnectChatButton" Content="↻" ToolTip.Tip="Reconnect agent without resending messages" Click="ReconnectChatClick"/><local:IconButton Name="ResumeChatButton" Icon="send" Label="Resume interrupted chat" Click="ResumeChatClick" IsVisible="False"/></StackPanel><local:IconButton Grid.Column="2" Name="ArchiveChatButton" Icon="archive" Label="Archive chat" Click="ArchiveChatClick" Margin="8,0"/><local:IconButton Grid.Column="3" Name="DeleteChatButton" Icon="delete" Label="Delete chat" Click="DeleteChatClick"/></Grid>
@@ -45,7 +44,8 @@
             <local:IconButton Name="HistoryNavigation" Grid.Row="1" Icon="chevron-down" Label="Return to latest message" Click="LatestMessagesClick" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,8" IsVisible="False" ZIndex="5" Background="{DynamicResource AppSurface}"/>
         </Grid>
       </Grid>
-      <Border Grid.Row="2" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
+      <ScrollViewer Grid.Row="2" Name="PermissionScroll" MaxHeight="280" IsVisible="False"><StackPanel Name="InlinePermissions"/></ScrollViewer>
+      <Border Grid.Row="3" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
         <StackPanel Spacing="6">
           <ListBox Name="SlashCommands" IsVisible="False" MaxHeight="180" FontSize="11" PointerReleased="SlashCommandClicked"/>
           <Expander Name="QueuePanel" IsVisible="False" IsExpanded="True" HorizontalAlignment="Stretch"><ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled"><StackPanel Name="QueueItems"/></ScrollViewer></Expander>
