@@ -13,13 +13,16 @@ public partial class MainView
 
     private void StartUpdateChecks()
     {
-        if (remoteOnly || OperatingSystem.IsAndroid() || DesktopUpdater.Installation() is not { } installation) return;
-        updateButton = new Button { Name = "DesktopUpdateButton", IsVisible = false, FontSize = 11, Padding = new Thickness(8, 0), MinHeight = 20 };
+        if (remoteOnly || OperatingSystem.IsAndroid() || OperatingSystem.IsBrowser() || updateButton is not null) return;
+        var installation = DesktopUpdater.Installation();
+        updateButton = new Button { Name = "DesktopUpdateButton", Content = "Check for updates", FontSize = 11, Padding = new Thickness(8, 0), MinHeight = 20, IsEnabled = installation is not null };
+        ToolTip.SetTip(updateButton, installation is null ? "Updates are available in installed release builds." : "Check for a newer release.");
         Grid.SetColumn(updateButton, 1);
         ((Grid)StatusBar.Child!).Children.Add(updateButton);
         updateButton.Click += async (_, _) =>
         {
-            if (updateBusy || availableUpdate is null || closing) return;
+            if (updateBusy || closing) return;
+            if (availableUpdate is null) { await CheckForUpdates(true); return; }
             updateBusy = true; updateButton.IsEnabled = false;
             try
             {
@@ -45,7 +48,32 @@ public partial class MainView
             }
             finally { updateBusy = false; updateButton.IsEnabled = true; }
         };
-        _ = PollUpdates();
+        if (installation is not null) _ = PollUpdates();
+
+        async Task CheckForUpdates(bool manual)
+        {
+            if (installation is null || updateBusy || closing || downloadedUpdate is not null) return;
+            updateBusy = true; updateButton.IsEnabled = false;
+            if (manual) updateButton.Content = "Checking for updates…";
+            try
+            {
+                var release = await DesktopUpdater.Check(installation, discoveryLifetime.Token);
+                if (closing) return;
+                availableUpdate = release;
+                updateButton.Content = release is null ? "Check for updates" : $"Download update {release.Version}";
+                ToolTip.SetTip(updateButton, release is null ? "You’re up to date. Click to check again." : "A new release is available. Download now and restart when you are ready.");
+                if (manual) StatusText.Text = release is null ? "You’re up to date." : $"Update {release.Version} is available.";
+            }
+            catch (Exception error)
+            {
+                if (closing) return;
+                updateButton.Content = availableUpdate is null ? "Check for updates" : $"Download update {availableUpdate.Version}";
+                ToolTip.SetTip(updateButton, "Update check failed: " + error.Message);
+                if (manual) StatusText.Text = "Could not check for updates. Click to retry.";
+                System.Diagnostics.Trace.WriteLine("Update check: " + error.Message);
+            }
+            finally { updateBusy = false; updateButton.IsEnabled = true; }
+        }
 
         async Task PollUpdates()
         {
@@ -55,18 +83,7 @@ public partial class MainView
                 await Task.Delay(TimeSpan.FromSeconds(15), cancellation);
                 while (!cancellation.IsCancellationRequested)
                 {
-                    try
-                    {
-                        var release = await DesktopUpdater.Check(installation, cancellation);
-                        if (!closing && !updateBusy && downloadedUpdate is null && release is not null)
-                        {
-                            availableUpdate = release;
-                            updateButton.Content = $"Download update {release.Version}";
-                            ToolTip.SetTip(updateButton, "A new release is available. Download now and restart when you are ready.");
-                            updateButton.IsVisible = true;
-                        }
-                    }
-                    catch (Exception error) { System.Diagnostics.Trace.WriteLine("Update check: " + error.Message); }
+                    await CheckForUpdates(false);
                     await Task.Delay(TimeSpan.FromHours(4), cancellation);
                 }
             }

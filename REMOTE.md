@@ -4,8 +4,8 @@ Agents run on the computer that owns the workspace. Closing Android or another r
 
 ## Pair once
 
-1. Keep the desktop app running.
-2. On Android, enter the computer's address and tap **Connect**. On desktop, use **＋ Open workspace → Open folder…** and choose **Remote computer…** under **Choose where Codex works**. The same pairing flow is also available in **Settings → Remote hosts and server**.
+1. Keep the desktop app running. In **Settings → Connections**, click **Pair a new device** to enable new pairing requests for two minutes.
+2. On Android, enter the computer's address and tap **Connect**. On desktop, use **＋ Open workspace → Open folder…** and choose **Remote computer…** under **Choose where Codex works**. The same pairing flow is also available in **Settings → Connections**.
 3. A popup on the host shows a six-digit number. Enter that number on the connecting device and tap **Pair**.
 
 Use a hostname such as `my-desktop`, a Tailscale MagicDNS name such as `my-desktop.tail123.ts.net`, or an IPv4/IPv6 address. Hostnames are resolved by the operating system; the field does not require an IP address. Add `:port` when using a non-default port, for example `my-desktop:3333` or `[::1]:3333`.
@@ -18,7 +18,7 @@ Both devices must be able to reach the host and port. Allow that port through th
 
 ## Web access (iPhone, iPad, and other browsers)
 
-On the desktop, open **Settings → Remote hosts and server → Enable web access**.
+On the desktop, open **Settings → Connections → Enable web access**.
 The app downloads `VibeHarder-Web.zip` from the GitHub release matching its installed
 version, verifies its SHA-256 digest, and caches it locally. No web assets are
 downloaded while this setting is off. A failed download offers **Apply / Retry**;
@@ -30,7 +30,7 @@ Tailscale MagicDNS name if necessary, and allow that port through its firewall.
 Your phone must be able to reach the computer over the LAN or VPN. No purchased
 domain, public relay, Mac, or iOS signing is required.
 
-The web listener uses a self-signed certificate. Accept the browser's certificate
+Click **Pair a new device** on the host before connecting a new browser. The web listener uses a self-signed certificate. Accept the browser's certificate
 warning before pairing with the six-digit code shown by the desktop. The page and
 its WebSocket connection use the same origin. Browser certificate-exception
 behavior varies; iOS Safari must be checked on the actual device. This is not a
@@ -80,7 +80,7 @@ On Android the keyboard leaves room for the composer and action icons. The attac
 VibeHarder --headless --listen 0.0.0.0 --port 2222 --pair
 ```
 
-With `--pair`, a connection request prints its six-digit number to the host console. Omit `--pair` on later starts to allow only already-paired devices. A separate profile can be selected with `CODEX_MANAGER_DATA`.
+With `--pair`, new pairing requests are enabled for the first two minutes and print their six-digit number to the host console. Omit `--pair` on later starts to allow only already-paired devices. A separate profile can be selected with `CODEX_MANAGER_DATA`.
 
 ## Connection security
 

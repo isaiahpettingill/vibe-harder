@@ -9,6 +9,10 @@ public sealed class TerminalSettings : Window
     public TerminalSettings(Store store, IEnumerable<Workspace> workspaces)
     {
         Title = "Terminal settings"; Width = 530; Height = 340; WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Content = CreateContent(store, workspaces, Close);
+    }
+    public static Control CreateContent(Store store, IEnumerable<Workspace> workspaces, Action? saved = null)
+    {
         var platforms = new[] { OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux" }
             .Concat(workspaces.Where(w => w.IsWsl).Select(TerminalPreferences.Platform)).Distinct().ToArray();
         var platform = new ComboBox { Name = "TerminalPlatform", ItemsSource = platforms, HorizontalAlignment = HorizontalAlignment.Stretch };
@@ -17,7 +21,7 @@ public sealed class TerminalSettings : Window
         var hint = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         var save = new Button { Name = "SaveTerminalSettings", Content = "Save", HorizontalAlignment = HorizontalAlignment.Right };
-        var panel = new StackPanel { Margin = new Thickness(14), Spacing = 10, Children = { platform, shells, command, hint, error, save } }; Content = panel;
+        var panel = new StackPanel { Spacing = 10, Children = { platform, shells, command, hint, error, save } };
         void ShowCommand() => command.IsVisible = (string?)platform.SelectedItem != "windows" || (shells.SelectedItem as ShellChoice)?.Id == "custom";
         platform.SelectionChanged += (_, _) =>
         {
@@ -47,10 +51,11 @@ public sealed class TerminalSettings : Window
                     if (selected.Id == "custom" && string.IsNullOrWhiteSpace(command.Text)) { error.Text = "Enter a command to start your shell."; return; }
                     store.Setting("terminalShell:windows", selected.Id);
                 }
-                store.Setting("terminalCommand:" + key, command.Text ?? ""); Close();
+                store.Setting("terminalCommand:" + key, command.Text ?? ""); error.Text = "Saved."; saved?.Invoke();
             }
             catch (Exception failure) { error.Text = AppDiagnostics.Message("Could not save terminal settings", failure); }
         };
         platform.SelectedIndex = 0;
+        return panel;
     }
 }

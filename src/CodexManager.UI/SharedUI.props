@@ -32,6 +32,7 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />
+    <PackageReference Include="IconPacks.Avalonia.Codicons" Version="2.0.0" />
     <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.2" />
     <PackageReference Include="Porta.Pty" Version="2.2.2" Condition="'$(MobileClient)' != 'true'" />

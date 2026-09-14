@@ -22,9 +22,15 @@ public static class HeadlessHost
             return runtime;
         }
         service = new(store, workspaces, chats, Runtime);
+        if (args.Contains("--pair")) RemoteTrust.OpenPairing(RemoteServer.DirectoryPath);
+        Task PairDevice(string device, string code, CancellationToken token, Action cancel)
+        {
+            if (!RemoteTrust.PairingEnabled(RemoteServer.DirectoryPath)) throw new IOException("Pairing window closed. Restart the headless host with --pair to pair another device.");
+            Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask;
+        }
         string Arg(string key, string fallback) { var index = Array.IndexOf(args, key); return index >= 0 && index + 1 < args.Length ? args[index + 1] : fallback; }
         var server = new RemoteServer(RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteListenAddress") ?? "0.0.0.0"), int.Parse(Arg("--port", store.Setting("remotePort") ?? "2222")), service.Handle,
-            args.Contains("--pair") ? (device, code, _, _) => { Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask; }
+            args.Contains("--pair") ? PairDevice
         : null);
         using var stopped = new CancellationTokenSource(); bool stopping = false;
         using var webLifetime = new CancellationTokenSource();
@@ -36,7 +42,7 @@ public static class HeadlessHost
             {
                 var assets = await WebAssets.Ensure(store.DirectoryPath, Console.WriteLine, webLifetime.Token);
                 webServer = await WebServer.Start(assets, RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteListenAddress") ?? "0.0.0.0"), int.Parse(store.Setting("webPort") ?? "2223"), service.Handle,
-                    args.Contains("--pair") ? (device, code, _, _) => { Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask; } : null, webLifetime.Token);
+                    args.Contains("--pair") ? PairDevice : null, webLifetime.Token);
                 Console.WriteLine("Web UI: " + WebAccessStatus.Address(store));
             }
             catch (OperationCanceledException) when (webLifetime.IsCancellationRequested) { }

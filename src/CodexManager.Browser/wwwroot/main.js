@@ -6,6 +6,12 @@ try {
         origin: () => location.origin,
         read: key => localStorage.getItem('vibeharder:' + key),
         write: (key, value) => localStorage.setItem('vibeharder:' + key, value),
+        downloadUrl: url => {
+            const target = new URL(url, location.origin);
+            if (target.origin !== location.origin || !target.pathname.startsWith('/download/')) throw new Error('Invalid download address');
+            const link = document.createElement('a');
+            link.href = target.href; link.download = ''; link.click();
+        },
         download: (name, content) => {
             const url = URL.createObjectURL(new Blob([content]));
             const link = document.createElement('a');

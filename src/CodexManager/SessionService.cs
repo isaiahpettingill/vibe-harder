@@ -6,6 +6,22 @@ namespace CodexManager;
 public sealed class SessionService(Store store, IList<Workspace> workspaces, IList<Chat> chats, Func<Chat, Workspace, ChatRuntime> runtime) : IDisposable
 {
     private readonly RemoteTerminals terminals = new(store, workspaces);
+    private sealed record MessageSnapshot(string Text, Attachment[] Attachments, string Revision);
+    private readonly Dictionary<string, MessageSnapshot> messageSnapshots = [];
+    private JsonNode MessageRow(Message message, JsonObject? known)
+    {
+        var attachments = message.Attachments.ToArray();
+        if (!messageSnapshots.TryGetValue(message.Id, out var snapshot) || snapshot.Text != message.Text || !snapshot.Attachments.SequenceEqual(attachments))
+        {
+            if (messageSnapshots.Count >= 256) messageSnapshots.Clear();
+            snapshot = new(message.Text, attachments, Guid.NewGuid().ToString("N")); messageSnapshots[message.Id] = snapshot;
+        }
+        var row = new JsonObject { ["id"] = message.Id, ["revision"] = snapshot.Revision };
+        if (known?[message.Id]?.GetValue<string>() == snapshot.Revision) return row;
+        row["sequence"] = message.Sequence; row["role"] = message.Role; row["text"] = message.Text;
+        row["attachments"] = JsonSerializer.SerializeToNode(attachments, StoreJsonContext.Default.AttachmentArray);
+        return row;
+    }
     public void Dispose() => terminals.Dispose();
     public event Action? Changed;
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
@@ -89,6 +105,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         var chat = chats.Single(c => c.Id == Text("chatId")); var workspaceOwner = workspaces.Single(w => w.Id == chat.WorkspaceId);
         if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
+        if (method == "file/download") return new JsonObject { ["path"] = FileLinks.Resolve(Text("path"), workspaceOwner) };
         var active = runtime(chat, workspaceOwner);
         if (method == "chat")
         {
@@ -115,7 +132,9 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
                 else if (request["activate"]?.GetValue<bool>() == true && !active.IsConnected && !active.IsReconnecting) _ = active.Reconnect();
             }
             var result = Summary(chat);
-            result["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["id"] = m.Id, ["sequence"] = m.Sequence, ["role"] = m.Role, ["text"] = m.Text, ["attachments"] = JsonSerializer.SerializeToNode(m.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray) }).ToArray());
+            var known = request["knownMessages"] as JsonObject;
+            if (known?.Count > Chat.HistoryPageSize) throw new IOException("Too many message revisions.");
+            result["messages"] = new JsonArray(page.Select(m => MessageRow(m, known)).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());
             result["commandOptions"] = new JsonArray(chat.Commands.Select(c => (JsonNode)new JsonObject { ["name"] = c.Name, ["description"] = c.Description, ["hint"] = c.Hint }).ToArray());

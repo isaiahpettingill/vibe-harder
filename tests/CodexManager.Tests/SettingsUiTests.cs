@@ -26,7 +26,10 @@ public class SettingsUiTests
             {
                 window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var dialog = window.OwnedWindows.Single(w => w.Title == "Settings");
+                Assert.True(window.IsEnabled);
+                Assert.Equal(5, dialog.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").ItemCount);
                 dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Assert.True(dialog.IsVisible); dialog.Close();
                 await Wait(() => !dialog.IsVisible);
                 Assert.Same(original, field.GetValue(window.View));
                 Assert.Contains(original, TrayIcon.GetIcons(Application.Current!)!);
@@ -39,6 +42,12 @@ public class SettingsUiTests
             toggle.IsChecked = true;
             var replacement = Assert.IsType<TrayIcon>(field.GetValue(window.View)); Assert.Same(original, replacement); Assert.True(replacement.IsVisible);
             settings.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
+            {
+                settings.UpdateLayout();
+                using var screenshot = new RenderTargetBitmap(new PixelSize(820, 640)); screenshot.Render(settings); screenshot.Save(Path.Combine(qa, "settings-preview.png"), PngBitmapEncoderOptions.Default);
+            }
+            settings.Close();
             await Wait(() => !settings.IsVisible); Assert.Same(replacement, field.GetValue(window.View));
         }
         finally

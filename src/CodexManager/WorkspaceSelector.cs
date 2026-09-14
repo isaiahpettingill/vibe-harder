@@ -18,9 +18,10 @@ public sealed class WorkspaceSelector : StackPanel
     public WorkspaceSelector(IReadOnlyList<Workspace> history, bool allowRemoval = true, string? remotePlatform = null)
     {
         if (OperatingSystem.IsAndroid()) ScrollViewer.SetVerticalScrollBarVisibility(list, Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden);
-        entries = history; Width = 330; Spacing = 6;
+        entries = history; HorizontalAlignment = HorizontalAlignment.Stretch; Spacing = 6;
+        list.Padding = new Thickness(0);
         Children.Add(search); Children.Add(list);
-        var open = new Button { Name = "BrowseWorkspaceHistory", Content = "＋ Open folder…", HorizontalAlignment = HorizontalAlignment.Stretch };
+        var open = new Button { Name = "BrowseWorkspaceHistory", Content = AppIcons.Label("add", "Open folder…"), HorizontalAlignment = HorizontalAlignment.Stretch };
         open.Click += (_, _) => Browse?.Invoke(); Children.Add(open);
         list.ItemTemplate = new FuncDataTemplate<Workspace>((workspace, _) =>
         {
@@ -30,7 +31,7 @@ public sealed class WorkspaceSelector : StackPanel
             label.Children.Add(new TextBlock { Text = workspace.Name + (workspace.IsWsl ? $" ({workspace.Distro})" : ""), TextTrimming = TextTrimming.CharacterEllipsis });
             var choose = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(choose, workspace.Path); choose.Click += (_, _) => Chosen?.Invoke(workspace);
-            var remove = new Button { Name = "RemoveHistory_" + workspace.Id, Content = "×", Padding = new Thickness(5, 2) };
+            var remove = new IconButton { Name = "RemoveHistory_" + workspace.Id, Icon = "remove", IconSize = 10, Label = "Remove from history (keep saved chats)", Padding = new Thickness(5, 2) };
             remove.IsVisible = allowRemoval;
             ToolTip.SetTip(remove, "Remove from history (keep saved chats)");
             remove.Click += (_, _) => Removed?.Invoke(workspace);

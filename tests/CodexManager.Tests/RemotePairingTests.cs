@@ -165,7 +165,11 @@ public class RemotePairingTests
         T Field<T>(string name) where T : Control => picker.GetLogicalDescendants().OfType<T>().Single(c => c.Name == name);
         try
         {
-            var computers = Field<ComboBox>("WorkspaceComputer"); Assert.Equal(2, computers.ItemCount);
+            var computers = Field<ComboBox>("WorkspaceComputer"); Assert.Equal(3, computers.ItemCount);
+            var paired = 0; picker.PairComputer += () => paired++;
+            Assert.Equal("Pair another computer", computers.Items[^1]!.ToString());
+            computers.SelectedIndex = 2; Assert.Equal(1, paired);
+            Assert.Equal(1, Grid.GetRow(computers));
             Assert.Equal("This computer", computers.SelectedItem!.ToString());
             Assert.Equal(local, Assert.Single(Field<ListBox>("WorkspaceHistoryList").Items.OfType<Workspace>()));
             computers.SelectedIndex = 1;
@@ -253,6 +257,7 @@ public class RemotePairingTests
         try
         {
             await Wait(() => File.Exists(Path.Combine(directory, "remote", "host_fingerprint")));
+            RemoteTrust.OpenPairing(Path.Combine(directory, "remote"));
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
             using var pairing = await RemotePairingSession.Start("localhost:" + port, "Test phone", timeout.Token);
             var popup = window.OwnedWindows.Single(w => w.Title == "Pair a device");
@@ -455,6 +460,7 @@ public class RemotePairingTests
             Assert.False(view.FindControl<IconButton>("ToggleTerminalButton")!.IsVisible);
             Assert.False(view.FindControl<Grid>("TerminalDrawer")!.IsVisible);
             var artifacts = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts"));
+            Directory.CreateDirectory(artifacts);
             using var screenshot = new RenderTargetBitmap(new PixelSize(390, 780)); screenshot.Render(window); screenshot.Save(Path.Combine(artifacts, "shared-mobile-ui.png"), PngBitmapEncoderOptions.Default);
             window.Width = 1000; window.UpdateLayout(); await Task.Delay(50);
             Assert.True(sidebar.IsVisible);

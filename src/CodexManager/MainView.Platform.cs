@@ -183,6 +183,7 @@ public partial class MainView
 
     private async Task ShowPairingCode(string device, string code, CancellationToken token, Action cancel)
     {
+        if (!RemoteTrust.PairingEnabled(RemoteServer.DirectoryPath)) throw new IOException("On the host, open Settings → Connections and click Pair a new device first.");
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             token.ThrowIfCancellationRequested();

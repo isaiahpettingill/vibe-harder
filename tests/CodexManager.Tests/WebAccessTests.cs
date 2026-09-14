@@ -61,12 +61,13 @@ public class WebAccessTests
         string? number = null; var handled = 0;
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken); timeout.CancelAfter(TimeSpan.FromSeconds(20));
         await using var server = await WebServer.Start(assets, directory, "127.0.0.1", port,
-            request => { handled++; return Task.FromResult<JsonNode?>(new JsonObject { ["echo"] = request["method"]!.DeepClone() }); },
+            request => { handled++; return Task.FromResult<JsonNode?>(request["method"]?.GetValue<string>() == "file/download" ? new JsonObject { ["path"] = Path.Combine(assets, "index.html") } : new JsonObject { ["echo"] = request["method"]!.DeepClone() }); },
             (_, code, _, _) => { number = code; return Task.CompletedTask; }, timeout.Token);
         using var http = new HttpClient(new HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true });
         Assert.Contains("Vibe Harder", await http.GetStringAsync(origin, timeout.Token));
         using var wasm = await http.GetAsync(origin + "/_framework/test.wasm", timeout.Token);
         Assert.Equal("application/wasm", wasm.Content.Headers.ContentType?.MediaType);
+        Assert.Contains("frame-ancestors 'none'", wasm.Headers.GetValues("Content-Security-Policy").Single());
         Assert.Equal(new byte[] { 1, 2, 3 }, await http.GetByteArrayAsync(origin + "/_framework/icu.dat", timeout.Token));
         Assert.Equal(HttpStatusCode.NotFound, (await http.GetAsync(origin + "/host.pfx", timeout.Token)).StatusCode);
         ClientWebSocket Socket(string from)
@@ -106,9 +107,17 @@ public class WebAccessTests
         var login = credential.DeepClone().AsObject(); login["method"] = "auth";
         Assert.True((await Request(authenticated, login))["result"]!.GetValue<bool>());
         Assert.Equal("list", (await Request(authenticated, new() { ["method"] = "list" }))["result"]!["echo"]!.GetValue<string>());
+        var download = (await Request(authenticated, new() { ["method"] = "file/download" }))["result"]!["url"]!.GetValue<string>();
+        using var downloaded = await http.GetAsync(origin + download, timeout.Token);
+        Assert.Equal(HttpStatusCode.OK, downloaded.StatusCode);
+        Assert.Equal("attachment", downloaded.Content.Headers.ContentDisposition?.DispositionType);
+        Assert.Contains("Vibe Harder", await downloaded.Content.ReadAsStringAsync(timeout.Token));
+        Assert.Equal(HttpStatusCode.Forbidden, (await http.GetAsync(origin + download, timeout.Token)).StatusCode);
+        var revokedDownload = (await Request(authenticated, new() { ["method"] = "file/download" }))["result"]!["url"]!.GetValue<string>();
         RemoteTrust.Revoke(directory, credential["device"]!.GetValue<string>());
+        Assert.Equal(HttpStatusCode.Forbidden, (await http.GetAsync(origin + revokedDownload, timeout.Token)).StatusCode);
         await Assert.ThrowsAnyAsync<Exception>(async () => await WebSocketWire.Read(authenticated, timeout.Token));
-        Assert.Equal(1, handled);
+        Assert.Equal(3, handled);
     }
     [Theory]
     [InlineData("../escape.js")]

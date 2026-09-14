@@ -23,7 +23,11 @@ public sealed class FontSettings : Window
     public FontSettings(Store store)
     {
         Title = "Fonts"; Width = 460; Height = 590; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        var panel = new StackPanel { Margin = new Thickness(14), Spacing = 8 };
+        Content = CreateContent(store, Close);
+    }
+    public static Control CreateContent(Store store, Action? saved = null)
+    {
+        var panel = new StackPanel { Spacing = 8 };
         var fonts = new[] { DefaultName, "Noto Sans" }.Concat(FontManager.Current.SystemFonts.Select(f => f.Name)).Distinct().Order().ToArray();
         var fields = new Dictionary<string, AutoCompleteBox>();
         var sizes = new Dictionary<string, NumericUpDown>();
@@ -39,9 +43,9 @@ public sealed class FontSettings : Window
         var errorText = new TextBlock { TextWrapping = TextWrapping.Wrap };
         save.Click += (_, _) =>
         {
-            try { foreach (var (kind, field) in fields) { store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()); store.Setting("fontSize:" + kind, (sizes[kind].Value ?? 13).ToString(System.Globalization.CultureInfo.InvariantCulture)); } Apply(store); Close(); }
+            try { foreach (var (kind, field) in fields) { store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()); store.Setting("fontSize:" + kind, (sizes[kind].Value ?? 13).ToString(System.Globalization.CultureInfo.InvariantCulture)); } Apply(store); errorText.Text = "Saved."; saved?.Invoke(); }
             catch (Exception error) { errorText.Text = AppDiagnostics.Message("Could not save fonts", error); }
         };
-        panel.Children.Add(reset); panel.Children.Add(errorText); panel.Children.Add(save); Content = panel;
+        panel.Children.Add(reset); panel.Children.Add(errorText); panel.Children.Add(save); return panel;
     }
 }

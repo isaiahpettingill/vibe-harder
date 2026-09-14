@@ -24,6 +24,7 @@ public class ResponsivenessTests
         try
         {
             var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
+            var chats = UiTests.Named<ListBox>(window, "Chats_w"); chats.SelectedItem = null; chats.SelectedItem = chat;
             var list = UiTests.Named<ListBox>(window, "MessageList");
             var deadline = DateTime.UtcNow.AddSeconds(15);
             while (chat.Messages.Count < Chat.HistoryPageSize && DateTime.UtcNow < deadline) await Task.Delay(20);
@@ -139,6 +140,7 @@ public class ResponsivenessTests
         try
         {
             var list = UiTests.Named<ListBox>(window, "Chats_w"); var chat = (Chat)list.SelectedItem!;
+            list.SelectedItem = null; list.SelectedItem = chat;
             await Wait(() => chat.Busy && chat.Messages.Count > 0);
             var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
             Assert.Contains("no agents running", tray.ToolTipText);

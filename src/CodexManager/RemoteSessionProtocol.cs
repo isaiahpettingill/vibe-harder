@@ -13,7 +13,7 @@ public sealed class RemoteSessionProtocol(string directory, Func<JsonObject, Tas
         public readonly Queue<DateTimeOffset> Requests = new();
     }
     private static readonly ConcurrentDictionary<string, PairingState> Pairings = new();
-    public async Task Serve(Func<CancellationToken, int, Task<JsonObject>> read, Func<JsonNode, CancellationToken, Task> write, Action disconnect, string binding, CancellationToken cancellation)
+    public async Task Serve(Func<CancellationToken, int, Task<JsonObject>> read, Func<JsonNode, CancellationToken, Task> write, Action disconnect, string binding, CancellationToken cancellation, Func<string, string, JsonObject, Task<JsonNode?>>? authenticatedHandle = null)
     {
         var pairingState = Pairings.GetOrAdd(Path.GetFullPath(directory), _ => new());
         using var handshake = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -87,7 +87,7 @@ public sealed class RemoteSessionProtocol(string directory, Func<JsonObject, Tas
                 var request = await read(session.Token, RemoteWire.MaximumFrame);
                 if (!RemoteTrust.Authorized(directory, device, secret)) break;
                 var response = new JsonObject { ["id"] = request["id"]?.DeepClone() };
-                try { response["result"] = await Dispatcher.UIThread.InvokeAsync(() => handle(request)).ConfigureAwait(false); }
+                try { response["result"] = await Dispatcher.UIThread.InvokeAsync(() => authenticatedHandle is null ? handle(request) : authenticatedHandle(device, secret, request)).ConfigureAwait(false); }
                 catch (Exception error) { response["error"] = error.Message; }
                 await write(response, session.Token);
             }

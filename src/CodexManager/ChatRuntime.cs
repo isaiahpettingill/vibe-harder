@@ -368,17 +368,17 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         {
             chat.Updated = DateTimeOffset.UtcNow;
             chat.PendingInput = null;
-            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-            store.Save(chat); turn.Cancel(); turn.Dispose(); turn = null;
+            var finishedTurn = turn; turn = null;
+            try { finishedTurn?.Cancel(); } finally { finishedTurn?.Dispose(); chat.Busy = detachedTurn; }
             try
             {
+                foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+                store.Save(chat);
                 await store.FlushAsync();
                 if (completed && !lifetime.IsCancellationRequested && !detachedTurn) { store.Setting("interrupted:" + chat.Id, ""); await store.FlushAsync(); }
+                if (!chat.RetainHistory) store.ReleaseHistory(chat);
             }
             catch (Exception error) { completed = false; chat.Status = "Could not save completed turn: " + error.Message; }
-            chat.Busy = detachedTurn;
-            store.Save(chat);
-            if (!chat.RetainHistory) store.ReleaseHistory(chat);
             activeToolInputs.Clear(); Changed?.Invoke();
             if (recoverConnection && !lifetime.IsCancellationRequested && !IsRecovering)
                 Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && chat.InterruptedInput is { } input) recoveryTask = RecoverConnection(input); });
@@ -502,6 +502,13 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         else if (kind == "plan") Add("assistant", string.Join("\n", update.GetProperty("entries").EnumerateArray().Select(e => $"- [{(e.GetProperty("status").GetString() == "completed" ? "x" : " ")}] {e.GetProperty("content").GetString()}")));
         Changed?.Invoke();
     }
-    public async ValueTask DisposeAsync()
-    { idleTimer?.Stop(); lifetime.Cancel(); if (client is not null) { await client.DisposeAsync(); client = null; } if (idleShutdown is not null) await idleShutdown; if (activeTask is not null) await activeTask; if (steeringTask is not null) await steeringTask; if (reconnectTask is not null) await reconnectTask; if (recoveryTask is not null) await recoveryTask; }
+    private Task? disposal;
+    public ValueTask DisposeAsync() => new(disposal ??= DisposeCore());
+    private async Task DisposeCore()
+    {
+        idleTimer?.Stop(); lifetime.Cancel();
+        var previous = client; client = null; connected = false;
+        var tasks = new[] { previous?.DisposeAsync().AsTask(), idleShutdown, activeTask, steeringTask, reconnectTask, recoveryTask }.OfType<Task>();
+        await Task.WhenAll(tasks);
+    }
 }

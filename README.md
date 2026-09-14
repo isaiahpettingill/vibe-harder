@@ -1,6 +1,6 @@
 # Vibe Harder
 
-<img src="LOGO.png" alt="Vibe Harder" width="96">
+<img src="LOGO.svg" alt="Vibe Harder" width="96">
 
 Your agent chats, across your computers. Windows, Linux, macOS, and an Android remote client.
 
@@ -59,4 +59,4 @@ Install the SDK in `global.json`, then:
 dotnet run --project src/CodexManager -p:PublishAot=false
 ```
 
-[MIT license](LICENSE). App logo: [LOGO.png](LOGO.png).
+[MIT license](LICENSE). App logo: [LOGO.svg](LOGO.svg).

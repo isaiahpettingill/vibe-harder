@@ -11,6 +11,7 @@ namespace CodexManager;
 public partial class MainView
 {
     private readonly Dictionary<RemoteHost, JsonNode> remoteCatalogs = [];
+    private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat)
     {
         var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
@@ -34,6 +35,7 @@ public partial class MainView
         foreach (var (remoteHost, catalog) in remoteCatalogs)
         {
             if (!remoteViews.TryGetValue(remoteHost, out var view) || !remoteSections.TryGetValue(remoteHost.Address + ":" + remoteHost.Port, out var section)) continue;
+            if (store.Setting(RemoteCollapsedKey(remoteHost)) == "1") continue;
             var host = view.Host; section.Children.Clear(); section.Children.Add(view.CreateConnectionStatus());
             foreach (var workspace in catalog["workspaces"]!.AsArray())
             {
@@ -57,8 +59,8 @@ public partial class MainView
                 collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; store.Setting("collapsed:" + key, list.IsVisible ? "0" : "1"); }; header.Children.Add(collapse);
                 var title = new Button { Content = workspace["name"]!.GetValue<string>() + (workspace["distro"]?.GetValue<string>() is { } distro ? " · " + distro + " (WSL)" : " · Files on " + host.Name), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
                 title.Click += (_, _) => { OpenRemoteHost(host, ownerId); }; Grid.SetColumn(title, 1); header.Children.Add(title);
-                var create = new IconButton { Icon = "add", Label = "New chat" }; create.Click += (_, _) => { OpenRemoteHost(host); view.ShowNewChat(OpenWorkspaceButton, ownerId); }; Grid.SetColumn(create, 2); header.Children.Add(create);
-                var close = new IconButton { Icon = "remove", Label = "Close workspace (keep chats)" }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
+                var create = new IconButton { Icon = "add", IconSize = 10, Label = "New chat" }; create.Click += (_, _) => { OpenRemoteHost(host); view.ShowNewChat(OpenWorkspaceButton, ownerId); }; Grid.SetColumn(create, 2); header.Children.Add(create);
+                var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)" }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
                 section.Children.Add(new StackPanel { Children = { header, list } });
             }
         }

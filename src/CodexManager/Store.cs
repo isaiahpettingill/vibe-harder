@@ -209,7 +209,10 @@ public sealed class Store : IDisposable
         if (savedMessages.TryGetValue(m.Id, out var saved) && saved.Message.TryGetTarget(out var target) && ReferenceEquals(target, m) && saved.Revision == m.Revision) { SaveAttachments(m.Id, m.Attachments); return; }
         if (m.Sequence < 0) m.Sequence = c.NextSequence++;
         c.NextSequence = Math.Max(c.NextSequence, m.Sequence + 1);
-        Execute("INSERT INTO messages VALUES($id,$chat,$role,$text,$tool,$seq) ON CONFLICT(id) DO UPDATE SET text=$text", ("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence));
+        const string sql = "INSERT INTO messages VALUES($id,$chat,$role,$text,$tool,$seq) ON CONFLICT(id) DO UPDATE SET text=$text";
+        (string, object?)[] args = [("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence)];
+        if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, sql, args), "message:" + m.Id);
+        else Execute(sql, args);
         if (savedMessages.Count >= 2048) savedMessages.Clear();
         savedMessages[m.Id] = (new(m), m.Revision);
         SaveAttachments(m.Id, m.Attachments);
@@ -218,7 +221,7 @@ public sealed class Store : IDisposable
     {
         var values = attachments.ToArray();
         if (savedAttachments.TryGetValue(id, out var cached) && cached.TryGetTarget(out var previous) && values.SequenceEqual(previous)) return;
-        if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, "INSERT INTO attachments VALUES($id,$json) ON CONFLICT(owner_id) DO UPDATE SET json=$json WHERE json<>$json", ("$id", id), ("$json", JsonSerializer.Serialize(values, StoreJsonContext.Default.AttachmentArray))));
+        if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, "INSERT INTO attachments VALUES($id,$json) ON CONFLICT(owner_id) DO UPDATE SET json=$json WHERE json<>$json", ("$id", id), ("$json", JsonSerializer.Serialize(values, StoreJsonContext.Default.AttachmentArray))), "attachments:" + id);
         else Execute("INSERT INTO attachments VALUES($id,$json) ON CONFLICT(owner_id) DO UPDATE SET json=$json WHERE json<>$json", ("$id", id), ("$json", JsonSerializer.Serialize(values, StoreJsonContext.Default.AttachmentArray)));
         if (savedAttachments.Count >= 2048) savedAttachments.Clear();
         savedAttachments[id] = new(values);
@@ -240,8 +243,8 @@ public sealed class Store : IDisposable
         if (writer is not null)
         {
             if (settings.GetValueOrDefault(key) == value) return;
-            settings[key] = value;
             writer.Enqueue(connection => { if (key.StartsWith("interrupted:", StringComparison.Ordinal)) recovery.Write(key, value); ExecuteOn(connection, "INSERT INTO settings VALUES($key,$value) ON CONFLICT(key) DO UPDATE SET value=$value", ("$key", key), ("$value", value)); });
+            settings[key] = value;
         }
         else { if (key.StartsWith("interrupted:", StringComparison.Ordinal)) recovery.Write(key, value); Execute("INSERT INTO settings VALUES($key,$value) ON CONFLICT(key) DO UPDATE SET value=$value", ("$key", key), ("$value", value)); }
     }
@@ -253,5 +256,5 @@ public sealed class Store : IDisposable
         savedChats.Remove(chat.Id); savedAttachments.Remove(chat.Id);
         foreach (var m in chat.Messages) { savedMessages.Remove(m.Id); savedAttachments.Remove(m.Id); }
     }
-    public void Dispose() { writer?.Close().GetAwaiter().GetResult(); db.Dispose(); }
+    public void Dispose() { try { writer?.Close().GetAwaiter().GetResult(); } finally { db.Dispose(); } }
 }

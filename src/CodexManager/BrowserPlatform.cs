@@ -7,4 +7,5 @@ public static class BrowserPlatform
     public static Func<string, string?> Read { get; set; } = _ => null;
     public static Action<string, string> Write { get; set; } = (_, _) => throw new InvalidOperationException("Browser storage is unavailable.");
     public static Action<string, byte[]> Download { get; set; } = (_, _) => { };
+    public static Action<string> DownloadUrl { get; set; } = _ => { };
 }

@@ -105,7 +105,7 @@ public class IdleAgentTests
             var send = runtime.Send("permission", []);
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
             while (!chat.NeedsPermission) await Task.Delay(10, timeout.Token);
-            Assert.True(indicator.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single(p => p.Name == "PermissionWarning").IsVisible);
+            Assert.True(indicator.GetVisualDescendants().OfType<Control>().Single(p => p.Name == "PermissionWarning").IsVisible);
             Assert.Equal("Needs permission", chat.Status);
             response.SetResult(RpcJson.Permission("allow")); await send.WaitAsync(timeout.Token);
             Assert.False(chat.NeedsPermission); Assert.NotEqual("Needs permission", chat.Status);

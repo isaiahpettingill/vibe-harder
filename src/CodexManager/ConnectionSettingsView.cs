@@ -19,7 +19,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         var panel = new StackPanel { Margin = new Thickness(16), Spacing = 12 };
         var status = new TextBlock { Name = "ConnectionStatus", TextWrapping = TextWrapping.Wrap };
         panel.Children.Add(new TextBlock { Text = "Connect to your computer", FontSize = 20 });
-        panel.Children.Add(new TextBlock { Text = OperatingSystem.IsBrowser() ? "Connect to pair with the computer serving this page. A pairing number will appear on that computer." : "Enter its address. A pairing number will pop up on that computer.", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(new TextBlock { Text = "On the host, open the Connections tab in Settings and click Pair a new device. " + (OperatingSystem.IsBrowser() ? "Then connect here to receive its pairing number." : "Enter its address here to receive its pairing number."), TextWrapping = TextWrapping.Wrap });
         var address = new TextBox { Name = "ConnectionAddress", Text = store.Setting("lastRemoteAddress") ?? "", PlaceholderText = "my-desktop or my-desktop.tailnet.ts.net", MinHeight = 44 };
         if (OperatingSystem.IsBrowser()) { address.Text = BrowserPlatform.Origin; address.IsReadOnly = true; }
         var request = new Button { Name = "RequestPairingCode", Content = "Connect", MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch, Classes = { "accent" } };
@@ -130,6 +130,9 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             }
             enabled.IsCheckedChanged += async (_, _) => await ApplyServer(); apply.Click += async (_, _) => await ApplyServer();
             panel.Children.Add(new Separator()); panel.Children.Add(enabled);
+            var allowPairing = new Button { Name = "AllowNewPairing", Content = "Pair a new device" };
+            allowPairing.Click += (_, _) => { RemoteTrust.OpenPairing(RemoteServer.DirectoryPath); status.Text = "New device pairing is enabled for two minutes. Connect from your other device now."; };
+            panel.Children.Add(allowPairing);
             panel.Children.Add(new TextBlock { Text = "Connect using this computer's name, LAN address, or Tailscale MagicDNS name.", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(new Expander { Header = "Advanced", Content = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Listening port" }, port, apply } } });
             var devices = new StackPanel { Spacing = 6 };

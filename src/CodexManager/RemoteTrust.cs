@@ -8,6 +8,11 @@ namespace CodexManager;
 public static class RemoteTrust
 {
     private static readonly object Sync = new();
+    private static readonly Dictionary<string, DateTimeOffset> PairingWindows = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
+    public static void OpenPairing(string directory) { lock (Sync) PairingWindows[Path.GetFullPath(directory)] = DateTimeOffset.UtcNow.AddMinutes(2); }
+    public static bool PairingEnabled(string directory) { lock (Sync) return PairingWindows.GetValueOrDefault(Path.GetFullPath(directory)) > DateTimeOffset.UtcNow; }
+    private sealed record DeviceCache(JsonObject Devices, DateTime Stamp, long Length, DateTimeOffset Checked);
+    private static readonly Dictionary<string, DeviceCache> DeviceCaches = new(OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal);
     public static X509Certificate2 Certificate(string directory)
     {
         lock (Sync)
@@ -27,7 +32,23 @@ public static class RemoteTrust
     }
     public static string Fingerprint(X509Certificate2 certificate) => "SHA256:" + Convert.ToBase64String(SHA256.HashData(certificate.RawData)).TrimEnd('=');
     private static JsonObject Read(string path) => File.Exists(path) ? JsonNode.Parse(File.ReadAllText(path))!.AsObject() : new();
-    private static void Write(string path, JsonObject data) => RemoteKey.WritePrivate(path, Encoding.UTF8.GetBytes(data.ToJsonString()));
+    private static void Write(string path, JsonObject data)
+    {
+        RemoteKey.WritePrivate(path, Encoding.UTF8.GetBytes(data.ToJsonString()));
+        DeviceCaches.Remove(Path.GetFullPath(path));
+    }
+    private static JsonObject CachedDevices(string directory)
+    {
+        var path = Path.GetFullPath(Path.Combine(directory, "devices.json"));
+        var now = DateTimeOffset.UtcNow;
+        if (DeviceCaches.TryGetValue(path, out var cached) && now - cached.Checked < TimeSpan.FromSeconds(1)) return cached.Devices;
+        var info = new FileInfo(path);
+        if (cached is not null && info.Exists && cached.Stamp == info.LastWriteTimeUtc && cached.Length == info.Length)
+        { DeviceCaches[path] = cached with { Checked = now }; return cached.Devices; }
+        var devices = Read(path);
+        DeviceCaches[path] = new(devices, info.LastWriteTimeUtc, info.Exists ? info.Length : 0, now);
+        return devices;
+    }
     public static string Invite(string directory, string address, int port, string name)
     {
         if (string.IsNullOrWhiteSpace(address) || address is "0.0.0.0" or "::") throw new ArgumentException("Enter the host's LAN, VPN, or tailnet address for the connection code.");
@@ -64,8 +85,13 @@ public static class RemoteTrust
     {
         lock (Sync)
         {
-            var expected = Read(Path.Combine(directory, "devices.json"))[id]?["hash"]?.GetValue<string>();
-            return expected is not null && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected), Encoding.ASCII.GetBytes(RemoteKey.Hash(token)));
+            try
+            {
+                var expected = CachedDevices(directory)[id]?["hash"]?.GetValue<string>();
+                return expected is not null && CryptographicOperations.FixedTimeEquals(Encoding.ASCII.GetBytes(expected), Encoding.ASCII.GetBytes(RemoteKey.Hash(token)));
+            }
+            catch (Exception error) when (error is IOException or UnauthorizedAccessException or System.Text.Json.JsonException or InvalidOperationException)
+            { DeviceCaches.Remove(Path.GetFullPath(Path.Combine(directory, "devices.json"))); return false; }
         }
     }
     public static JsonObject Devices(string directory) { lock (Sync) return Read(Path.Combine(directory, "devices.json")); }

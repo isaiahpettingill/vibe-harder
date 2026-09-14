@@ -9,7 +9,8 @@ public partial class MainView
     private readonly SemaphoreSlim webConfiguration = new(1, 1);
     private async Task ConfigureWebServer()
     {
-        await webConfiguration.WaitAsync(discoveryLifetime.Token);
+        try { await webConfiguration.WaitAsync(discoveryLifetime.Token); }
+        catch (OperationCanceledException) { return; }
         try
         {
             if (webServer is not null) { await webServer.DisposeAsync(); webServer = null; }
