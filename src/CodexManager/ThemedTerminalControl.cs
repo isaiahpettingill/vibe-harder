@@ -7,7 +7,7 @@ using Avalonia.Interactivity;
 
 namespace CodexManager;
 
-public sealed class ThemedTerminalControl : TerminalControl
+public sealed partial class ThemedTerminalControl : TerminalControl
 {
     public ThemedTerminalControl()
     {
@@ -24,6 +24,7 @@ public sealed class ThemedTerminalControl : TerminalControl
         AddHandler(HoldingEvent, (_, e) =>
         {
             if (e.HoldingState != HoldingState.Started) return;
+            pressedLink = null;
             if (!HasSelection && Model is { } model && Bounds.Width > 0 && Bounds.Height > 0)
                 model.SelectWordOrExpression(Math.Clamp((int)(e.Position.Y / Bounds.Height * model.Terminal.Rows), 0, model.Terminal.Rows - 1),
                     Math.Clamp((int)(e.Position.X / Bounds.Width * model.Terminal.Cols), 0, model.Terminal.Cols - 1));

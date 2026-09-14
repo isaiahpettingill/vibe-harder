@@ -67,11 +67,11 @@ public sealed class Store : IDisposable
     public Task FlushAsync() => writer?.Flush() ?? Task.CompletedTask;
     public List<Workspace> Workspaces()
     {
-        if (workspaceCache is not null) return workspaceCache.OrderBy(w => w.Name).ToList();
-        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT id,name,path,distro FROM workspaces ORDER BY name";
+        if (workspaceCache is not null) return SidebarOrder.Apply(this, "workspaces", workspaceCache, w => w.Id).ToList();
+        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT id,name,path,distro FROM workspaces ORDER BY rowid";
         using var r = cmd.ExecuteReader(); List<Workspace> result = [];
         while (r.Read()) result.Add(new(r.GetString(0), r.GetString(1), r.GetString(2), r.IsDBNull(3) ? null : r.GetString(3)));
-        return result;
+        r.Close(); return SidebarOrder.Apply(this, "workspaces", result, w => w.Id).ToList();
     }
     public void Save(Workspace w)
     {
@@ -112,6 +112,7 @@ public sealed class Store : IDisposable
         chat.HistoryLoaded = true; chat.NextSequence = chat.Messages.Count == 0 ? 0 : chat.Messages.Max(m => m.Sequence) + 1;
         foreach (var m in chat.Messages)
         {
+            m.ProviderMessageId = Setting("providerMessage:" + m.Id);
             foreach (var a in LoadAttachments(m.Id)) m.Attachments.Add(a);
             if (savedMessages.Count >= 2048) savedMessages.Clear();
             savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
@@ -125,7 +126,7 @@ public sealed class Store : IDisposable
         {
             using var connection = new SqliteConnection(connectionString); connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
+            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
             command.Parameters.AddWithValue("$tool", (object?)toolId ?? DBNull.Value);
             command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$before", (object?)before ?? DBNull.Value); command.Parameters.AddWithValue("$limit", limit);
             using var rows = command.ExecuteReader(); var result = new List<Message>();
@@ -134,6 +135,7 @@ public sealed class Store : IDisposable
                 token.ThrowIfCancellationRequested();
                 var message = new Message { Id = rows.GetString(0), Role = rows.GetString(1), Text = rows.GetString(2), ToolId = rows.IsDBNull(3) ? null : rows.GetString(3), Sequence = rows.GetInt32(4), Provider = provider };
                 if (!rows.IsDBNull(5)) foreach (var attachment in JsonSerializer.Deserialize(rows.GetString(5), StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(attachment);
+                message.ProviderMessageId = rows.IsDBNull(6) ? null : rows.GetString(6);
                 result.Add(message);
             }
             if (!newer) result.Reverse(); return result.ToArray();
@@ -206,6 +208,7 @@ public sealed class Store : IDisposable
     }
     public void SaveMessage(Chat c, Message m)
     {
+        if (m.ProviderMessageId is { } protocolId && Setting("providerMessage:" + m.Id) != protocolId) Setting("providerMessage:" + m.Id, protocolId);
         if (savedMessages.TryGetValue(m.Id, out var saved) && saved.Message.TryGetTarget(out var target) && ReferenceEquals(target, m) && saved.Revision == m.Revision) { SaveAttachments(m.Id, m.Attachments); return; }
         if (m.Sequence < 0) m.Sequence = c.NextSequence++;
         c.NextSequence = Math.Max(c.NextSequence, m.Sequence + 1);
@@ -255,6 +258,18 @@ public sealed class Store : IDisposable
         else { using var transaction = db.BeginTransaction(); Execute(sql, ("$id", chat.Id)); transaction.Commit(); }
         savedChats.Remove(chat.Id); savedAttachments.Remove(chat.Id);
         foreach (var m in chat.Messages) { savedMessages.Remove(m.Id); savedAttachments.Remove(m.Id); }
+    }
+    public async Task AdoptBranch(Chat target, Chat branch)
+    {
+        await FlushAsync();
+        const string sql = "DELETE FROM settings WHERE key IN (SELECT 'providerMessage:'||id FROM messages WHERE chat_id=$target); DELETE FROM attachments WHERE owner_id IN (SELECT id FROM messages WHERE chat_id=$target); DELETE FROM messages WHERE chat_id=$target; UPDATE messages SET chat_id=$target WHERE chat_id=$branch; UPDATE chats SET session_id=$session,pending_input=NULL WHERE id=$target; DELETE FROM attachments WHERE owner_id=$branch; DELETE FROM chats WHERE id=$branch";
+        if (writer is not null) Execute(sql, ("$target", target.Id), ("$branch", branch.Id), ("$session", branch.SessionId));
+        else { using var transaction = db.BeginTransaction(); Execute(sql, ("$target", target.Id), ("$branch", branch.Id), ("$session", branch.SessionId)); transaction.Commit(); }
+        await FlushAsync();
+        target.SessionId = branch.SessionId; target.Messages.Clear(); foreach (var message in branch.Messages) target.Messages.Add(message);
+        target.NextSequence = branch.NextSequence; target.HistoryLoaded = true; target.ConfigOptions = branch.ConfigOptions; target.ConfigVersion++;
+        target.Commands = branch.Commands;
+        savedChats.Remove(target.Id); savedChats.Remove(branch.Id);
     }
     public void Dispose() { try { writer?.Close().GetAwaiter().GetResult(); } finally { db.Dispose(); } }
 }

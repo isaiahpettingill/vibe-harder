@@ -81,6 +81,7 @@ public sealed class Message : Observable
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
     public string Role { get; init; } = "assistant";
     public string? ToolId { get; init; }
+    public string? ProviderMessageId { get; set; }
     public string ToolInput { get; set; } = "";
     private string text = "";
     public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }

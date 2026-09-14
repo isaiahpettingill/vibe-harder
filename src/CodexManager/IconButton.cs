@@ -22,6 +22,17 @@ public static class AppIcons
     // Use the pack's artwork with Avalonia 12's native renderer. The pack's own
     // controls still reference an Avalonia 11 API removed in version 12.
     private static readonly Dictionary<PackIconCodiconsKind, StreamGeometry> GeometryCache = [];
+    private static readonly Dictionary<string, StreamGeometry> AdditionalGeometry = [];
+    private static StreamGeometry Additional(string name)
+    {
+        lock (AdditionalGeometry)
+        {
+            if (AdditionalGeometry.TryGetValue(name, out var geometry)) return geometry;
+            using var stream = Avalonia.Platform.AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Codicons/{name}.svg"));
+            var svg = System.Xml.Linq.XDocument.Load(stream);
+            return AdditionalGeometry[name] = StreamGeometry.Parse(string.Join(" ", svg.Descendants().Where(e => e.Name.LocalName == "path").Select(e => (string?)e.Attribute("d"))));
+        }
+    }
     private static StreamGeometry Geometry(PackIconCodiconsKind kind)
     {
         lock (GeometryCache)
@@ -33,7 +44,7 @@ public static class AppIcons
     }
     public static PathIcon Create(string name, double size = 13) => new()
     {
-        Data = Geometry(name switch
+        Data = name is "openai" or "claude" or "steer" or "agent" ? Additional(name == "steer" ? "forward" : name) : Geometry(name switch
         {
             "command" => PackIconCodiconsKind.ListSelection,
             "settings" => PackIconCodiconsKind.Gear,
@@ -57,7 +68,8 @@ public static class AppIcons
             "edit" => PackIconCodiconsKind.Edit,
             "archive" => PackIconCodiconsKind.Archive,
             "delete" => PackIconCodiconsKind.Trash,
-            "steer" => PackIconCodiconsKind.ArrowRight,
+            "drag" => PackIconCodiconsKind.Gripper,
+            "fork" => PackIconCodiconsKind.RepoForked,
             "model" => PackIconCodiconsKind.SymbolClass,
             "reasoning" => PackIconCodiconsKind.Lightbulb,
             "speed" => PackIconCodiconsKind.SymbolEvent,
@@ -88,6 +100,8 @@ public sealed class IconButton : Button
             if (icon == value) return;
             icon = value;
             Content = value == "loading" ? new LoadingSpinner() : AppIcons.Create(value, IconSize);
+            if (Content is LoadingSpinner spinner)
+                foreach (var arc in spinner.Children.OfType<Avalonia.Controls.Shapes.Path>()) arc.Bind(Avalonia.Controls.Shapes.Shape.StrokeProperty, this.GetObservable(ForegroundProperty));
         }
     }
     public string Label { set { if (label == value) return; label = value; ToolTip.SetTip(this, value); AutomationProperties.SetName(this, value); } }

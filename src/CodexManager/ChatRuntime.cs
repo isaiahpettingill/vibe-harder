@@ -4,7 +4,7 @@ using Avalonia.Threading;
 
 namespace CodexManager;
 
-public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IAsyncDisposable
+public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IAsyncDisposable
 {
     private AcpClient? client;
     private bool loading;
@@ -36,7 +36,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public async Task ReleaseIfIdle(DateTimeOffset now)
     {
         if (client is null || lifetime.IsCancellationRequested) { idleTimer?.Stop(); idleSince = null; return; }
-        if (chat.Busy || chat.NeedsPermission || loading || reconnecting || IsLoadingHistory || IsConfiguring || IsRecovering || IsSteering || advancingQueue || IsActiveView?.Invoke() == true || now < remoteViewUntil)
+        if (chat.Busy || IsChangingHistory || chat.NeedsPermission || loading || reconnecting || IsLoadingHistory || IsConfiguring || IsRecovering || IsSteering || advancingQueue || IsActiveView?.Invoke() == true || now < remoteViewUntil)
         { idleSince = null; return; }
         idleSince ??= now;
         if (now - idleSince < IdleTimeout) return;
@@ -65,7 +65,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public bool IsReconnecting => reconnecting;
     public bool IsPrompting => (turn is not null || detachedTurn) && chat.Busy;
     public bool IsConfiguring { get; private set; }
-    public bool IsPreparing => IsRecovering || chat.Busy && (!IsConnected || loading || reconnecting || IsLoadingHistory || !IsPrompting);
+    public bool IsPreparing => IsChangingHistory || IsRecovering || chat.Busy && (!IsConnected || loading || reconnecting || IsLoadingHistory || !IsPrompting);
     public bool IsConnected => connected && client?.Alive == true;
     public bool SupportsSteering { get; private set; }
     public bool IsSteering { get; private set; }
@@ -74,7 +74,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     public Task<bool> Steer(PendingInput input) => IsSteering ? Task.FromResult(false) : steeringTask = SteerCore(input);
     private async Task<bool> SteerCore(PendingInput input)
     {
-        if (!SupportsSteering || !IsPrompting || IsSteering || client is null) return false;
+        if (IsChangingHistory || !SupportsSteering || !IsPrompting || IsSteering || client is null) return false;
         IsSteering = true; store.Setting("steering:" + chat.Id, JsonSerializer.Serialize(input, StoreJsonContext.Default.PendingInput)); Changed?.Invoke();
         try
         {
@@ -112,7 +112,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     }
     public async Task AdvanceQueued()
     {
-        if (advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
+        if (IsChangingHistory || advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
         advancingQueue = true;
         try
         {
@@ -135,7 +135,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     }
     public async Task SetConfig(SessionConfig config, string value)
     {
-        if (loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
+        if (IsChangingHistory || loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
         await SetConfigCore(config, value);
         await RestoreAccess();
     }
@@ -188,6 +188,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     }
     public Task Reconnect(bool automatic = false)
     {
+        if (IsChangingHistory) return Task.CompletedTask;
         if (reconnecting) return reconnectTask ?? Task.CompletedTask;
         if (!automatic || DateTimeOffset.UtcNow - connectedAt > TimeSpan.FromSeconds(30)) rapidDisconnects = 0;
         if (automatic && ++rapidDisconnects > 4)
@@ -252,6 +253,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, turn?.Token ?? lifetime.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(90));
         var init = await client.Initialize(timeout.Token);
+        ReadHistoryCapabilities(init);
         SupportsSteering = init.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("steering", out var steering) && steering.TryGetProperty("supported", out var supported) && supported.ValueKind == JsonValueKind.True;
         loading = chat.SessionId is not null;
         replaying = loading && replayHistory;
@@ -316,7 +318,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         }
         finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); }
     }
-    public Task Send(string text, Attachment[] attachments) => reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments);
+    public Task Send(string text, Attachment[] attachments) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments);
     private async Task SendCore(string text, Attachment[] attachments)
     {
         if (chat.Busy) return;
@@ -383,7 +385,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             if (recoverConnection && !lifetime.IsCancellationRequested && !IsRecovering)
                 Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && chat.InterruptedInput is { } input) recoveryTask = RecoverConnection(input); });
             if (completed && !IsSteering && !lifetime.IsCancellationRequested && chat.QueuedInputs.FirstOrDefault() is { } next)
-                Dispatcher.UIThread.Post(async () => { if (!lifetime.IsCancellationRequested && !chat.Busy && chat.QueuedInputs.Contains(next)) { RemoveQueued(next); await Send(next.Text, next.Attachments); } });
+                Dispatcher.UIThread.Post(async () => { if (!lifetime.IsCancellationRequested && !IsChangingHistory && !chat.Busy && chat.QueuedInputs.Contains(next)) { RemoveQueued(next); await Send(next.Text, next.Attachments); } });
         }
     }
     private void RestoreInput(string text, Attachment[] attachments)
@@ -472,8 +474,10 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             var content = update.GetProperty("content");
             if (content.GetProperty("type").GetString() != "text") return;
             var role = kind == "agent_message_chunk" ? "assistant" : kind == "user_message_chunk" ? "user" : "thought";
+            var protocolId = update.TryGetProperty("messageId", out var messageId) && messageId.ValueKind == JsonValueKind.String ? messageId.GetString() : null;
             var last = chat.Messages.LastOrDefault();
-            if (last?.Role != role) { Add(role, ""); last = chat.Messages.Last(); }
+            if (last?.Role != role || protocolId is not null && last.ProviderMessageId is not null && last.ProviderMessageId != protocolId) { Add(role, ""); last = chat.Messages.Last(); }
+            if (protocolId is not null) last.ProviderMessageId = protocolId;
             last.Text += content.GetProperty("text").GetString();
         }
         else if (kind is "tool_call" or "tool_call_update")
@@ -483,6 +487,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             if (message is null && id is not null) message = (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token, toolId: id)).FirstOrDefault();
             if (lifetime.IsCancellationRequested) return;
             if (message is null) { Add("tool", "", id); message = chat.Messages.Last(); }
+            if (update.TryGetProperty("messageId", out var toolMessageId) && toolMessageId.ValueKind == JsonValueKind.String) message.ProviderMessageId = toolMessageId.GetString();
             if (id is not null && activeToolInputs.TryGetValue(id, out var previousInput)) message.ToolInput = previousInput;
             var title = update.TryGetProperty("title", out var t) ? t.GetString() : message.Text.Split('\n')[0];
             var status = update.TryGetProperty("status", out var s) ? s.GetString() : "running";
@@ -508,7 +513,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     {
         idleTimer?.Stop(); lifetime.Cancel();
         var previous = client; client = null; connected = false;
-        var tasks = new[] { previous?.DisposeAsync().AsTask(), idleShutdown, activeTask, steeringTask, reconnectTask, recoveryTask }.OfType<Task>();
+        var tasks = new[] { previous?.DisposeAsync().AsTask(), idleShutdown, activeTask, steeringTask, reconnectTask, recoveryTask, WaitForHistoryShutdown() }.OfType<Task>();
         await Task.WhenAll(tasks);
     }
 }

@@ -15,6 +15,16 @@ namespace CodexManager;
 
 public sealed class RemoteView : UserControl, IDisposable
 {
+    public Task ShowHistoryActions(Control anchor, Message? message)
+    {
+        var source = chatId;
+        if (source is null) return Task.CompletedTask;
+        return HistoryActions.Show(anchor, message, request => { request["chatId"] = source; return Call(request); }, id =>
+        {
+            if (chatId != source || lifetime.IsCancellationRequested) return;
+            chatId = null; SelectChat(id); messageRevisions.Clear(); nextCatalogRefresh = default; _ = RefreshList();
+        });
+    }
     public async Task OpenFileLink(string target)
     {
         if (chatId is not { } id) throw new IOException("Select a chat first.");
@@ -214,12 +224,24 @@ public sealed class RemoteView : UserControl, IDisposable
         }
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
+        ApplyColors();
     }
     private readonly Func<bool> allowAll;
     private readonly Action? activate;
     private readonly HashSet<string> notifiedPermissions = [];
-    public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null)
+    private readonly Store? preferences;
+    public void ApplyColors()
     {
+        if (preferences is null) return;
+        var scope = "remote:" + Host.Address + ":" + Host.Port + ":";
+        var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
+        if (Content is Panel panel) panel.Background = SidebarColors.Brush(preferences, "workspaceColor:" + scope + owner, true);
+        composer.BorderBrush = SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) ?? this.FindResource("AppBorder") as Avalonia.Media.IBrush;
+        composer.BorderThickness = new Thickness(SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) is null ? 1 : 2);
+    }
+    public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null, Store? preferences = null)
+    {
+        this.preferences = preferences;
         this.allowAll = allowAll ?? (() => false); this.activate = activate;
         this.host = host;
         var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
@@ -227,7 +249,15 @@ public sealed class RemoteView : UserControl, IDisposable
         connectionNotice.Bind(IsVisibleProperty, status.GetObservable(IsVisibleProperty));
         var connectionText = new TextBlock { FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         connectionText.Bind(TextBlock.TextProperty, status.GetObservable(TextBlock.TextProperty)); connectionNotice.Children.Add(connectionText);
-        var retry = new IconButton { Icon = "refresh", Label = "Retry connection" }; retry.Click += (_, _) => ReconnectHost(); Grid.SetColumn(retry, 1); connectionNotice.Children.Add(retry); panel.Children.Add(connectionNotice);
+        var retry = new IconButton { Icon = "refresh", Label = "Retry connection" }; retry.Click += (_, _) => ReconnectHost(); Grid.SetColumn(retry, 1); connectionNotice.Children.Add(retry);
+        var remoteHeader = new Grid { ColumnDefinitions = new("*,Auto,Auto"), Margin = new Thickness(0, 0, 0, 6) };
+        remoteHeader.Children.Add(new StackPanel { Children = { new TextBlock { Text = host.Name, VerticalAlignment = VerticalAlignment.Center }, connectionNotice } });
+        var forkChat = new IconButton { Name = "RemoteForkChat", Icon = "fork", Label = "Fork chat" };
+        forkChat.Click += async (_, _) => await ShowHistoryActions(forkChat, null); Grid.SetColumn(forkChat, 1); remoteHeader.Children.Add(forkChat);
+        var openTerminal = new IconButton { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
+        openTerminal.Click += async (_, _) => await ShowTerminal(); Grid.SetColumn(openTerminal, 2); remoteHeader.Children.Add(openTerminal); panel.Children.Add(remoteHeader);
+        openTerminal.IsEnabled = workspaces.SelectedItem is not null;
+        workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; ApplyColors(); };
         workspaces.SelectionChanged += (_, _) => FilterChats();
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
@@ -372,7 +402,7 @@ public sealed class RemoteView : UserControl, IDisposable
                     foreach (var config in result["config"]!.AsArray())
                     {
                         var option = new SessionConfig(config!["id"]!.GetValue<string>(), config["name"]!.GetValue<string>(), "select", config["current"]!.GetValue<string>(), config["values"]!.AsArray().Select(v => new SessionValue(v!["value"]!.GetValue<string>(), v["name"]!.GetValue<string>())).ToArray());
-                        var button = new Button { Content = new OptionContent(option), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
+                        var button = new Button { Content = new OptionContent(option, Enum.TryParse<AgentProvider>(result["provider"]?.GetValue<string>(), out var optionProvider) ? optionProvider : null), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
                         if (result["provider"]?.GetValue<string>() == "OpenCode" && ModelPicker.IsModel(option))
                         {
                             var selectedChat = id;
@@ -599,9 +629,11 @@ public sealed class RemoteView : UserControl, IDisposable
         attachmentChips.Children.Clear();
         foreach (var attachment in attachments)
         {
-            var chip = new Button { Content = attachment.Name + " ×", MinHeight = 40, MaxWidth = 260 };
-            ToolTip.SetTip(chip, "Remove " + attachment.Name);
-            chip.Click += (_, _) => { attachments.Remove(attachment); RefreshAttachments(); };
+            var chip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 0, 6, 4) };
+            chip.Children.Add(new TextBlock { Text = attachment.Name, MaxWidth = 220, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            var remove = new IconButton { Icon = "remove", IconSize = 10, Label = "Remove " + attachment.Name };
+            remove.Click += (_, _) => { attachments.Remove(attachment); RefreshAttachments(); };
+            chip.Children.Add(remove);
             attachmentChips.Children.Add(chip);
         }
     }

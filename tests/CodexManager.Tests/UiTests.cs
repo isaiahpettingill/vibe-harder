@@ -185,11 +185,15 @@ public class UiTests
         }
         var window = new MainWindow(); window.Show();
         window.KeyPress(Key.P, RawInputModifiers.Control | RawInputModifiers.Shift, PhysicalKey.P, "P");
-        var palette = Assert.IsType<CommandPalette>(window.OwnedWindows.Single());
+        var palette = Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(window).OfType<CommandPalette>().Single();
+        Assert.Empty(window.OwnedWindows);
+        window.UpdateLayout();
+        Avalonia.Threading.Dispatcher.UIThread.RunJobs();
         T Named<T>(string name) where T : Control => Avalonia.LogicalTree.LogicalExtensions.GetLogicalDescendants(palette).OfType<T>().Single(c => c.Name == name);
         Named<TextBox>("CommandQuery").Text = "new opencode";
         await WaitUntil(() => Named<ListBox>("CommandResults").ItemCount == 1);
-        palette.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+        window.KeyPress(Key.Enter, RawInputModifiers.None, PhysicalKey.Enter, "\r");
+        await WaitUntil(() => UiTests.Named<ListBox>(window, "Chats_w").SelectedItem is Chat);
         var chat = Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_w").SelectedItem);
         Assert.Equal(AgentProvider.OpenCode, chat.Provider);
         Assert.Equal("Add provider", window.FindControl<Button>("LoginButton")!.Content);

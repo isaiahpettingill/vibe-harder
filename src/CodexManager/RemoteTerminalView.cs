@@ -89,7 +89,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         }
         Point? tapStart = null;
         terminal.AddHandler(PointerPressedEvent, (_, e) => tapStart = e.GetPosition(terminal), Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
-        terminal.AddHandler(PointerReleasedEvent, (_, e) => { if (!terminal.HasSelection && tapStart is { } start && Math.Abs(e.GetPosition(terminal).X - start.X) < 12 && Math.Abs(e.GetPosition(terminal).Y - start.Y) < 12) FocusInput(); tapStart = null; }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
+        terminal.AddHandler(PointerReleasedEvent, (_, e) => { if (!terminal.HasSelection && terminal.LinkAt(e.GetPosition(terminal)) is null && tapStart is { } start && Math.Abs(e.GetPosition(terminal).X - start.X) < 12 && Math.Abs(e.GetPosition(terminal).Y - start.Y) < 12) FocusInput(); tapStart = null; }, Avalonia.Interactivity.RoutingStrategies.Bubble, true);
         model.UserInput += async (_, e) =>
         {
             var text = Encoding.UTF8.GetString(e.Data.Span);

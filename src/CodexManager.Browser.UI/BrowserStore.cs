@@ -24,5 +24,6 @@ public sealed class Store : IDisposable
     public void ReleaseHistory(Chat chat) => throw RemoteOnly();
     public void TrimHistory(Chat chat) => throw RemoteOnly();
     public void Delete(Chat chat) => throw RemoteOnly();
+    public Task AdoptBranch(Chat target, Chat branch) => throw RemoteOnly();
     public void Dispose() { }
 }

@@ -107,6 +107,16 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
         if (method == "file/download") return new JsonObject { ["path"] = FileLinks.Resolve(Text("path"), workspaceOwner) };
         var active = runtime(chat, workspaceOwner);
+        if (active.IsChangingHistory && method != "chat") throw new IOException("Wait for the history change to finish.");
+        if (method == "history/options") return await active.HistoryOptions(request["messageId"]?.GetValue<string>(), request["sequence"]?.GetValue<int>() ?? -1);
+        if (method == "history/branch")
+        {
+            var branch = await active.BranchHistory(request["messageId"]?.GetValue<string>(), request["sequence"]?.GetValue<int>() ?? -1, request["checkpoint"]?.GetValue<string>(), request["fork"]?.GetValue<bool>() ?? false);
+            if (!ReferenceEquals(branch, chat)) chats.Add(branch);
+            var input = new PendingInput(Text("text"), request["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []);
+            if (!string.IsNullOrWhiteSpace(input.Text) || input.Attachments.Length > 0) _ = runtime(branch, workspaceOwner).Send(input.Text, input.Attachments);
+            Changed?.Invoke(); return Summary(branch);
+        }
         if (method == "chat")
         {
             active.KeepAlive();

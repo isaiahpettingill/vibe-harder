@@ -73,7 +73,7 @@ public partial class MainView : UserControl
             if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
             RefreshRemoteSidebar(); return;
         }
-        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
+        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         view.SetConnectionCollapsed(store.Setting(RemoteCollapsedKey(host)) == "1");
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
@@ -156,11 +156,11 @@ public partial class MainView : UserControl
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
         {
-            if (e.Key == Key.Oem3 && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; ToggleTerminal(this, new()); }
+            if (palette is null && e.Key == Key.Oem3 && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; ToggleTerminal(this, new()); }
         }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, async (_, e) =>
         {
-            if (TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
+            if (palette is not null || TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
             e.Handled = true;
             if (SlashCommands.IsVisible) { SlashCommands.IsVisible = false; return; }
             var twice = ReferenceEquals(escapeChat, current) && DateTimeOffset.UtcNow - lastEscape < TimeSpan.FromMilliseconds(650);
@@ -321,7 +321,7 @@ public partial class MainView : UserControl
         }
         WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear();
         if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
-        foreach (var owner in workspaces)
+        foreach (var owner in SidebarOrder.Apply(store, "workspaces", workspaces, w => w.Id))
         {
             var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
             var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
@@ -347,7 +347,12 @@ public partial class MainView : UserControl
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
-            WorkspaceTree.Children.Add(new StackPanel { Children = { header, list } });
+            var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
+            var heading = new Grid { ColumnDefinitions = new("Auto,*") };
+            heading.Children.Add(DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree)); Grid.SetColumn(header, 1); heading.Children.Add(header);
+            group.Children.Add(heading); group.Children.Add(list);
+            ColorMenu(title, "workspaceColor:" + owner.Id, "Workspace background color", () => { BuildWorkspaceTree(); ApplyChatColors(); });
+            WorkspaceTree.Children.Add(group);
         }
         foreach (var host in RemoteSettings.Hosts(store))
         {
@@ -401,12 +406,13 @@ public partial class MainView : UserControl
     }
     private void RefreshChats()
     {
+        if (sidebarDragging) return;
         var query = SearchBox.Text ?? "";
         refreshingChats = true;
         foreach (var (id, list) in workspaceLists)
         {
             var selected = list.SelectedItem ?? (remoteView is null && current?.WorkspaceId == id ? current : null);
-            list.ItemsSource = chats.Where(c => c.WorkspaceId == id && c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).OrderByDescending(c => c.Updated).ToArray();
+            list.ItemsSource = SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id).Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).ToArray();
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
         }
         refreshingChats = false;
@@ -539,6 +545,7 @@ public partial class MainView : UserControl
     }
     private void UpdateControls()
     {
+        ApplyChatColors();
         UpdatePermissions();
         if (uiSleeping) { UpdateTray(); return; }
         UpdateTray();
@@ -551,7 +558,7 @@ public partial class MainView : UserControl
             if (current is { } configured && workspace is { } owner)
                 foreach (var option in configured.ConfigOptions)
                 {
-                    var picker = new Button { Name = "Config_" + option.Id, Content = new OptionContent(option), MaxWidth = 190, MinHeight = 24, FontSize = 11, Padding = new Thickness(4, 2) };
+                    var picker = new Button { Name = "Config_" + option.Id, Content = new OptionContent(option, configured.Provider), MaxWidth = 190, MinHeight = 24, FontSize = 11, Padding = new Thickness(4, 2) };
                     ToolTip.SetTip(picker, option.Name);
                     if (configured.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
                     {
@@ -989,7 +996,7 @@ public partial class MainView : UserControl
         palette = new CommandPalette(commands, owner);
         try
         {
-            var command = await palette.Open(desktopWindow!);
+            var command = await palette.Open(RootPanes);
             palette = null;
             if (command is not null && !closing) await command.Execute();
         }

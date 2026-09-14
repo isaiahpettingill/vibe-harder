@@ -2,6 +2,7 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace CodexManager;
 
@@ -15,13 +16,21 @@ public sealed class MessageView : UserControl
     private readonly ScrollViewer details;
     private bool expanded;
     private bool attached;
+    private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Edit, revert, or fork from this message", VerticalAlignment = VerticalAlignment.Top };
     public bool IsExpandedOutput => IsOutput && expanded;
     private bool IsOutput => Message?.Role is "tool" or "thought";
     static MessageView() => MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
     public MessageView()
     {
         toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; if (Message is not null) Message.OutputExpanded = expanded; Refresh(); };
-        var header = toggle;
+        var header = new Grid { ColumnDefinitions = new("*,Auto") };
+        header.Children.Add(toggle); Grid.SetColumn(history, 1); header.Children.Add(history);
+        history.Click += async (_, _) =>
+        {
+            if (Message is not { } message) return;
+            if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.ShowHistoryActions(history, message);
+            else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.ShowHistoryActions(history, message);
+        };
         details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
         Content = new StackPanel { Spacing = 6, Children = { header, details } };
     }
@@ -39,6 +48,7 @@ public sealed class MessageView : UserControl
     public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; Refresh(); } }
     private void Refresh()
     {
+        history.IsVisible = Message?.Role is "user" or "assistant" or "tool";
         title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
         var text = Message?.Text ?? "";
         var end = text.IndexOf('\n');

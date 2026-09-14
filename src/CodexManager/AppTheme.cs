@@ -38,7 +38,11 @@ public static class AppTheme
         Brush("AppBackground", palette.Background); Brush("AppSurface", palette.Surface);
         Brush("AppBorder", palette.Border); Brush("AppText", palette.Text);
         Brush("AppMuted", palette.Muted); Brush("AppAccent", palette.Accent);
-        Brush("AppOnAccent", "#14141C");
+        var accentColor = Color.Parse(palette.Accent);
+        static double Linear(byte value) { var v = value / 255.0; return v <= .04045 ? v / 12.92 : Math.Pow((v + .055) / 1.055, 2.4); }
+        var luminance = .2126 * Linear(accentColor.R) + .7152 * Linear(accentColor.G) + .0722 * Linear(accentColor.B);
+        var darkLuminance = .9278 * Linear(20) + .0722 * Linear(28);
+        Brush("AppOnAccent", (luminance + .05) / (darkLuminance + .05) >= 1.05 / (luminance + .05) ? "#14141C" : "#FFFFFF");
         foreach (var key in new[] { "SystemControlForegroundBaseHighBrush", "TextFillColorPrimaryBrush" }) Brush(key, palette.Text);
         foreach (var key in new[] { "SystemControlBackgroundChromeMediumLowBrush", "SystemControlBackgroundAltHighBrush", "SystemControlBackgroundChromeLowBrush" }) Brush(key, palette.Surface);
         for (var i = 0; i < 16; i++) Brush("SvcSystems.UI.TerminalColor" + i, palette.Ansi[i]);

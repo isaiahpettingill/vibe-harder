@@ -32,6 +32,7 @@
     <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
     <Style Selector="ct|CTextBlock"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
     <Style Selector="Path"><Setter Property="Stroke" Value="{DynamicResource AppMuted}"/></Style>
+    <Style Selector="PathIcon /template/ Path"><Setter Property="Stroke" Value="{x:Null}"/></Style>
     <StyleInclude Source="avares://SvcSystems.UI.Terminal/Styles/Colors.axaml" />
     <Style Selector="Window"><Setter Property="Foreground" Value="{DynamicResource AppText}"/><Setter Property="Background" Value="{DynamicResource AppBackground}"/><Setter Property="FontFamily" Value="{DynamicResource UIFont}"/><Setter Property="FontSize" Value="{DynamicResource UIFontSize}"/></Style>
     <Style Selector="ct|CTextBlock"><Setter Property="FontFamily" Value="{DynamicResource ChatFont}"/></Style>
@@ -47,7 +48,7 @@
     <Style Selector="TextBox#Composer:focus /template/ Border#PART_BorderElement"><Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/></Style>
     <Style Selector="edit|TextEditor"><Setter Property="FontFamily" Value="{DynamicResource CodeFont}"/></Style>
     <Style Selector="Button.accent"><Setter Property="Background" Value="{DynamicResource AppAccent}"/><Setter Property="Foreground" Value="{DynamicResource AppOnAccent}"/></Style>
-    <Style Selector="Button.accent Path"><Setter Property="Stroke" Value="{DynamicResource AppOnAccent}"/><Setter Property="StrokeThickness" Value="1.8"/></Style>
+    <Style Selector="Button.accent PathIcon"><Setter Property="Foreground" Value="{DynamicResource AppOnAccent}"/></Style>
     <Style Selector="Button.accent:pointerover /template/ ContentPresenter, Button.accent:pressed /template/ ContentPresenter"><Setter Property="Background" Value="{DynamicResource AppAccent}"/></Style>
     <Style Selector="Expander"><Setter Property="Padding" Value="4"/></Style>
     <Style Selector="Expander /template/ ToggleButton"><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="6,3"/></Style>

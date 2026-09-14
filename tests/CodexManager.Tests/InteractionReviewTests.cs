@@ -67,11 +67,25 @@ public class InteractionReviewTests
             for (var i = 0; i < 3; i++) { owner.MouseMove(new Point(8, 8)); owner.UpdateLayout(); owner.MouseMove(new Point(400, 400)); owner.UpdateLayout(); }
             Assert.Equal(bounds.Size, button.Bounds.Size);
             var palette = new CommandPalette([new("Test", "A command", () => Task.CompletedTask)], null);
-            var result = palette.Open(owner);
+            var overlayHost = new Grid(); owner.Content = overlayHost;
+            var result = palette.Open(overlayHost);
             Assert.True(palette.IsVisible); Assert.True(owner.IsEnabled);
-            owner.MouseDown(new Point(500, 480), MouseButton.Left); owner.MouseUp(new Point(500, 480), MouseButton.Left);
+            owner.UpdateLayout();
+            Assert.Same(owner, TopLevel.GetTopLevel(palette));
+            if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
+            {
+                using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(600, 500)); bitmap.Render(owner);
+                bitmap.Save(Path.Combine(qa, "palette-overlay.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+            }
+            owner.MouseDown(new Point(5, 5), MouseButton.Left); owner.MouseUp(new Point(5, 5), MouseButton.Left);
             Assert.Null(await result.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
             Assert.False(palette.IsVisible);
+            var second = new CommandPalette([new("Test", "A command", () => Task.CompletedTask)], null);
+            var escaped = second.Open(overlayHost);
+            owner.UpdateLayout(); Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            owner.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, "");
+            Assert.Null(await escaped.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
+            Assert.DoesNotContain(second, overlayHost.Children);
         }
         finally { owner.Close(); }
     }

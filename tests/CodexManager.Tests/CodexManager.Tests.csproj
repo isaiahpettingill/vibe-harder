@@ -19,6 +19,7 @@
   <ItemGroup>
     <Using Include="Xunit" />
     <None Update="fake-acp.mjs" CopyToOutputDirectory="PreserveNewest" />
+    <None Update="history-acp.mjs" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
