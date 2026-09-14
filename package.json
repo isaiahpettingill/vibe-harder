@@ -4,6 +4,7 @@
   "description": "Pinned ACP adapter and integration probe for the Avalonia Vibe Harder",
   "private": true,
   "scripts": {
+    "avalonia-docs": "node tools/avalonia-docs.mjs",
     "probe": "node tools/acp-probe.mjs"
   },
   "keywords": [],
