@@ -19,6 +19,12 @@ public sealed class RemoteView : UserControl, IDisposable
     {
         if (chatId is not { } id) throw new IOException("Select a chat first.");
         var path = await FileLinks.Download(Call, id, target, lifetime.Token);
+        if (OperatingSystem.IsBrowser())
+        {
+            try { BrowserPlatform.Download(Path.GetFileName(path), await File.ReadAllBytesAsync(path, lifetime.Token)); }
+            finally { File.Delete(path); }
+            return;
+        }
         if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
         if (TopLevel.GetTopLevel(this) is not { } top) return;
         var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
@@ -168,14 +174,23 @@ public sealed class RemoteView : UserControl, IDisposable
     }
     private bool refreshing;
     private bool viewingHistory;
+    private bool activateSelectedChat;
     public event Action<JsonNode>? CatalogChanged;
     public event Action? WorkspaceNavigation;
     public event Action<string>? WorkspaceOpened;
     public string? SelectedChatId => chatId;
     public bool HasWorkspace => workspaces.SelectedItem is RemoteItem;
-    public void SelectChat(string id)
+    public void SelectChat(string id, bool userInitiated = true)
     {
+        SaveBrowserDraft();
+        activateSelectedChat = userInitiated;
         viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        if (OperatingSystem.IsBrowser())
+        {
+            restoringBrowserDraft = true;
+            try { composer.Text = BrowserPlatform.Read(BrowserDraftKey) ?? ""; }
+            finally { restoringBrowserDraft = false; }
+        }
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
     }
@@ -259,7 +274,7 @@ public sealed class RemoteView : UserControl, IDisposable
             finally { attach.IsEnabled = true; }
         }; actions.Children.Add(attach);
         actions.Children.Add(send);
-        composer.TextChanged += (_, _) => { UpdateSendAction(); UpdateSlashCommands(); };
+        composer.TextChanged += (_, _) => { UpdateSendAction(); UpdateSlashCommands(); SaveBrowserDraft(); };
         send.Click += async (_, _) => await SendOrStop();
         composer.AddHandler(KeyDownEvent, async (_, e) =>
         {
@@ -314,7 +329,8 @@ public sealed class RemoteView : UserControl, IDisposable
             polling = true; var id = chatId;
             try
             {
-                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id }); if (presentationSleeping || result is null || id != chatId) return;
+                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["activate"] = activateSelectedChat }); if (presentationSleeping || result is null || id != chatId) return;
+                activateSelectedChat = false;
                 status.Text = result["status"]?.GetValue<string>() + " · " + result["queued"] + " queued";
                 status.IsVisible = false;
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting")))); UpdateSendAction();
@@ -390,6 +406,14 @@ public sealed class RemoteView : UserControl, IDisposable
         finally { openingTerminal = false; }
     }
     private bool HasDraft => !string.IsNullOrWhiteSpace(composer.Text) || attachments.Count > 0;
+    private bool restoringBrowserDraft;
+    private string BrowserDraftKey => "draft:" + host.Address + ":" + host.Port + ":" + chatId;
+    private void SaveBrowserDraft()
+    {
+        if (!OperatingSystem.IsBrowser() || chatId is null || restoringBrowserDraft) return;
+        try { BrowserPlatform.Write(BrowserDraftKey, composer.Text ?? ""); }
+        catch (Exception error) { attachmentError.Text = "Could not save draft: " + error.Message; }
+    }
     private void UpdateSendAction()
     {
         var stop = busy && !preparing && !HasDraft;
@@ -518,7 +542,7 @@ public sealed class RemoteView : UserControl, IDisposable
             chats.SelectedItem = chats.Items.OfType<RemoteItem>().FirstOrDefault(c => c.Id == selectedId) ?? chats.Items.OfType<RemoteItem>().FirstOrDefault();
         }
         finally { refreshing = false; }
-        if (chats.SelectedItem is RemoteItem selected && selected.Id != chatId) SelectChat(selected.Id);
+        if (chats.SelectedItem is RemoteItem selected && selected.Id != chatId) SelectChat(selected.Id, userInitiated: false);
         if (chats.SelectedItem is null) { chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear(); }
     }
     private async Task<JsonNode?> Call(JsonObject request)

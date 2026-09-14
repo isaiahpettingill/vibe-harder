@@ -8,6 +8,8 @@ Your agent chats, across your computers. Windows, Linux, macOS, and an Android r
 
 - **Codex, Claude, OpenCode:** streaming, model controls, queues, and ACP slash commands.
 - **Local, WSL, or remote workspaces:** agents stay running on their host when you disconnect.
+- **Optional web access:** download the shared WASM UI from Settings and open it on an iPhone or another browser over your LAN or Tailscale.
+- **Idle agents stop:** inactive ACP processes exit after 90 seconds idle; cached sidebar entries do not start providers at launch. Active turns and the chat you are using stay connected.
 - **Pair once:** paste a connection code; saved devices reconnect without host access.
 - **Tray and recovery:** keep working in the background; choose prompted or automatic resume.
 - **Comfortable chat:** collapsible tools, styled copying, resizable panes, themes, and separate fonts.

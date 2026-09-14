@@ -12,7 +12,7 @@ public static class PermissionNotifications
     public static void Dismiss(string id) => MobileDismiss?.Invoke(id);
     public static void Show(string id, string chat, Action activate)
     {
-        if (OperatingSystem.IsAndroid()) { Mobile?.Invoke(id, chat, activate); return; }
+        if (OperatingSystem.IsAndroid() || OperatingSystem.IsBrowser()) { Mobile?.Invoke(id, chat, activate); return; }
         _ = Desktop(chat, activate);
     }
     private static async Task Desktop(string chat, Action activate)

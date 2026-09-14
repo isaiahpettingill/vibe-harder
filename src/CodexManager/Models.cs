@@ -58,6 +58,8 @@ public sealed class Chat : Observable
     public ObservableCollection<Message> Messages { get; } = [];
     private bool busy;
     public bool Busy { get => busy; set => Set(ref busy, value); }
+    private bool needsPermission;
+    public bool NeedsPermission { get => needsPermission; set => Set(ref needsPermission, value); }
     private bool hasUnreadCompletion;
     public bool HasUnreadCompletion { get => hasUnreadCompletion; set => Set(ref hasUnreadCompletion, value); }
     public DateTimeOffset Updated { get; set; } = DateTimeOffset.UtcNow;

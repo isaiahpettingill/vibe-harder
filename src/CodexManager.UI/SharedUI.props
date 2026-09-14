@@ -6,7 +6,9 @@
     <AssemblyName>VibeHarder.UI</AssemblyName>
     <Title>Vibe Harder</Title>
     <DefineConstants Condition="'$(MobileClient)' == 'true'">$(DefineConstants);MOBILE_CLIENT</DefineConstants>
+    <DefineConstants Condition="'$(BrowserClient)' == 'true'">$(DefineConstants);BROWSER_CLIENT</DefineConstants>
     <TargetFramework>net11.0</TargetFramework>
+    <TargetFramework Condition="'$(BrowserClient)' == 'true'">net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
@@ -25,6 +27,8 @@
     <Compile Include="../CodexManager/*.cs" Exclude="../CodexManager/Program.cs;../CodexManager/HeadlessHost.cs" />
     <Compile Remove="../CodexManager/TerminalSession.cs" Condition="'$(MobileClient)' == 'true'" />
     <Compile Include="../CodexManager.Mobile.UI/RemoteOnlyTerminal.cs" Condition="'$(MobileClient)' == 'true'" />
+    <Compile Remove="../CodexManager/Store.cs;../CodexManager/StoreWriter.cs" Condition="'$(BrowserClient)' == 'true'" />
+    <Compile Include="../CodexManager.Browser.UI/BrowserStore.cs" Condition="'$(BrowserClient)' == 'true'" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Avalonia" Version="12.1.2" />
@@ -33,8 +37,12 @@
     <PackageReference Include="Porta.Pty" Version="2.2.2" Condition="'$(MobileClient)' != 'true'" />
     <PackageReference Include="Markdig" Version="1.3.2" />
     <PackageReference Include="SvcSystems.UI.Terminal" Version="1.1.4" />
-    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" />
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.12" Condition="'$(BrowserClient)' != 'true'" />
     <PackageReference Include="Markdown.Avalonia.Tight" Version="12.0.0-a3" />
     <PackageReference Include="Markdown.Avalonia.SyntaxHigh" Version="12.0.0-a3" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(MobileClient)' != 'true'">
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="QRCoder" Version="1.8.0" />
   </ItemGroup>
 </Project>

@@ -87,6 +87,8 @@ public sealed class Store : IDisposable
         foreach (var c in result) foreach (var a in LoadAttachments(c.Id)) c.Attachments.Add(a);
         foreach (var chat in result)
         {
+            var cachedStatus = Setting("status:" + chat.Id);
+            chat.Status = Setting("busy:" + chat.Id) == "1" ? "Interrupted" : cachedStatus is null or "Needs permission" ? "Ready" : cachedStatus;
             chat.HasUnreadCompletion = Setting("unread:" + chat.Id) == "1";
             if (Setting("interrupted:" + chat.Id) is { Length: > 0 } interrupted)
                 chat.InterruptedInput = JsonSerializer.Deserialize(interrupted, StoreJsonContext.Default.PendingInput);
@@ -192,6 +194,8 @@ public sealed class Store : IDisposable
     }
     public void Save(Chat c)
     {
+        Setting("status:" + c.Id, c.NeedsPermission ? "Working…" : c.Status);
+        Setting("busy:" + c.Id, c.Busy ? "1" : "0");
         Setting("unread:" + c.Id, c.HasUnreadCompletion ? "1" : "0");
         Setting("queue:" + c.Id, JsonSerializer.Serialize(c.QueuedInputs.ToArray(), StoreJsonContext.Default.PendingInputArray));
         var snapshot = new ChatSnapshot(c.SessionId, c.Title, c.Updated, c.Draft, c.Archived, c.Provider, c.PendingInput);

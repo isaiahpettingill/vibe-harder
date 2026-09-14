@@ -31,6 +31,7 @@ public class RecoveryTests
         var chat = new Chat { WorkspaceId = "w", Provider = AgentProvider.Claude }; store.Save(chat);
         var command = "node " + Quote(Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs")) + " " + Quote("--recovery=" + log);
         await using var runtime = new ChatRuntime(chat, workspace, store, command);
+        runtime.IsActiveView = () => true;
         await runtime.Send(prompt, []).WaitAsync(TimeSpan.FromSeconds(15));
         var until = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < until && (!File.Exists(log) || !ReadLog(log).Contains("loaded") || chat.Busy)) await Task.Delay(30);

@@ -25,6 +25,40 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
     private bool reconnecting;
     private int rapidDisconnects;
     private DateTimeOffset connectedAt;
+    public static readonly TimeSpan IdleTimeout = TimeSpan.FromSeconds(90);
+    public Func<bool>? IsActiveView { get; set; }
+    private DateTimeOffset? idleSince;
+    private DateTimeOffset remoteViewUntil;
+    private DispatcherTimer? idleTimer;
+    private Task? idleShutdown;
+    private int pendingPermissions;
+    public void KeepAlive() { remoteViewUntil = DateTimeOffset.UtcNow.AddSeconds(15); idleSince = null; }
+    public async Task ReleaseIfIdle(DateTimeOffset now)
+    {
+        if (client is null || lifetime.IsCancellationRequested) { idleTimer?.Stop(); idleSince = null; return; }
+        if (chat.Busy || chat.NeedsPermission || loading || reconnecting || IsLoadingHistory || IsConfiguring || IsRecovering || IsSteering || advancingQueue || IsActiveView?.Invoke() == true || now < remoteViewUntil)
+        { idleSince = null; return; }
+        idleSince ??= now;
+        if (now - idleSince < IdleTimeout) return;
+        // Detach before disposal so the intentional exit cannot trigger auto-reconnect.
+        var previous = client; client = null; connected = false; idleTimer?.Stop(); idleSince = null;
+        await previous.DisposeAsync();
+        Changed?.Invoke();
+    }
+    private void StartIdleTimer()
+    {
+        if (idleTimer is null)
+        {
+            idleTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            idleTimer.Tick += async (_, _) =>
+            {
+                if (idleShutdown is { IsCompleted: false }) return;
+                try { await (idleShutdown = ReleaseIfIdle(DateTimeOffset.UtcNow)); }
+                catch (Exception error) { AppDiagnostics.Record("Stop idle agent", error); }
+            };
+        }
+        idleSince = null; idleTimer.Start();
+    }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? Permission { get; set; }
     public event Action? Changed;
     public bool IsLoadingHistory { get; private set; }
@@ -187,13 +221,14 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         if (client is not null) await client.DisposeAsync();
         chat.Commands = []; Changed?.Invoke();
         client = new(Hosts.Agent(workspace, command));
+        StartIdleTimer();
         var connection = client;
         client.AuthenticationChanged += needsLogin => Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && ReferenceEquals(client, connection)) { chat.NeedsLogin = needsLogin; Changed?.Invoke(); } });
         client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
             if (!connected || !ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
             connected = false;
-            if (!chat.Busy && !chat.NeedsLogin) _ = Reconnect(true);
+            if (!chat.Busy && !chat.NeedsLogin && (IsActiveView?.Invoke() == true || DateTimeOffset.UtcNow < remoteViewUntil)) _ = Reconnect(true);
         });
         client.UpdateAsync = async update => await Dispatcher.UIThread.InvokeAsync(() => Update(update), DispatcherPriority.Background);
         client.PermissionRequested = async (request, token) =>
@@ -201,7 +236,18 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, turn?.Token ?? lifetime.Token);
             linked.Token.ThrowIfCancellationRequested();
             if (PermissionPolicy.AutoApprove(store, request) is { } approved) return approved;
-            return Permission is null ? RpcJson.Permission() : await Permission(request, linked.Token);
+            if (Permission is null) return RpcJson.Permission();
+            await Dispatcher.UIThread.InvokeAsync(() => { pendingPermissions++; chat.NeedsPermission = true; chat.Status = "Needs permission"; Changed?.Invoke(); });
+            try { return await Dispatcher.UIThread.InvokeAsync(() => Permission(request, linked.Token).WaitAsync(linked.Token)); }
+            finally
+            {
+                await Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    chat.NeedsPermission = --pendingPermissions > 0;
+                    if (!chat.NeedsPermission && chat.Status == "Needs permission") chat.Status = chat.Busy ? "Working…" : "Ready";
+                    Changed?.Invoke();
+                });
+            }
         };
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, turn?.Token ?? lifetime.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(90));
@@ -229,7 +275,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
                 await NewSession(timeout.Token);
             }
             await RestoreAccess();
-            connected = true; connectedAt = DateTimeOffset.UtcNow;
+            connected = true; connectedAt = DateTimeOffset.UtcNow; StartIdleTimer();
         }
         finally { loading = false; replaying = false; }
     }
@@ -323,7 +369,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             chat.Updated = DateTimeOffset.UtcNow;
             chat.PendingInput = null;
             foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-            store.Save(chat); turn.Dispose(); turn = null;
+            store.Save(chat); turn.Cancel(); turn.Dispose(); turn = null;
             try
             {
                 await store.FlushAsync();
@@ -331,6 +377,7 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
             }
             catch (Exception error) { completed = false; chat.Status = "Could not save completed turn: " + error.Message; }
             chat.Busy = detachedTurn;
+            store.Save(chat);
             if (!chat.RetainHistory) store.ReleaseHistory(chat);
             activeToolInputs.Clear(); Changed?.Invoke();
             if (recoverConnection && !lifetime.IsCancellationRequested && !IsRecovering)
@@ -456,5 +503,5 @@ public sealed class ChatRuntime(Chat chat, Workspace workspace, Store store, str
         Changed?.Invoke();
     }
     public async ValueTask DisposeAsync()
-    { lifetime.Cancel(); if (client is not null) { await client.DisposeAsync(); client = null; } if (activeTask is not null) await activeTask; if (steeringTask is not null) await steeringTask; if (reconnectTask is not null) await reconnectTask; if (recoveryTask is not null) await recoveryTask; }
+    { idleTimer?.Stop(); lifetime.Cancel(); if (client is not null) { await client.DisposeAsync(); client = null; } if (idleShutdown is not null) await idleShutdown; if (activeTask is not null) await activeTask; if (steeringTask is not null) await steeringTask; if (reconnectTask is not null) await reconnectTask; if (recoveryTask is not null) await recoveryTask; }
 }

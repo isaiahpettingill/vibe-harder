@@ -92,6 +92,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var active = runtime(chat, workspaceOwner);
         if (method == "chat")
         {
+            active.KeepAlive();
             Message[] page;
             if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: 50);
             else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: 50, newer: true);
@@ -106,7 +107,13 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
                 if (!chat.HistoryLoaded && !chat.Busy) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat));
                 page = chat.Messages.ToArray();
             }
-            if ((page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") && chat.SessionId is not null && !chat.Busy) _ = active.LoadHistory();
+            // New clients distinguish explicit selection from restoring a cached selection.
+            // Legacy clients retain their history-load behavior when the flag is absent.
+            if (request["activate"]?.GetValue<bool>() != false && chat.SessionId is not null && !chat.Busy)
+            {
+                if (page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") _ = active.LoadHistory();
+                else if (request["activate"]?.GetValue<bool>() == true && !active.IsConnected && !active.IsReconnecting) _ = active.Reconnect();
+            }
             var result = Summary(chat);
             result["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["id"] = m.Id, ["sequence"] = m.Sequence, ["role"] = m.Role, ["text"] = m.Text, ["attachments"] = JsonSerializer.SerializeToNode(m.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray) }).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
@@ -152,5 +159,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
+    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
 }

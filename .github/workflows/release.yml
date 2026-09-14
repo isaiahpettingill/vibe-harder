@@ -113,6 +113,24 @@ jobs:
           name: ${{ matrix.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
+  web:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          dotnet-quality: preview
+      - run: dotnet workload install wasm-tools-net10 --skip-manifest-update
+      - shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: ./tools/package-web.ps1 -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: artifacts/packages/VibeHarder-Web.zip
+          if-no-files-found: error
   linux-installer:
     runs-on: ubuntu-24.04
     steps:
@@ -124,7 +142,7 @@ jobs:
       - run: sh -n install.sh && python3 tools/check-latest-installer.py
       - run: sh tools/check-linux-instance.sh
   publish:
-    needs: [desktop, musl, android, linux-installer]
+    needs: [desktop, musl, android, web, linux-installer]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

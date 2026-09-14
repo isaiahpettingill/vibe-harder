@@ -57,6 +57,13 @@ public sealed class RemotePairingSession : IDisposable
     public static (string Host, int Port) ParseAddress(string address)
     {
         var input = address.Trim();
+        if (OperatingSystem.IsBrowser())
+        {
+            if (!input.Contains("://")) input = "https://" + input;
+            if (!Uri.TryCreate(input, UriKind.Absolute, out var endpoint) || endpoint.Scheme != "https" || string.IsNullOrEmpty(endpoint.Host) || endpoint.UserInfo.Length > 0 || endpoint.AbsolutePath != "/" || endpoint.Query.Length > 0 || endpoint.Fragment.Length > 0)
+                throw new FormatException("Enter the computer's HTTPS web address.");
+            return (endpoint.IdnHost.Trim('[', ']'), endpoint.Port);
+        }
         if (input.Length == 0) throw new FormatException("Enter your computer's address, such as my-desktop or my-desktop.tailnet.ts.net.");
         if (!input.Contains("://") && input.Count(c => c == ':') > 1 && !input.StartsWith('[')) input = "[" + input + "]";
         if (!input.Contains("://")) input = "tcp://" + input;

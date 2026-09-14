@@ -1,6 +1,8 @@
 import {createInterface} from 'node:readline';
 import {appendFileSync, existsSync, writeFileSync} from 'node:fs';
 const recoveryFile = process.argv.find(a=>a.startsWith('--recovery='))?.slice(11);
+const startupLog = process.argv.find(a=>a.startsWith('--startup-log='))?.slice(14);
+if (startupLog) appendFileSync(startupLog, 'started\n');
 if (process.argv.includes('--startup-failure') && recoveryFile && !existsSync(recoveryFile)) { writeFileSync(recoveryFile,'startup\n'); process.exit(3); }
 const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
 const response = (id,result) => emit({jsonrpc:'2.0',id,result});

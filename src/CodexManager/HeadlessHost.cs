@@ -27,11 +27,29 @@ public static class HeadlessHost
             args.Contains("--pair") ? (device, code, _, _) => { Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask; }
         : null);
         using var stopped = new CancellationTokenSource(); bool stopping = false;
+        using var webLifetime = new CancellationTokenSource();
+        WebServer? webServer = null;
+        async Task StartWeb()
+        {
+            if (store.Setting("webEnabled") != "1") return;
+            try
+            {
+                var assets = await WebAssets.Ensure(store.DirectoryPath, Console.WriteLine, webLifetime.Token);
+                webServer = await WebServer.Start(assets, RemoteServer.DirectoryPath, Arg("--listen", store.Setting("remoteListenAddress") ?? "0.0.0.0"), int.Parse(store.Setting("webPort") ?? "2223"), service.Handle,
+                    args.Contains("--pair") ? (device, code, _, _) => { Console.WriteLine($"Pair {device}: {code} (expires in two minutes)"); return Task.CompletedTask; } : null, webLifetime.Token);
+                Console.WriteLine("Web UI: " + WebAccessStatus.Address(store));
+            }
+            catch (OperationCanceledException) when (webLifetime.IsCancellationRequested) { }
+            catch (Exception error) { Console.Error.WriteLine("Web access: " + error.Message); }
+        }
+        var webStartup = StartWeb();
         async void Stop()
         {
             if (stopping) return; stopping = true;
             try
             {
+                webLifetime.Cancel(); await webStartup;
+                if (webServer is not null) await webServer.DisposeAsync();
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
                 await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);
                 foreach (var chat in chats) { store.Save(chat); foreach (var message in chat.Messages) store.SaveMessage(chat, message); }

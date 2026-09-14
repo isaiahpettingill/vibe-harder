@@ -16,6 +16,54 @@ The desktop listens on port **2222** by default. **Allow my other devices to con
 
 Both devices must be able to reach the host and port. Allow that port through the host firewall for your LAN or VPN. For Tailscale, connect both devices to the tailnet and enable MagicDNS. There is no public relay.
 
+## Web access (iPhone, iPad, and other browsers)
+
+On the desktop, open **Settings → Remote hosts and server → Enable web access**.
+The app downloads `VibeHarder-Web.zip` from the GitHub release matching its installed
+version, verifies its SHA-256 digest, and caches it locally. No web assets are
+downloaded while this setting is off. A failed download offers **Apply / Retry**;
+it does not start a server with an incomplete bundle.
+
+Open the displayed HTTPS address or scan its QR code. The web port defaults to
+**2223**, separate from the native remote port. Use the computer's LAN IP or
+Tailscale MagicDNS name if necessary, and allow that port through its firewall.
+Your phone must be able to reach the computer over the LAN or VPN. No purchased
+domain, public relay, Mac, or iOS signing is required.
+
+The web listener uses a self-signed certificate. Accept the browser's certificate
+warning before pairing with the six-digit code shown by the desktop. The page and
+its WebSocket connection use the same origin. Browser certificate-exception
+behavior varies; iOS Safari must be checked on the actual device. This is not a
+programmatic bypass of browser certificate validation.
+
+The browser runs the shared Avalonia UI in WebAssembly and connects to the machine
+serving the page. To use another host, open that host's web address. Chats and agents
+remain on the host; paired credentials, preferences, and remote drafts stay in that
+browser's local storage. Clearing site data forgets the pairing. Revoking a paired
+device also revokes its web access. GitHub distributes the assets and receives no
+chat traffic. Existing provider connections are unchanged.
+
+Turning web access off stops its listener and connected web clients while leaving
+host-owned agents and native remote connections running. Cached assets remain for
+the next enable. After a desktop update, enabling or starting web access obtains the
+matching bundle. Headless mode honors the same saved web settings; `--pair` prints
+the browser's pairing number to the console.
+
+### Build the web assets
+
+The browser uses .NET 10 with the same Avalonia 12 UI source; its graphics libraries
+require the matching Emscripten toolchain. With the repository SDK:
+
+```sh
+dotnet workload install wasm-tools-net10 --skip-manifest-update
+pwsh tools/package-web.ps1 -Version 1.2.3
+```
+
+For development, set `VIBE_HARDER_WEB_ASSETS` to the published `wwwroot` directory
+before launching a development desktop/headless build. Release installations always
+use the verified matching GitHub asset. The release workflow publishes this archive
+alongside the desktop and Android packages.
+
 ## Shared interface
 
 Desktop and Android load the same Avalonia application, `MainView`, remote chat view, themes, Markdown renderer, and message controls from `CodexManager.UI`. Android's activity only hosts that shared view and forwards lifecycle events.

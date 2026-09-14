@@ -29,7 +29,7 @@ The standalone [install.sh](../install.sh) detects x64/ARM64 and glibc/musl, dow
 The script does not change system packages. Desktop use requires X11/XWayland, fontconfig, and native Skia dependencies. On Debian/Ubuntu these include `libfontconfig1 libx11-6 libice6 libsm6 libicu-dev`; on Alpine, `fontconfig libx11 libice libsm icu-libs`. The glibc packages require glibc 2.34 or newer (for example Ubuntu 22.04+ or Debian 12+). Headless use is described in [REMOTE.md](../REMOTE.md).
 
 The default desktop package is stripped Native AOT. `bundled` packages contain
-the .NET runtime; `framework` packages require .NET 11 installed separately.
+the .NET runtime; `framework` packages require the .NET 11 ASP.NET Core runtime installed separately (the optional web listener uses Kestrel).
 macOS releases provide both managed modes and exclude AOT.
 
 The app and remote server do not bundle or require Node.js. Install your chosen

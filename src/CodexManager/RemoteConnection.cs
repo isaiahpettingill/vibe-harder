@@ -21,8 +21,9 @@ public sealed class RemoteRequestBusyException : IOException
 public sealed class RemoteConnection : IDisposable
 {
     private readonly RemoteHost host;
-    private readonly TcpClient client = new();
+    private readonly TcpClient? client = OperatingSystem.IsBrowser() ? null : new();
     private SslStream? stream;
+    private System.Net.WebSockets.ClientWebSocket? socket;
     private readonly SemaphoreSlim gate = new(1);
     private int disposed;
     public string? ObservedFingerprint { get; private set; }
@@ -30,7 +31,15 @@ public sealed class RemoteConnection : IDisposable
     internal Task OpenForPairing(CancellationToken token) => Open(token, pairing: true);
     private async Task Open(CancellationToken token, bool pairing = false)
     {
-        await client.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
+        if (OperatingSystem.IsBrowser())
+        {
+            var endpoint = new UriBuilder("https", host.Address, host.Port).Uri;
+            ObservedFingerprint = "web:" + endpoint.GetLeftPart(UriPartial.Authority);
+            socket = new();
+            await socket.ConnectAsync(new UriBuilder(endpoint) { Scheme = "wss", Path = "/remote" }.Uri, token);
+            return;
+        }
+        await client!.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
         stream = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
         {
             if (certificate is null) return false;
@@ -44,7 +53,8 @@ public sealed class RemoteConnection : IDisposable
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
         using var abort = timeout.Token.Register(Dispose);
         await Open(timeout.Token).WaitAsync(timeout.Token).ConfigureAwait(false);
-        var credential = JsonNode.Parse(await File.ReadAllTextAsync(host.KeyPath, timeout.Token).ConfigureAwait(false))?.AsObject() ?? throw new IOException("Pair this host again in Remote settings.");
+        var saved = OperatingSystem.IsBrowser() ? BrowserPlatform.Read("credential:" + host.KeyPath) : await File.ReadAllTextAsync(host.KeyPath, timeout.Token).ConfigureAwait(false);
+        var credential = JsonNode.Parse(saved ?? "null")?.AsObject() ?? throw new IOException("Pair this host again in Remote settings.");
         credential["method"] = "auth";
         await Request(credential, timeout.Token).ConfigureAwait(false);
     }
@@ -70,8 +80,9 @@ public sealed class RemoteConnection : IDisposable
             ObjectDisposedException.ThrowIf(Volatile.Read(ref disposed) != 0, this);
             using var abort = token.Register(Dispose);
             request["id"] = Guid.NewGuid().ToString("N");
-            await RemoteWire.Write(stream!, request, token).WaitAsync(token).ConfigureAwait(false);
-            var response = await RemoteWire.Read(stream!, token).WaitAsync(token).ConfigureAwait(false);
+            if (socket is not null) await WebSocketWire.Write(socket, request, token);
+            else await RemoteWire.Write(stream!, request, token).WaitAsync(token).ConfigureAwait(false);
+            var response = socket is not null ? await WebSocketWire.Read(socket, token) : await RemoteWire.Read(stream!, token).WaitAsync(token).ConfigureAwait(false);
             if (response["id"]?.GetValue<string>() != request["id"]!.GetValue<string>()) throw new IOException("Unexpected remote response.");
             if (response["error"] is { } error) throw new RemoteOperationException(error.GetValue<string>());
             var result = response["result"]; response.Remove("result"); return result;
@@ -84,7 +95,7 @@ public sealed class RemoteConnection : IDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) return;
         // Close the socket first to interrupt a TLS read, including on Android resume.
-        client.Dispose(); stream?.Dispose();
+        socket?.Abort(); socket?.Dispose(); client?.Dispose(); stream?.Dispose();
     }
 }
 

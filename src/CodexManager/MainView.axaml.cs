@@ -25,6 +25,7 @@ public partial class MainView : UserControl
         FileLinks.Reveal(FileLinks.Resolve(target, workspace));
     }
     private readonly Store store;
+    private bool restoringSelection = true;
     private SessionService remoteSessions = null!;
     private RemoteServer? remoteServer;
     private RemoteView? remoteView;
@@ -175,6 +176,7 @@ public partial class MainView : UserControl
         if (workspaces.Count > 0) SelectWorkspace(workspaces.FirstOrDefault(w => w.Id == store.Setting("workspace")) ?? workspaces[0]);
         UpdateControls();
         AppDiagnostics.RecoveryRequested += RecoverAfterError;
+        restoringSelection = false;
     }
     private async void OpenWorkspaceClick(object? sender, RoutedEventArgs e)
     {
@@ -218,7 +220,7 @@ public partial class MainView : UserControl
             {
                 popup.Hide();
                 if (remoteOnly) { ShowConnectionSettings(); return; }
-                var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(desktopWindow!);
+                var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer, ConfigureWebServer).ShowDialog<RemoteHost?>(desktopWindow!);
                 BuildWorkspaceTree(); if (host is not null) OpenRemoteHost(host);
             };
             Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(OpenWorkspaceButton, popup); popup.ShowAt(OpenWorkspaceButton); return;
@@ -262,11 +264,7 @@ public partial class MainView : UserControl
         UpdateControls();
         if (startChat && !chats.Any(c => c.WorkspaceId == selected.Id && !c.Archived))
             NewChat(Enum.TryParse<AgentProvider>(store.Setting("lastProvider"), out var provider) ? provider : AgentProvider.Codex);
-        foreach (var provider in AgentProviders.All)
-        {
-            var key = selected.Id + ":" + provider.Provider;
-            if (!discoveries.ContainsKey(key)) discoveries[key] = DiscoverHistory(selected, provider.Provider);
-        }
+        // Sidebar restoration uses cached metadata. Import is explicit and may start an adapter.
     }
     private async Task<string> DiscoverHistory(Workspace owner, AgentProvider provider = AgentProvider.Codex)
     {
@@ -409,6 +407,7 @@ public partial class MainView : UserControl
     {
         if (refreshingChats || sender is not ListBox { SelectedItem: Chat chat, Tag: Workspace owner }) return;
         if (!recoveringPresentation) ClearRecoveryNotice();
+        var connectAgent = !restoringSelection;
         if (!ReferenceEquals(current, chat)) recoveryAttempts = 0;
         CloseRemoteView();
         if (workspace?.Id != owner.Id)
@@ -441,6 +440,7 @@ public partial class MainView : UserControl
             catch (OperationCanceledException) { return; }
             catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; return; }
         }
+        if (!connectAgent || !ReferenceEquals(current, chat) || remoteView is not null || closing) return;
         if (chat.SessionId is not null && (chat.Messages.Count == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") && workspace is not null)
             await Runtime(chat, workspace).LoadHistory();
         else if (chat.SessionId is not null && workspace is not null && Runtime(chat, workspace) is { IsConnected: false, IsReconnecting: false } runtime)
@@ -637,6 +637,7 @@ public partial class MainView : UserControl
         if (!runtimes.TryGetValue(chat.Id, out var runtime))
         {
             runtime = new(chat, owner, store, AgentProviders.Command(store, owner, chat.Provider));
+            runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Changed += () =>
             {
@@ -805,7 +806,6 @@ public partial class MainView : UserControl
             await Dispatcher.UIThread.InvokeAsync(() =>
             {
                 if (completion.Task.IsCompleted) return;
-                chat.Status = "Needs permission";
                 permissionCards[id] = (chat, new PermissionCard(JsonNode.Parse(request.GetRawText())!.AsObject(), option =>
                 { completion.TrySetResult(RpcJson.Permission(option)); return Task.CompletedTask; }));
                 UpdateControls(); UpdatePermissions();
@@ -815,7 +815,7 @@ public partial class MainView : UserControl
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetPermission(id); permissionCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetPermission(id); permissionCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); UpdateControls(); });
         }
     }
     private async void ImportChatsClick(object? sender, RoutedEventArgs e)
@@ -887,7 +887,7 @@ public partial class MainView : UserControl
         var remote = new Button { Content = "Remote hosts and server…" };
         remote.Click += async (_, _) =>
         {
-            try { var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer).ShowDialog<RemoteHost?>(dialog); BuildWorkspaceTree(); if (host is not null) { dialog.Close(); OpenRemoteHost(host); } }
+            try { var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer, ConfigureWebServer).ShowDialog<RemoteHost?>(dialog); BuildWorkspaceTree(); if (host is not null) { dialog.Close(); OpenRemoteHost(host); } }
             catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not open remote settings", error); }
         };
         panel.Children.Add(remote);
@@ -1319,6 +1319,14 @@ public partial class MainView : UserControl
             foreach (var login in loginSessions.Values) await Cleanup(() => Task.Run(login.Session.Dispose));
             foreach (var terminal in terminals.Values.SelectMany(t => t)) await Cleanup(() => Task.Run(terminal.Session.Dispose));
             if (remoteServer is not null) await Cleanup(() => remoteServer.DisposeAsync().AsTask());
+#if !MOBILE_CLIENT
+            await Cleanup(async () =>
+            {
+                await webConfiguration.WaitAsync();
+                try { if (webServer is not null) await webServer.DisposeAsync(); }
+                finally { webConfiguration.Release(); }
+            });
+#endif
             await Task.WhenAll(stoppingAgents);
             await Cleanup(() => Task.WhenAll(discoveries.Values));
             await Cleanup(() => Task.WhenAll(workspaceClosures.ToArray()));

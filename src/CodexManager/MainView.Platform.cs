@@ -70,6 +70,7 @@ public partial class MainView
         {
             StartUpdateChecks();
             await ConfigureRemoteServer();
+            await ConfigureWebServer();
             await OfferInterruptedChats();
             if (Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable) window.Hide();
         };
@@ -149,7 +150,7 @@ public partial class MainView
     private void ShowConnectionSettings()
     {
         if (connectionSettings is not null) return;
-        var settings = new ConnectionSettingsView(store, remoteOnly, ConfigureRemoteServer);
+        var settings = new ConnectionSettingsView(store, remoteOnly, ConfigureRemoteServer, ConfigureWebServer);
         connectionSettings = settings;
         var done = new Button { Content = "Done", HorizontalAlignment = HorizontalAlignment.Right };
         var panel = new DockPanel { Margin = new Thickness(12) };
