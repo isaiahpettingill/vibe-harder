@@ -6,6 +6,7 @@ scratch=$(mktemp -d /tmp/codex-manager-package.XXXXXXXX)
 case "$scratch" in /tmp/codex-manager-package.*) ;; *) exit 1;; esac
 trap 'rm -rf -- "$scratch"' EXIT HUP INT TERM
 export XDG_DATA_HOME="$scratch/share with spaces"
+export HOME="$scratch/home"
 sh "$package/install.sh"
 app="$XDG_DATA_HOME/codex-manager"
 test -x "$app/VibeHarder"

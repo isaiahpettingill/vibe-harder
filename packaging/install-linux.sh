@@ -14,6 +14,8 @@ esac
 mkdir -p "$target" "$desktop_dir" "$icon_dir"
 if [ "$source_dir" != "$target" ]; then cp -a "$source_dir/." "$target/"; fi
 chmod +x "$target/VibeHarder"
+chmod +x "$target/vibe-harder.sh" "$target/install-cli.sh"
+sh "$target/install-cli.sh"
 cp "$target/Assets/app.png" "$icon_dir/codex-manager.png"
 # Quote the Exec argument according to the Desktop Entry specification; percent
 # signs must be doubled because they introduce field codes, even inside quotes.

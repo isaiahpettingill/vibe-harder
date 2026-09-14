@@ -7,6 +7,7 @@ namespace CodexManager;
 
 public partial class App : Application
 {
+    public static Action? DesktopReady { get; set; }
     public override void Initialize()
     {
         AppDiagnostics.Install();
@@ -57,6 +58,7 @@ public partial class App : Application
             var state = await Task.Run(() => { openedStore = new Store(backgroundWrites: true); return (Store: openedStore, Workspaces: openedStore.Workspaces(), Chats: openedStore.Chats()); });
             var window = new MainWindow(state.Store, state.Workspaces, state.Chats);
             desktop.MainWindow = window; window.Show(); recovery?.Close();
+            DesktopReady?.Invoke();
         }
         catch (Exception error) when (!AppDiagnostics.IsUnrecoverable(error))
         {

@@ -42,6 +42,7 @@ Set-Content -LiteralPath (Join-Path $publish 'runtime.txt') -Value $Runtime -NoN
 @{ version = $Version; runtime = $Runtime; mode = $mode } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publish 'update.json')
 
 if ($Runtime.StartsWith('win')) {
+    Copy-Item (Join-Path $repo 'packaging/vibe-harder.cmd'), (Join-Path $repo 'packaging/register-cli.ps1') -Destination $publish
     $compiler = Get-Command makensis -ErrorAction SilentlyContinue
     if (!$compiler) { throw 'Install NSIS (https://nsis.sourceforge.io/Download) and add makensis to PATH, then rerun.' }
     $output = Join-Path $packages "VibeHarder-$Version-$Runtime-$mode-Setup.exe"
@@ -50,6 +51,8 @@ if ($Runtime.StartsWith('win')) {
 } elseif ($Runtime.StartsWith('linux')) {
     if (!$IsLinux) { throw 'Build Linux packages on Linux to preserve executable modes and symlinks.' }
     Copy-Item -LiteralPath (Join-Path $repo 'packaging/install-linux.sh') -Destination (Join-Path $publish 'install.sh')
+    Copy-Item (Join-Path $repo 'packaging/vibe-harder.sh'), (Join-Path $repo 'packaging/install-cli.sh') -Destination $publish
+    chmod +x (Join-Path $publish 'vibe-harder.sh') (Join-Path $publish 'install-cli.sh')
     chmod +x (Join-Path $publish 'VibeHarder') (Join-Path $publish 'install.sh')
     $output = Join-Path $packages "VibeHarder-$Version-$Runtime-$mode.tar.gz"
     tar -czf $output -C $publish .
@@ -63,6 +66,8 @@ if ($Runtime.StartsWith('win')) {
     New-Item -ItemType Directory -Force $macos, $resources | Out-Null
     cp -a "$publish/." "$macos/"
     if ($LASTEXITCODE) { throw 'App bundle copy failed' }
+    Copy-Item (Join-Path $repo 'packaging/vibe-harder.sh'), (Join-Path $repo 'packaging/install-cli.sh') -Destination $macos
+    chmod +x (Join-Path $macos 'vibe-harder.sh') (Join-Path $macos 'install-cli.sh')
     Copy-Item -LiteralPath (Join-Path $repo 'src/CodexManager/Assets/app.icns') -Destination (Join-Path $resources 'app.icns')
     (Get-Content -LiteralPath (Join-Path $repo 'packaging/Info.plist') -Raw).Replace('@VERSION@', $Version) | Set-Content -LiteralPath (Join-Path $bundle 'Contents/Info.plist')
     chmod +x (Join-Path $macos 'VibeHarder')

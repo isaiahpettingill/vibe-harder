@@ -5,6 +5,16 @@
 - **macOS:** unzip and drag `Vibe Harder.app` to Applications. Bundles are ad-hoc signed; Developer ID notarization requires your own Apple credentials.
 - **Android:** install `VibeHarder-Android.apk`, the remote-only client for Android API 24+ (ARM64/x64). Its stable asset name works with Obtainium.
 
+## Command-line launcher
+
+`vibe-harder [directory]` launches the desktop app, forwarding the directory to an already running instance when available. Relative paths are resolved from your terminal's current directory. Existing local workspaces are reused and reopened; otherwise a new workspace is created. Omit the directory to just show the app.
+
+- Windows: the installer adds its folder to your user PATH. Open a new terminal, then run `vibe-harder .` or `vibe-harder "C:\Projects\My project"`. The launcher is a `vibe-harder.cmd` next to the executable. Uninstall removes only the PATH entry added by the installer.
+- Linux: installation creates `~/.local/bin/vibe-harder`, pointing to `vibe-harder.sh` in the app installation. Add `~/.local/bin` to PATH if necessary. The script also works directly from an extracted package.
+- macOS: after placing the app in Applications, run `sh "/Applications/Vibe Harder.app/Contents/MacOS/install-cli.sh"`, then use `~/.local/bin/vibe-harder` (or add that directory to PATH). If you install elsewhere, run `install-cli.sh` from that app's `Contents/MacOS` directory.
+
+The scripts only launch the GUI; they do not run agents or host a server in your terminal.
+
 ## Linux latest-release installer
 
 Installed desktop releases also check for updates after startup and every four hours. Use **Download update**, then **Restart to update** in the status bar. Downloads are verified against GitHub's SHA-256 digest and retain your platform, architecture, and package mode. The restart saves chats and resumes active requests once, without changing the normal automatic-resume preference. Linux/macOS updates require write access to the installation's parent directory; system-owned installs must be updated by their owner. Development builds, headless hosts, and Android do not poll for updates.

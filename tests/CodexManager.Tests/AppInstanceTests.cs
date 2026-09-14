@@ -2,19 +2,21 @@ namespace CodexManager.Tests;
 
 public class AppInstanceTests
 {
-    [Fact]
-    public async Task SecondLaunchActivatesOwnerInsteadOfOwningProfile()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("/tmp/a folder/日本語")]
+    public async Task SecondLaunchActivatesOwnerInsteadOfOwningProfile(string? directory)
     {
         var profile = Path.Combine(Path.GetTempPath(), "codex-instance", Guid.NewGuid().ToString("N"));
         using var ready = new ManualResetEventSlim(); using var finish = new ManualResetEventSlim();
-        var activated = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var activated = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
         Exception? failure = null;
         var thread = new Thread(() =>
         {
             try
             {
                 using var owner = new AppInstance(profile); Assert.True(owner.IsOwner);
-                _ = owner.Listen(() => activated.TrySetResult()); ready.Set(); finish.Wait(TimeSpan.FromSeconds(10));
+                _ = owner.Listen(path => activated.TrySetResult(path)); ready.Set(); finish.Wait(TimeSpan.FromSeconds(10));
             }
             catch (Exception error) { failure = error; ready.Set(); }
         });
@@ -23,7 +25,8 @@ public class AppInstanceTests
         {
             Assert.Null(failure);
             using var second = new AppInstance(profile); Assert.False(second.IsOwner);
-            await second.ActivateExisting(); await activated.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(await second.ActivateExisting(directory));
+            Assert.Equal(directory, await activated.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
         }
         finally { finish.Set(); thread.Join(); }
         Assert.Null(failure);

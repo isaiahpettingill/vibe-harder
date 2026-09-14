@@ -31,6 +31,8 @@ class LatestInstallerTests(unittest.TestCase):
             (package / "Assets").mkdir()
             (package / "Assets/app.png").write_bytes(b"image fixture")
             shutil.copy(ROOT / "packaging/install-linux.sh", package / "install.sh")
+            for name in ("vibe-harder.sh", "install-cli.sh"):
+                shutil.copy(ROOT / "packaging" / name, package / name)
             with tarfile.open(root / asset, "w:gz") as archive:
                 archive.add(package, arcname=".")
             digest = hashlib.sha256((root / asset).read_bytes()).hexdigest()
@@ -61,6 +63,7 @@ shutil.copy(Path(os.environ['FIXTURE'])/name, args[args.index('--output')+1])
                 PATH=f"{tools}:{os.environ['PATH']}",
                 FIXTURE=str(root),
                 XDG_DATA_HOME=str(data),
+                HOME=str(root / "home"),
             )
             result = subprocess.run(
                 ["sh", str(ROOT / "install.sh")],

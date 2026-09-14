@@ -184,6 +184,17 @@ public partial class MainView : UserControl
         if (selected is null) return;
         OpenWorkspace(selected);
     }
+    public void OpenLocalDirectory(string directory)
+    {
+        if (remoteOnly) return;
+        try
+        {
+            var path = WorkspaceLaunch.Normalize(directory);
+            var existing = store.Workspaces().FirstOrDefault(w => !w.IsWsl && WorkspaceLaunch.SameLocalPath(w.Path, path));
+            OpenWorkspace(existing ?? new Workspace(Guid.NewGuid().ToString("N"), Path.GetFileName(path) is { Length: > 0 } name ? name : path, path));
+        }
+        catch (Exception error) when (!AppDiagnostics.IsUnrecoverable(error)) { StatusText.Text = AppDiagnostics.Message("Could not open workspace", error); }
+    }
     private void OpenWorkspace(Workspace selected)
     {
         showArchived = false; ArchiveViewButton.Content = "Chats ▾"; SearchBox.Text = "";

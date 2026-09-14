@@ -7,12 +7,28 @@ internal static class Program
     [STAThread]
     public static void Main(string[] args)
     {
+        string? directory;
+        try { directory = args.Contains("--headless") ? null : WorkspaceLaunch.Parse(args); }
+        catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException)
+        { Console.Error.WriteLine(error.Message); Environment.ExitCode = 2; return; }
         using var instance = new AppInstance(Store.DataDirectory);
-        if (!instance.IsOwner) { instance.ActivateExisting().GetAwaiter().GetResult(); return; }
-        _ = instance.Listen(() => Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+        if (!instance.IsOwner)
         {
-            if ((Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow is MainWindow window) window.ShowFromTray();
-        }));
+            if (!instance.ActivateExisting(directory).GetAwaiter().GetResult()) { Console.Error.WriteLine("Could not reach the running Vibe Harder app. Try again."); Environment.ExitCode = 1; }
+            return;
+        }
+        var pending = new Queue<string?>();
+        if (directory is not null) pending.Enqueue(directory);
+        void Deliver()
+        {
+            if ((Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow is not MainWindow window) return;
+            while (pending.TryDequeue(out var folder)) { window.ShowFromTray(); if (folder is not null) window.View.OpenLocalDirectory(folder); }
+        }
+        App.DesktopReady = Deliver;
+        // Bind the dispatcher on the main thread before a pipe request can
+        // arrive; first access from the listener would claim the wrong thread.
+        var dispatcher = Avalonia.Threading.Dispatcher.UIThread;
+        _ = instance.Listen(folder => dispatcher.Post(() => { pending.Enqueue(folder); Deliver(); }));
         if (Environment.GetEnvironmentVariable("CODEX_MANAGER_TRACE") == "1")
             System.Diagnostics.Trace.Listeners.Add(new System.Diagnostics.TextWriterTraceListener(Console.Error));
         if (args.Contains("--headless")) { HeadlessHost.Run(args); return; }

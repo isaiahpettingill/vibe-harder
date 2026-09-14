@@ -10,9 +10,10 @@ mkdir -p "$publish" artifacts/packages
 dotnet publish src/CodexManager -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -p:Version="$version" -o "$publish"
 find "$publish" -maxdepth 1 -type f \( -name '*.pdb' -o -name '*.dbg' \) -delete
 cp packaging/install-linux.sh "$publish/install.sh"
+cp packaging/vibe-harder.sh packaging/install-cli.sh "$publish/"
 cp packaging/README.md "$publish/INSTALL.md"
 cp LICENSE "$publish/LICENSE"
 printf '%s' "$rid" > "$publish/runtime.txt"
 printf '{"version":"%s","runtime":"%s","mode":"%s"}\n' "$version" "$rid" "$mode" > "$publish/update.json"
-chmod +x "$publish/install.sh" "$publish/VibeHarder"
+chmod +x "$publish/install.sh" "$publish/VibeHarder" "$publish/vibe-harder.sh" "$publish/install-cli.sh"
 tar -czf "artifacts/packages/VibeHarder-$version-$rid-$mode.tar.gz" -C "$publish" .

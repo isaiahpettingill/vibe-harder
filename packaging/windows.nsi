@@ -36,6 +36,7 @@ Section "Vibe Harder"
   StrCmp $0 "" +2
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CodexManager" '"$INSTDIR\VibeHarder.exe" --startup'
   WriteRegStr HKCU "Software\CodexManager" "InstallDir" "$INSTDIR"
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\register-cli.ps1"'
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "DisplayName" "Vibe Harder"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "DisplayVersion" "${VERSION}"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "DisplayIcon" "$INSTDIR\VibeHarder.exe"
@@ -46,6 +47,7 @@ SectionEnd
 
 Section "Uninstall"
   SetShellVarContext current
+  nsExec::ExecToLog 'powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "$INSTDIR\register-cli.ps1" -Remove'
   DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CodexManager"
   Delete "$SMPROGRAMS\Vibe Harder.lnk"
   Delete "$DESKTOP\Vibe Harder.lnk"
@@ -56,6 +58,8 @@ Section "Uninstall"
   Delete "$INSTDIR\*.pdb"
   Delete "$INSTDIR\INSTALL.md"
   Delete "$INSTDIR\runtime.txt"
+  Delete "$INSTDIR\vibe-harder.cmd"
+  Delete "$INSTDIR\register-cli.ps1"
   Delete "$INSTDIR\remote-server.cjs"
   Delete "$INSTDIR\LICENSE"
   RMDir /r "$INSTDIR\node_modules"
