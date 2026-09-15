@@ -71,7 +71,7 @@ public class AdditionalAgentTests
         Assert.Equal("1", local.Environment["VT_ACP_ZED_ENABLED"]);
         if (!OperatingSystem.IsWindows()) return;
         var wsl = AgentProviders.Start(new Workspace("w", "Test", "/tmp", "Debian"), "vtcode acp", AgentProvider.VTCode);
-        Assert.Contains("exec env 'VT_ACP_ENABLED=1' 'VT_ACP_ZED_ENABLED=1' vtcode acp", wsl.ArgumentList.Last());
+        Assert.Contains("exec env 'VT_ACP_ENABLED=1' 'VT_ACP_ZED_ENABLED=1' 'NO_COLOR=1' vtcode acp", wsl.ArgumentList.Last());
     }
 
     [Theory]

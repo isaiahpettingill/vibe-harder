@@ -79,7 +79,7 @@ public class ChatPresentationTests
     [AvaloniaFact]
     public void ToolAndThinkingStartCollapsedAndCanCollapseAfterExpansion()
     {
-        foreach (var role in new[] { "tool", "thought" })
+        foreach (var role in new[] { "tool", "thought", "plan" })
         {
             var view = new MessageView { Message = new Message { Role = role, Text = "command " + new string('x', 3000) } };
             var window = new Window { Content = view }; window.Show();

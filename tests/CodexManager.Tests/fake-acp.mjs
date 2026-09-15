@@ -57,6 +57,10 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
+   if(m.params.prompt[0]?.text==='plan') {
+    const plan = status => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:{sessionUpdate:'plan',entries:[{content:'Answer the user',status,priority:'medium'}]}}});
+    plan('pending');plan('in_progress');update('Hello **');plan('in_progress');update('world**');plan('completed');response(m.id,{stopReason:'end_turn'});break;
+   }
    const onlineFile = process.argv.find(a=>a.startsWith('--network-outage='))?.slice(17);
    if(onlineFile && !existsSync(onlineFile)) { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'stream disconnected: connection reset by peer'}}); break; }
    if(m.params.prompt[0]?.text==='background-tools') {

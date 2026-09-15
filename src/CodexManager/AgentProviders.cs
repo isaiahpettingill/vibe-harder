@@ -30,7 +30,7 @@ public static class AgentProviders
     public static string Command(Store store, Workspace workspace, AgentProvider provider) =>
         store.Setting(CommandKey(provider, workspace.IsWsl)) ?? Get(provider).DefaultCommand;
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider) =>
-        Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1" } : null);
+        Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" } : null);
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
     public static string LoginCommand(Store store, Workspace workspace, AgentProvider provider) =>
         NormalizeLoginCommand(provider, store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand")) ?? (provider switch

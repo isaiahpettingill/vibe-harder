@@ -86,7 +86,7 @@ public sealed class Message : Observable
     public string ToolInput { get; set; } = "";
     private string text = "";
     public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }
-    public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };
+    public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", "plan" => "PLAN", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };
 }
 
 public sealed record Attachment(string Name, string MimeType, string Data, string? SourcePath = null, string? Reference = null, bool Binary = false)

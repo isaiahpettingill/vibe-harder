@@ -12,6 +12,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private bool loading;
     private bool replaying;
     private bool connected;
+    private Message? activePlan;
     private readonly Dictionary<string, string> activeToolInputs = [];
     private bool detachedTurn;
     private readonly CancellationTokenSource lifetime = new();
@@ -23,6 +24,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private bool lastTurnRecoverable;
     private bool advancingQueue;
     public bool IsRecovering { get; private set; }
+    public event Action? AuthenticationSucceeded;
     private Task<bool>? steeringTask;
     private bool reconnecting;
     private int rapidDisconnects;
@@ -262,7 +264,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         authenticatedProviders = await ProviderAuthentication.Read(workspace, chat.Provider);
         lifetime.Token.ThrowIfCancellationRequested();
         var files = new AcpFileSystem(workspace, () => chat.SessionId);
-        client = new(AgentProviders.Start(workspace, command, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
+        var launchCommand = chat.Provider == AgentProvider.VTCode ? VtCodeLaunch.WithAuthentication(command, authenticatedProviders) : command;
+        client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
         StartIdleTimer();
         var connection = client;
         client.ExtensionNotification += (method, parameters) => Dispatcher.UIThread.Post(() =>
@@ -311,7 +314,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (loading)
             {
                 if (!init.GetProperty("agentCapabilities").GetProperty("loadSession").GetBoolean()) throw new IOException("This adapter does not support session resume. Update its connection command.");
-                try { Configure(await client.Request("session/load", RpcJson.Object(("sessionId", chat.SessionId), ("cwd", workspace.Path), ("mcpServers", new JsonArray())), timeout.Token)); }
+                try { Configure(await client.Request("session/load", RpcJson.Object(("sessionId", chat.SessionId), ("cwd", workspace.Path), ("mcpServers", new JsonArray())), timeout.Token)); await NormalizeVtCodeModel(); }
                 catch (AcpException error) when (chat.Provider == AgentProvider.Codex && error.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)
                     && store.Setting("unmaterialized:" + chat.Id) == chat.SessionId && chat.Messages.All(m => m.Role == "system"))
                 {
@@ -339,6 +342,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         var session = await client!.Request("session/new", RpcJson.Object(("cwd", workspace.Path), ("mcpServers", new JsonArray())), token);
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
+        await NormalizeVtCodeModel();
         await ApplyNewSessionDefaults();
         if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model)
         {
@@ -347,6 +351,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         }
     }
 
+    private async Task NormalizeVtCodeModel()
+    {
+        // A CLI provider override can inherit another provider's workspace model.
+        // Reapplying the route lets VT Code choose its own compatible default.
+        if (chat.Provider == AgentProvider.VTCode && chat.ConfigOptions.FirstOrDefault(c => c.Id == "provider") is { } provider)
+            await SetConfigCore(provider, provider.Current);
+    }
     private string DefaultConfigKey(string id) => $"sessionDefault:{chat.Provider}:{workspace.Distro ?? "local"}:{id}";
     private async Task ApplyNewSessionDefaults()
     {
@@ -370,6 +381,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     public Task LoadHistory() => chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = LoadHistoryCore();
     private async Task LoadHistoryCore()
     {
+        activePlan = null;
         chat.Busy = true; IsLoadingHistory = true; chat.Status = "Loading history…"; Changed?.Invoke();
         var previous = chat.Messages.ToArray();
         store.Setting("historyIncomplete:" + chat.Id, "1"); store.ClearHistory(chat);
@@ -396,6 +408,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     public Task Send(string text, Attachment[] attachments, bool autoResume = false) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments, autoResume);
     private async Task SendCore(string text, Attachment[] attachments, bool autoResume)
     {
+        activePlan = null;
         if (chat.Busy) return;
         lastTurnRecoverable = false;
         chat.HasUnreadCompletion = false; chat.Busy = true; chat.Status = "Connecting…"; Changed?.Invoke();
@@ -431,7 +444,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             restoreDiracContext = false;
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;
-            if (completed) { chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }
+            if (completed) { chat.NeedsLogin = false; AuthenticationSucceeded?.Invoke(); chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }
 
         }
         catch (OperationCanceledException)
@@ -560,6 +573,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             var content = update.GetProperty("content");
             if (content.GetProperty("type").GetString() != "text") return;
             var role = kind == "agent_message_chunk" ? "assistant" : kind == "user_message_chunk" ? "user" : "thought";
+            if (kind == "user_message_chunk") activePlan = null;
             var protocolId = update.TryGetProperty("messageId", out var messageId) && messageId.ValueKind == JsonValueKind.String ? messageId.GetString() : null;
             var last = chat.Messages.LastOrDefault();
             if (last?.Role != role || protocolId is not null && last.ProviderMessageId is not null && last.ProviderMessageId != protocolId) { Add(role, ""); last = chat.Messages.Last(); }
@@ -590,7 +604,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             message.Text = $"{title}\n\n*{status}*{message.ToolInput}{details}"; if (!replaying) store.SaveMessage(chat, message);
             if (id is not null && status is "completed" or "failed") activeToolInputs.Remove(id);
         }
-        else if (kind == "plan") Add("assistant", string.Join("\n", update.GetProperty("entries").EnumerateArray().Select(e => $"- [{(e.GetProperty("status").GetString() == "completed" ? "x" : " ")}] {e.GetProperty("content").GetString()}")));
+        else if (kind == "plan")
+        {
+            if (activePlan is null) { Add("plan", ""); activePlan = chat.Messages.Last(); }
+            activePlan.Text = string.Join("\n", update.GetProperty("entries").EnumerateArray().Select(e => $"- [{(e.GetProperty("status").GetString() == "completed" ? "x" : " ")}] {e.GetProperty("content").GetString()}"));
+            store.SaveMessage(chat, activePlan);
+        }
         Changed?.Invoke();
     }
     private Task? disposal;

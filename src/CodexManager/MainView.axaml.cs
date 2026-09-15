@@ -669,6 +669,7 @@ public partial class MainView : UserControl
         if (!runtimes.TryGetValue(chat.Id, out var runtime))
         {
             runtime = new(chat, owner, store, AgentProviders.Command(store, owner, chat.Provider));
+            runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Changed += () =>

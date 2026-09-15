@@ -18,7 +18,7 @@ public sealed class MessageView : UserControl
     private bool attached;
     private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Message actions", VerticalAlignment = VerticalAlignment.Top };
     public bool IsExpandedOutput => IsOutput && expanded;
-    private bool IsOutput => Message?.Role is "tool" or "thought";
+    private bool IsOutput => Message?.Role is "tool" or "thought" or "plan";
     static MessageView() => MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
     public MessageView()
     {
@@ -55,7 +55,7 @@ public sealed class MessageView : UserControl
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];
         if (preview.Length > 100) preview = preview[..100] + "…";
-        title.Text = IsOutput ? (expanded ? "▾ " : "▸ ") + (Message?.Role == "thought" ? "Thinking" : preview.Length > 0 ? preview : "Tool output") : legacyResume ? "SESSION" : Message?.Label;
+        title.Text = IsOutput ? (expanded ? "▾ " : "▸ ") + (Message?.Role == "plan" ? "Plan" : Message?.Role == "thought" ? "Thinking" : preview.Length > 0 ? preview : "Tool output") : legacyResume ? "SESSION" : Message?.Label;
         toggle.IsHitTestVisible = IsOutput; toggle.Focusable = IsOutput;
         details.IsVisible = !IsOutput || expanded;
         details.MaxHeight = IsOutput ? 420 : double.PositiveInfinity;
