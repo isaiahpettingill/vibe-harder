@@ -11,6 +11,38 @@ namespace CodexManager.Tests;
 public class SettingsUiTests
 {
     [AvaloniaFact]
+    public async Task TrayQuitRequiresAcceptanceAndReusesPendingConfirmation()
+    {
+        var directory = Directory.CreateTempSubdirectory("tray-quit-").FullName;
+        var store = new Store(directory); store.Setting("remoteEnabled", "0");
+        var window = new MainWindow(store); window.Show();
+        var closed = false; window.Closed += (_, _) => closed = true;
+        var confirm = typeof(MainView).GetMethod("ConfirmTrayExit", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        Task Request() => (Task)confirm.Invoke(window.View, null)!;
+        try
+        {
+            window.Hide();
+            var pending = Request();
+            var dialog = Assert.Single(window.OwnedWindows, w => w.Title == "Quit Vibe Harder?");
+            Assert.True(window.IsVisible); Assert.False(closed);
+            await Request();
+            Assert.Single(window.OwnedWindows, w => w.Title == "Quit Vibe Harder?");
+            dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "CancelTrayQuit").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await pending; Assert.False(closed);
+            pending = Request();
+            window.OwnedWindows.Single(w => w.Title == "Quit Vibe Harder?").Close();
+            await pending; Assert.False(closed);
+            pending = Request();
+            window.OwnedWindows.Single(w => w.Title == "Quit Vibe Harder?").GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "ConfirmTrayQuit").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await pending;
+            var until = DateTime.UtcNow.AddSeconds(5);
+            while (!closed && DateTime.UtcNow < until) await Task.Delay(20);
+            Assert.True(closed);
+        }
+        finally { if (!closed) window.RequestExit(); }
+    }
+
+    [AvaloniaFact]
     public async Task SavingSettingsAndTogglingReuseTrayUntilShutdown()
     {
         var directory = Directory.CreateTempSubdirectory("settings-tray-").FullName;

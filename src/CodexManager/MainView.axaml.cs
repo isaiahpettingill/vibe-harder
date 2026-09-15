@@ -1268,7 +1268,7 @@ public partial class MainView : UserControl
         if (store.Setting("runInTray") == "0") { if (tray is not null) tray.IsVisible = false; return; }
         if (tray is not null) { tray.IsVisible = true; UpdateTray(); return; }
         var show = new NativeMenuItem("Open Vibe Harder"); show.Click += (_, _) => ShowFromTray();
-        var quit = new NativeMenuItem("Quit and interrupt agents"); quit.Click += (_, _) => RequestExit();
+        var quit = new NativeMenuItem("Quit and interrupt agents"); quit.Click += TrayQuitClick;
         tray = new TrayIcon { Icon = desktopWindow.Icon, ToolTipText = "Vibe Harder — no agents running", IsVisible = true, Menu = new NativeMenu { Items = { show, quit } } };
         UpdateTray();
         tray.Clicked += (_, _) => ShowFromTray();
@@ -1308,10 +1308,36 @@ public partial class MainView : UserControl
             item.Click += (_, _) => { ShowFromTray(); if (owner is not null) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }; menu.Items.Add(item);
         }
         menu.Items.Add(new NativeMenuItemSeparator());
-        var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += (_, _) => RequestExit(); menu.Items.Add(quit);
+        var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += TrayQuitClick; menu.Items.Add(quit);
         tray.Menu = menu;
     }
     public void ShowFromTray() { if (closing) return; desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
+    private Window? quitConfirmation;
+    private async void TrayQuitClick(object? sender, EventArgs e)
+    {
+        try { await ConfirmTrayExit(); }
+        catch (Exception error) { StatusText.Text = AppDiagnostics.Message("Could not confirm quit", error); }
+    }
+    private async Task ConfirmTrayExit()
+    {
+        if (closing || desktopWindow is null) return;
+        if (quitConfirmation is { } existing) { existing.Activate(); return; }
+        ShowFromTray();
+        var dialog = new Window { Title = "Quit Vibe Harder?", Width = 460, SizeToContent = SizeToContent.Height, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        quitConfirmation = dialog;
+        var panel = new StackPanel { Margin = new Thickness(20), Spacing = 16 };
+        panel.Children.Add(new TextBlock { Text = "Quitting will stop all agents and close all terminal sessions and their subprocesses running in this app. Any work still running will be interrupted.", TextWrapping = TextWrapping.Wrap });
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8 };
+        var cancel = new Button { Name = "CancelTrayQuit", Content = "Cancel" };
+        var quit = new Button { Name = "ConfirmTrayQuit", Content = "Quit and stop everything", Classes = { "accent" } };
+        cancel.Click += (_, _) => dialog.Close(false);
+        quit.Click += (_, _) => dialog.Close(true);
+        dialog.KeyDown += (_, e) => { if (e.Key == Key.Escape) { e.Handled = true; dialog.Close(false); } };
+        dialog.Opened += (_, _) => cancel.Focus();
+        buttons.Children.Add(cancel); buttons.Children.Add(quit); panel.Children.Add(buttons); dialog.Content = panel;
+        try { if (await dialog.ShowDialog<bool>(desktopWindow) && !closing) RequestExit(); }
+        finally { quitConfirmation = null; }
+    }
     public void RequestExit() { exitRequested = true; desktopWindow?.Close(); }
     private async Task OfferInterruptedChats()
     {
