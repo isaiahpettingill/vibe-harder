@@ -10,5 +10,5 @@ OpenAI and Anthropic SVGs are from Lobe Icons (MIT, accompanying LICENSE-LobeHub
 
 The separate Vibe Harder application icon is an original geometric workspace/chat design, not a provider logo.
 
-- Pi: official colored mark from https://pi.dev/logo-auto.svg (downloaded 2026-09-15), used to identify Pi. The viewBox trims outer whitespace for small UI icons; paths and colors are unchanged.
+- Pi: official monochrome mark from https://pi.dev/favicon.svg (downloaded 2026-09-15), used to identify Pi. Paths are unchanged; fills use currentColor to match the app theme.
 - Dirac: original vector drawing of a cursive lowercase Greek delta, requested for this app; not an official brand asset.
