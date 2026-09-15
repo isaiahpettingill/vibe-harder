@@ -28,11 +28,17 @@ public class SettingsUiTests
                 var dialog = window.OwnedWindows.Single(w => w.Title == "Settings");
                 Assert.True(window.IsEnabled);
                 Assert.Single(dialog.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "Color theme");
-                var extra = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "AdditionalAgentsEnabled");
-                Assert.False(extra.IsChecked);
-                extra.IsChecked = true; Assert.Equal(6, AgentProviders.Enabled(store).Count());
-                extra.IsChecked = false; Assert.Equal(3, AgentProviders.Enabled(store).Count());
-                Assert.Equal(6, dialog.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").ItemCount);
+                foreach (var provider in AgentProviders.All)
+                {
+                    var providerToggle = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == $"{provider.Provider}Enabled");
+                    var initial = !AgentProviders.IsAdditional(provider.Provider);
+                    Assert.Equal(initial, providerToggle.IsChecked);
+                    providerToggle.IsChecked = !initial; Assert.Equal(!initial, AgentProviders.IsEnabled(store, provider.Provider));
+                    providerToggle.IsChecked = initial;
+                    Assert.False(dialog.GetLogicalDescendants().OfType<Expander>().Single(c => c.Name == $"{provider.Provider}Commands").IsExpanded);
+                }
+                Assert.Equal(3, AgentProviders.Enabled(store).Count());
+                Assert.Equal(5, dialog.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").ItemCount);
                 dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.True(dialog.IsVisible); dialog.Close();
                 await Wait(() => !dialog.IsVisible);
@@ -49,6 +55,7 @@ public class SettingsUiTests
             settings.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
             {
+                settings.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").SelectedItem = "Agents";
                 settings.UpdateLayout();
                 using var screenshot = new RenderTargetBitmap(new PixelSize(820, 640)); screenshot.Render(settings); screenshot.Save(Path.Combine(qa, "settings-preview.png"), PngBitmapEncoderOptions.Default);
             }

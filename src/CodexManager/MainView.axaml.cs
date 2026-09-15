@@ -419,7 +419,12 @@ public partial class MainView : UserControl
     private void NewChat(AgentProvider provider = AgentProvider.Codex)
     {
         if (workspace is null) return;
-        if (!AgentProviders.IsEnabled(store, provider)) provider = AgentProvider.Codex;
+        if (!AgentProviders.IsEnabled(store, provider))
+        {
+            var available = AgentProviders.Enabled(store).FirstOrDefault();
+            if (available is null) { StatusText.Text = "Enable a provider in Settings > Agents to start a chat."; return; }
+            provider = available.Provider;
+        }
         showArchived = false; ArchiveViewButton.Content = AppIcons.Label("chevron-down", "Chats", trailing: true);
         var chat = new Chat { WorkspaceId = workspace.Id, Provider = provider }; store.Save(chat); chats.Insert(0, chat);
         SearchBox.Text = ""; RefreshChats(); ChatList.SelectedItem = chat;
@@ -911,19 +916,19 @@ public partial class MainView : UserControl
         appearance.Children.Add(new Separator()); appearance.Children.Add(FontSettings.CreateContent(store));
         var connections = new ConnectionSettingsView(store, false, ConfigureRemoteServer, ConfigureWebServer);
         connections.Paired += host => { BuildWorkspaceTree(); OpenRemoteHost(host); desktopWindow?.Activate(); };
-        var additional = new StackPanel { Spacing = 8 };
-        var additionalCommands = new StackPanel { Spacing = 8, IsEnabled = store.Setting("additionalAgentsEnabled") == "1" };
-        var enableAdditional = new CheckBox { Name = "AdditionalAgentsEnabled", Content = "Enable VT Code, Dirac, and Pi", IsChecked = additionalCommands.IsEnabled };
-        enableAdditional.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("additionalAgentsEnabled", enableAdditional.IsChecked == true ? "1" : "0"); additionalCommands.IsEnabled = enableAdditional.IsChecked == true; });
-        additional.Children.Add(enableAdditional);
-        additional.Children.Add(new TextBlock { Text = "Install and configure these agents on the computer running the chats. Pi requires Node.js 22+ and pi in PATH; pi-acp is launched through npx. VT Code ACP is enabled automatically. Dirac manages its own provider credentials. Existing chats are kept when this switch is off.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
-        additional.Children.Add(additionalCommands);
-        panel = agents;
+        agents.Children.Add(new TextBlock { Text = "Choose agents for new chats. Existing chats are kept. Expand a provider to configure its commands.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var fields = new Dictionary<string, TextBox>();
         foreach (var provider in AgentProviders.All)
         {
-            panel = AgentProviders.IsAdditional(provider.Provider) ? additionalCommands : agents;
-            panel.Children.Add(new TextBlock { Text = provider.Label, FontWeight = FontWeight.SemiBold });
+            panel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 8) };
+            var label = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            label.Children.Add(new Image { Source = BrandAssets.Provider(provider.Provider), Width = 16, Height = 16 });
+            label.Children.Add(new TextBlock { Text = provider.Label, VerticalAlignment = VerticalAlignment.Center });
+            var enabled = new CheckBox { Name = $"{provider.Provider}Enabled", Content = label, IsChecked = AgentProviders.IsEnabled(store, provider.Provider) };
+            enabled.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting(AgentProviders.EnabledKey(provider.Provider), enabled.IsChecked == true ? "1" : "0"); BuildWorkspaceTree(); });
+            var commands = new Expander { Name = $"{provider.Provider}Commands", Header = enabled, Content = panel, IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch };
+            var section = new StackPanel { Spacing = 4 };
+            section.Children.Add(commands); section.Children.Add(new Separator()); agents.Children.Add(section);
             foreach (var isWsl in new[] { false, true })
             {
                 var key = AgentProviders.CommandKey(provider.Provider, isWsl);
@@ -935,14 +940,14 @@ public partial class MainView : UserControl
                 panel.Children.Add(new TextBlock { Text = isWsl ? "WSL command" : "Local command", Classes = { "muted" } }); panel.Children.Add(field);
                 panel.Children.Add(new TextBlock { Text = "Account setup command", Classes = { "muted" } }); panel.Children.Add(loginField);
             }
+            if (provider.Provider == AgentProvider.Codex)
+                foreach (var key in new[] { "localCodexCommand", "wslCodexCommand" })
+                {
+                    panel.Children.Add(new TextBlock { Text = key.StartsWith("wsl") ? "WSL Codex deletion command" : "Local Codex deletion command", Classes = { "muted" } });
+                    var field = new TextBox { Text = store.Setting(key) ?? ChatHistory.DefaultCodexCommand, TextWrapping = TextWrapping.Wrap }; fields[key] = field; panel.Children.Add(field);
+                }
         }
         panel = agents;
-        foreach (var key in new[] { "localCodexCommand", "wslCodexCommand" })
-        {
-            panel.Children.Add(new TextBlock { Text = key.StartsWith("wsl") ? "WSL Codex deletion command" : "Local Codex deletion command", Classes = { "muted" } });
-            var field = new TextBox { Text = store.Setting(key) ?? ChatHistory.DefaultCodexCommand }; fields[key] = field; panel.Children.Add(field);
-        }
-        panel.Children.Add(new TextBlock { Text = "Sign in to each agent in its own environment. OpenCode uses opencode acp; Claude uses the Claude Agent SDK adapter. Commands apply to new connections and imports.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var save = new Button { Name = "SaveSettings", Content = "Apply agent commands", Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left }; panel.Children.Add(save);
         async void SaveAgentCommands(object? sender, RoutedEventArgs args)
         {
@@ -960,9 +965,7 @@ public partial class MainView : UserControl
             finally { save.IsEnabled = true; }
         }
         save.Click += SaveAgentCommands;
-        var saveAdditional = new Button { Content = "Apply agent commands", Classes = { "accent" } };
-        saveAdditional.Click += SaveAgentCommands; additionalCommands.Children.Add(saveAdditional);
-        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Additional agents"] = additional, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Connections"] = connections };
+        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Connections"] = connections };
         var navigation = new ListBox { Name = "SettingsCategories", Classes = { "settingsNavigation" }, ItemsSource = pages.Keys.ToArray(), Background = Brushes.Transparent, Margin = new Thickness(8, 16) };
         var content = new Grid { Margin = new Thickness(24, 20), RowDefinitions = new("Auto,*,Auto") };
         var heading = new TextBlock { FontSize = 20, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 20) }; content.Children.Add(heading);

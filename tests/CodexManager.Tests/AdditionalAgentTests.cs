@@ -27,6 +27,34 @@ public class AdditionalAgentTests
     }
 
     [Fact]
+    public async Task IndividualSwitchesOverrideLegacySettingAndCanDisableEveryProvider()
+    {
+        var directory = Directory.CreateTempSubdirectory("agent-switches-").FullName;
+        using (var store = new Store(directory))
+        {
+            store.Setting("additionalAgentsEnabled", "1");
+            var workspace = new Workspace("w", "Test", directory);
+            var chats = new List<Chat>();
+            using var service = new SessionService(store, [workspace], chats, (_, _) => throw new InvalidOperationException("Must not start an agent"));
+            foreach (var option in AgentProviders.All)
+            {
+                Assert.True(AgentProviders.IsEnabled(store, option.Provider));
+                store.Setting(AgentProviders.EnabledKey(option.Provider), "0");
+                Assert.False(AgentProviders.IsEnabled(store, option.Provider));
+                await Assert.ThrowsAsync<IOException>(() => service.Handle(new JsonObject { ["method"] = "create", ["workspaceId"] = "w", ["provider"] = option.Provider.ToString() }));
+            }
+            var list = await service.Handle(new JsonObject { ["method"] = "list" });
+            Assert.Empty(list!["providers"]!.AsArray());
+            Assert.Empty(chats);
+            store.Setting(AgentProviders.EnabledKey(AgentProvider.Pi), "1");
+            Assert.Equal(AgentProvider.Pi, Assert.Single(AgentProviders.Enabled(store)).Provider);
+            await store.FlushAsync();
+        }
+        using var reopened = new Store(directory);
+        Assert.Equal(AgentProvider.Pi, Assert.Single(AgentProviders.Enabled(reopened)).Provider);
+    }
+
+    [Fact]
     public void VtCodeEnablesAcpForLocalAndWslProcesses()
     {
         var local = AgentProviders.Start(new Workspace("w", "Test", Path.GetTempPath()), "vtcode acp", AgentProvider.VTCode);

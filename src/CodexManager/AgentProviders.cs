@@ -19,7 +19,9 @@ public static class AgentProviders
         new(AgentProvider.Pi, "Pi", "◇", "npx -y pi-acp@0.0.33")
     ];
     public static bool IsAdditional(AgentProvider provider) => provider is AgentProvider.VTCode or AgentProvider.Dirac or AgentProvider.Pi;
-    public static bool IsEnabled(Store store, AgentProvider provider) => Enum.IsDefined(provider) && (!IsAdditional(provider) || store.Setting("additionalAgentsEnabled") == "1");
+    public static string EnabledKey(AgentProvider provider) => $"agentEnabled:{provider}";
+    public static bool IsEnabled(Store store, AgentProvider provider) => Enum.IsDefined(provider) &&
+        (store.Setting(EnabledKey(provider)) is { } enabled ? enabled == "1" : !IsAdditional(provider) || store.Setting("additionalAgentsEnabled") == "1");
     public static IEnumerable<AgentOption> Enabled(Store store) => All.Where(p => IsEnabled(store, p.Provider));
     public static AgentOption Get(AgentProvider provider) => All.Single(p => p.Provider == provider);
     public static string CommandKey(AgentProvider provider, bool wsl) =>
