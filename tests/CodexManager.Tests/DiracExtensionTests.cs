@@ -6,6 +6,31 @@ public class DiracExtensionTests
 {
     private static string Command => "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --dirac";
     [AvaloniaFact]
+    public async Task ReconnectedFollowUpRestoresConversationWithoutDuplicatingVisibleMessages()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("dirac-context-").FullName);
+        var workspace = new Workspace("w", "Context", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w", Provider = AgentProvider.Dirac }; store.Save(chat);
+        var log = Path.Combine(store.DirectoryPath, "prompts.jsonl");
+        await using var runtime = new ChatRuntime(chat, workspace, store, Command + " \"--prompt-log=" + log + "\"");
+        await runtime.Send("Create the approved change control after I log in", []);
+        await runtime.ReleaseIfIdle(DateTimeOffset.UtcNow);
+        await runtime.ReleaseIfIdle(DateTimeOffset.UtcNow.AddSeconds(91));
+        Assert.False(runtime.IsConnected);
+        await runtime.Send("I signed in", []);
+        var prompts = await File.ReadAllLinesAsync(log, TestContext.Current.CancellationToken);
+        using var restored = System.Text.Json.JsonDocument.Parse(prompts[1]);
+        Assert.Contains("Create the approved change control", restored.RootElement[0].GetProperty("text").GetString());
+        Assert.Contains("Hello **world**", restored.RootElement[0].GetProperty("text").GetString());
+        Assert.Equal("I signed in", restored.RootElement[1].GetProperty("text").GetString());
+        Assert.DoesNotContain(chat.Messages, m => m.Text.Contains("<saved_conversation>"));
+        Assert.Equal(2, chat.Messages.Count(m => m.Role == "user"));
+        await runtime.Send("Continue", []);
+        prompts = await File.ReadAllLinesAsync(log, TestContext.Current.CancellationToken);
+        using var live = System.Text.Json.JsonDocument.Parse(prompts[2]);
+        Assert.Single(live.RootElement.EnumerateArray());
+    }
+    [AvaloniaFact]
     public async Task AdvertisedWhisperSteersWithoutEndingTheActiveTurn()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("dirac-steer-").FullName);

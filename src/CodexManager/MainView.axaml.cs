@@ -585,6 +585,7 @@ public partial class MainView : UserControl
         WelcomeHint.Text = remoteOnly ? "Enter its address, then the pairing number shown on your desktop." : workspace is null ? "Your chats and terminals stay with the project." : "Choose Claude, Codex, or OpenCode from ＋ beside the workspace.";
         ComposerBorder.IsVisible = !remoteOnly;
         WelcomeOpenButton.IsVisible = workspace is null;
+        CopyChatButton.IsEnabled = current is not null;
         MessageList.IsVisible = current is not null; UpdateHistoryNavigation();
         ComposerBorder.IsEnabled = current is not null;
         ImportChatsButton.IsEnabled = workspace is not null || remoteView?.HasWorkspace == true;
@@ -616,6 +617,7 @@ public partial class MainView : UserControl
     private bool ComposerShowsStop => current?.Busy == true && !ComposerLoading && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
     private void UpdateComposerAction()
     {
+        ChatProgress.IsVisible = current is { Busy: true, NeedsPermission: false, NeedsLogin: false } && !ComposerLoading;
         var stop = ComposerShowsStop;
         SendButton.Icon = ComposerLoading ? "connecting" : stop ? "stop" : "send";
         SendButton.Label = ComposerLoading ? "Loading chat" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";

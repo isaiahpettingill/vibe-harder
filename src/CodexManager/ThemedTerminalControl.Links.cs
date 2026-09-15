@@ -53,39 +53,44 @@ public sealed partial class ThemedTerminalControl
         var targetRow = row + model.ScrollOffset;
         if (targetRow >= buffer.Lines.Length) return null;
 
-        // Only inspect this logical line, joining soft wraps rather than hard newlines.
-        // Bound work even when a program prints a huge unbroken line.
+        return ReadLinks(targetRow).Links.FirstOrDefault(link => link.Contains(targetRow, col))?.Uri;
+    }
+    private sealed record LinkSpan(int FirstRow, int FirstColumn, int LastRow, int LastColumn, Uri Uri)
+    {
+        public bool Contains(int row, int col) => row >= FirstRow && row <= LastRow && (row != FirstRow || col >= FirstColumn) && (row != LastRow || col <= LastColumn);
+    }
+    private (List<LinkSpan> Links, int LastRow) ReadLinks(int targetRow)
+    {
+        List<LinkSpan> links = [];
+        var model = Model!;
+        var buffer = model.Terminal.Buffer;
         const int maxCells = 16384;
         var first = targetRow;
         var cols = model.Terminal.Cols;
         while (first > 0 && buffer.GetLine(first)?.IsWrapped == true)
         {
-            if ((long)(targetRow - first + 1) * cols >= maxCells) return null;
+            if ((long)(targetRow - first + 1) * cols >= maxCells) return (links, targetRow);
             first--;
         }
         var text = new StringBuilder();
-        var targetIndex = -1;
-        var visited = 0;
-        for (var lineIndex = first; lineIndex < buffer.Lines.Length; lineIndex++)
+        var cells = new List<(int Row, int Column, int Width)>();
+        var lastRow = first;
+        for (var row = first; row < buffer.Lines.Length; row++)
         {
-            var line = buffer.GetLine(lineIndex);
-            if (line is null) break;
-            if (lineIndex > first && !line.IsWrapped) break;
-            for (var c = 0; c < Math.Min(cols, line.Length); c++)
+            var line = buffer.GetLine(row);
+            if (line is null || row > first && !line.IsWrapped) break;
+            lastRow = row;
+            for (var col = 0; col < Math.Min(cols, line.Length); col++)
             {
-                if (++visited > maxCells) return null;
-                var cell = line[c];
-                if (lineIndex == targetRow && c == col) targetIndex = text.Length;
-                if (cell.Width == 0 && c > 0 && line[c - 1].Width == 2)
-                {
-                    if (lineIndex == targetRow && c == col) targetIndex = Math.Max(0, text.Length - line[c - 1].Content.Length);
-                    continue;
-                }
-                text.Append(string.IsNullOrEmpty(cell.Content) ? " " : cell.Content);
-                if (text.Length > maxCells) return null;
+                if ((long)(row - first) * cols + col >= maxCells) return (links, lastRow);
+                var cell = line[col];
+                if (cell.Width == 0 && col > 0 && line[col - 1].Width == 2) continue;
+                var content = string.IsNullOrEmpty(cell.Content) ? " " : cell.Content;
+                text.Append(content);
+                foreach (var ch in content) cells.Add((row, col, Math.Max(1, (int)cell.Width)));
+                if (text.Length > maxCells) return (links, lastRow);
             }
         }
-        if (targetIndex < 0) return null;
         foreach (Match match in UrlPattern.Matches(text.ToString()))
         {
             var target = match.Value.TrimEnd('.', ',', ';', ':', '!', '?');
@@ -95,12 +100,37 @@ public sealed partial class ThemedTerminalControl
                 if (target.Count(c => c == close) <= target.Count(c => c == open)) break;
                 target = target[..^1];
             }
-            if (targetIndex < match.Index || targetIndex >= match.Index + target.Length) continue;
+            var length = target.Length;
             if (target.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) target = "https://" + target;
-            if (Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
-                (uri.Scheme is "http" or "https" && !string.IsNullOrEmpty(uri.Host) || uri.Scheme == "mailto" && uri.OriginalString.Length > 7)) return uri;
+            if (length > 0 && Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
+                (uri.Scheme is "http" or "https" && !string.IsNullOrEmpty(uri.Host) || uri.Scheme == "mailto" && uri.OriginalString.Length > 7))
+            {
+                var start = cells[match.Index]; var end = cells[match.Index + length - 1];
+                links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, uri));
+            }
         }
-        return null;
+        return (links, lastRow);
+    }
+    public IReadOnlyList<Rect> LinkUnderlines()
+    {
+        List<Rect> result = [];
+        if (Model is not { } model || model.IsMouseModeActive) return result;
+        var cell = LinkCellSize();
+        var first = model.ScrollOffset;
+        var end = Math.Min(model.Terminal.Buffer.Lines.Length, first + model.Terminal.Rows);
+        for (var row = first; row < end;)
+        {
+            var group = ReadLinks(row);
+            foreach (var link in group.Links)
+                for (var line = Math.Max(first, link.FirstRow); line <= Math.Min(end - 1, link.LastRow); line++)
+                {
+                    var start = line == link.FirstRow ? link.FirstColumn : 0;
+                    var stop = line == link.LastRow ? link.LastColumn + 1 : model.Terminal.Cols;
+                    result.Add(new Rect(start * cell.Width, (line - first + 1) * cell.Height - 2, (stop - start) * cell.Width, 1));
+                }
+            row = Math.Max(row + 1, group.LastRow + 1);
+        }
+        return result;
     }
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)

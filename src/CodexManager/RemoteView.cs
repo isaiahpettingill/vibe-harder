@@ -1,3 +1,4 @@
+using Avalonia.Input.Platform;
 using System.Collections.ObjectModel;
 using System.Text.Json.Nodes;
 using Avalonia;
@@ -71,6 +72,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
     private readonly StackPanel queuedMessages = new();
+    private readonly ChatProgressIndicator chatProgress = new() { Name = "RemoteChatProgress", HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Expander queuePanel = new() { Name = "RemoteQueuePanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch };
     private bool busy, sending, preparing;
     private bool advancingQueue;
@@ -254,8 +256,35 @@ public sealed class RemoteView : UserControl, IDisposable
         var connectionText = new TextBlock { FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
         connectionText.Bind(TextBlock.TextProperty, status.GetObservable(TextBlock.TextProperty)); connectionNotice.Children.Add(connectionText);
         var retry = new IconButton { Icon = "refresh", Label = "Retry connection" }; retry.Click += (_, _) => ReconnectHost(); Grid.SetColumn(retry, 1); connectionNotice.Children.Add(retry);
-        var remoteHeader = new Grid { ColumnDefinitions = new("*,Auto,Auto"), Margin = new Thickness(0, 0, 0, 6) };
+        var remoteHeader = new Grid { ColumnDefinitions = new("*,Auto,Auto,Auto"), Margin = new Thickness(0, 0, 0, 6) };
         remoteHeader.Children.Add(new StackPanel { Children = { new TextBlock { Text = host.Name, VerticalAlignment = VerticalAlignment.Center }, connectionNotice } });
+        var copyChat = new IconButton { Name = "RemoteCopyChat", Icon = "copy", Label = "Copy whole chat" };
+        copyChat.Click += async (_, _) =>
+        {
+            if (chatId is not { } id || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+            copyChat.IsEnabled = false;
+            try
+            {
+                var text = new System.Text.StringBuilder();
+                var after = -1;
+                while (!lifetime.IsCancellationRequested)
+                {
+                    var page = await Call(new JsonObject { ["method"] = "chat/export", ["chatId"] = id, ["after"] = after });
+                    if (page is null) throw new IOException("Could not retrieve the complete chat. Reconnect and try again.");
+                    foreach (var item in page["messages"]!.AsArray()) text.Append(item!["label"]!.GetValue<string>()).Append('\n').Append(item["text"]!.GetValue<string>()).Append("\n\n");
+                    if (page["after"] is null) break;
+                    var next = page["after"]!.GetValue<int>();
+                    if (next <= after) throw new IOException("The host returned a repeated chat page.");
+                    after = next;
+                }
+                lifetime.Token.ThrowIfCancellationRequested();
+                await clipboard.SetTextAsync(text.ToString());
+            }
+            catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+            catch (Exception error) { status.IsVisible = true; status.Text = "Could not copy chat: " + error.Message; }
+            finally { copyChat.IsEnabled = true; }
+        };
+        Grid.SetColumn(copyChat, 3); remoteHeader.Children.Add(copyChat);
         var forkChat = new IconButton { Name = "RemoteForkChat", Icon = "fork", Label = "Fork chat" };
         forkChat.Click += async (_, _) => await ShowHistoryActions(forkChat, null); Grid.SetColumn(forkChat, 1); remoteHeader.Children.Add(forkChat);
         var openTerminal = new IconButton { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
@@ -263,7 +292,7 @@ public sealed class RemoteView : UserControl, IDisposable
         openTerminal.IsEnabled = workspaces.SelectedItem is not null;
         workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; if (workspaces.SelectedItem is RemoteItem owner) switchTerminalWorkspace?.Invoke(owner.Id); ApplyColors(); };
         workspaces.SelectionChanged += (_, _) => FilterChats();
-        var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
+        var split = new Grid { ColumnDefinitions = new("0,0,*"), RowDefinitions = new("*,Auto") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
         output = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
@@ -271,6 +300,7 @@ public sealed class RemoteView : UserControl, IDisposable
         ScrollViewer.SetVerticalScrollBarVisibility(output, OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
         ScrollViewer.SetAllowAutoHide(output, false);
         Grid.SetColumn(output, 2); split.Children.Add(output);
+        Grid.SetColumn(chatProgress, 2); Grid.SetRow(chatProgress, 1); split.Children.Add(chatProgress);
         var latest = new IconButton { Name = "RemoteLatest", Icon = "chevron-down", Label = "Return to latest message", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 8), IsVisible = false };
         latest.Bind(BackgroundProperty, this.GetResourceObservable("AppSurface")); Grid.SetColumn(latest, 2); split.Children.Add(latest);
         var navigation = new TranscriptNavigation(output, latest, () => viewingHistory, async newer =>
@@ -287,6 +317,7 @@ public sealed class RemoteView : UserControl, IDisposable
             TranscriptNavigation.ReplacePage(output, viewingHistory ? bounded : messages);
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
+        approvals.Children.CollectionChanged += (_, _) => UpdateSendAction();
         var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
         panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
         Grid.SetRow(approvalScroll, 2); panel.Children.Add(approvalScroll);
@@ -522,6 +553,7 @@ public sealed class RemoteView : UserControl, IDisposable
     }
     private void UpdateSendAction()
     {
+        chatProgress.IsVisible = busy && !preparing && connection is not null && chatId is not null && approvals.Children.Count == 0;
         var stop = busy && !preparing && !HasDraft;
         send.Icon = preparing ? "connecting" : stop ? "stop" : "send";
         send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";

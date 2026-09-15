@@ -14,7 +14,7 @@ Checkpoint restoration changes both task history and workspace files. The UI des
 
 Dirac whisper accepts text, not attachments. Steering waits for the agent's queued/sent notification; uncertain acknowledgement does not trigger an automatic resend. Standard steering retains the existing request/response path for adapters that advertise it.
 
-VT Code also has custom lifecycle methods in its source, but they are not advertised as standard session capabilities by its initialize response. The client does not assume those are standard ACP fork/rollback methods. Client-side filesystem and terminal capabilities remain unadvertised because this client does not implement those callbacks.
+VT Code also has custom lifecycle methods in its source, but they are not advertised as standard session capabilities by its initialize response. The client does not assume those are standard ACP fork/rollback methods. Client-side terminal callbacks remain unadvertised. Chat connections now advertise and implement ACP filesystem reads and writes on the workspace host, including WSL paths; writes reject stale contents after an external edit.
 
 Validation uses protocol fixtures for Dirac extensions and capability gating, plus existing session configuration/history tests. No live model credentials were used.
 
@@ -26,3 +26,8 @@ Sources:
 - [Dirac CLI/ACP feature boundaries](https://github.com/dirac-run/dirac/blob/master/cli/README.md)
 - [Pi ACP capabilities and configuration](https://github.com/svkozak/pi-acp/blob/main/src/acp/agent.ts)
 - [VT Code ACP handlers](https://github.com/vinhnx/VTCode/blob/main/crates/codegen/vtcode-acp/src/zed/agent/handlers.rs)
+
+
+September 15 follow-up: VT Code 0.162.4 exposes primary agent, provider, model, and effort as ACP session configuration. A live initialize/new-session/set-provider check confirmed that switching from an unauthenticated OpenRouter default to an existing OpenAI ChatGPT login also selects an OpenAI-compatible model. No Flex/service-tier configuration is advertised by that version. Provider menus now use host-side credential availability (VT Code auth/secret status; Dirac CLI storage metadata), and new sessions restore the user's last successful per-agent settings. Dirac's initial YOLO and auto-approve defaults are on until the user selects otherwise.
+
+Dirac 0.5.13 resumes completed persisted tasks by creating a fresh core task for the next ACP prompt. On reconnect, the client supplies the saved conversation as context once, preserving follow-up meaning without duplicating transcript rows. Live connected turns continue normally.

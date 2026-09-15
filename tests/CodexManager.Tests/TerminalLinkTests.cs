@@ -30,9 +30,11 @@ public class TerminalLinkTests
             model.Feed(url + "\r\n");
             Assert.Equal(url, terminal.LinkAt(Cell(terminal, 5, 0))?.AbsoluteUri);
             Assert.Equal(url, terminal.LinkAt(Cell(terminal, 5, 1))?.AbsoluteUri);
+            Assert.True(terminal.LinkUnderlines().Count >= 3);
             for (var i = 0; i < 30; i++) model.Feed("filler\r\n");
             model.ScrollToYDisp(0);
             Assert.Equal(url, terminal.LinkAt(Cell(terminal, 5, 1))?.AbsoluteUri);
+            Assert.True(terminal.LinkUnderlines().Count >= 3);
             model = new TerminalControlModel(); terminal.Model = model;
             model.Feed("https://example.com/\r\nseparate-line\r\n");
             Assert.Equal("https://example.com/", terminal.LinkAt(Cell(terminal, 5, 0))?.AbsoluteUri);
@@ -59,7 +61,15 @@ public class TerminalLinkTests
             Assert.Null(terminal.LinkAt(Cell(terminal, 4, 3)));
             Assert.Null(terminal.LinkAt(Cell(terminal, 4, 4)));
             Assert.Equal("https://localhost:1234/callback?code=abc&state=xyz", terminal.LinkAt(Cell(terminal, 4, 5))?.AbsoluteUri);
+            Assert.Equal(4, terminal.LinkUnderlines().Count);
+            if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
+            {
+                window.UpdateLayout();
+                using var image = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(900, 300));
+                image.Render(window); image.Save(Path.Combine(qa, "terminal-underlines.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+            }
             model.Feed("\u001b[?1000h");
+            Assert.Empty(terminal.LinkUnderlines());
             Assert.Null(terminal.LinkAt(Cell(terminal, 8, 0)));
         }
         finally { window.Close(); }

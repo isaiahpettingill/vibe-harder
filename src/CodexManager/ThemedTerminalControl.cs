@@ -11,6 +11,7 @@ public sealed partial class ThemedTerminalControl : TerminalControl
 {
     public ThemedTerminalControl()
     {
+        ConfigureLinkUnderlines();
         var copy = new MenuItem { Header = "Copy" };
         var paste = new MenuItem { Header = "Paste" };
         var select = new MenuItem { Header = "Select all" };

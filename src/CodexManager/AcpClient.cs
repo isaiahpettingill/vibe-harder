@@ -21,6 +21,8 @@ public sealed class AcpClient : IAsyncDisposable
     public event Action? Disconnected;
     public event Action<bool>? AuthenticationChanged;
     public event Action<string, JsonElement>? ExtensionNotification;
+    public Func<JsonElement, CancellationToken, Task<JsonObject>>? ReadTextFile { get; set; }
+    public Func<JsonElement, CancellationToken, Task<JsonObject>>? WriteTextFile { get; set; }
     public Func<JsonElement, Task>? UpdateAsync { get; set; }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? PermissionRequested { get; set; }
     public AcpClient(ProcessStartInfo start)
@@ -93,15 +95,22 @@ public sealed class AcpClient : IAsyncDisposable
     {
         try
         {
-            if (method != "session/request_permission")
+            JsonObject result;
+            if (method == "session/request_permission") result = PermissionRequested is null ? RpcJson.Permission() : await PermissionRequested(parameters, lifetime.Token);
+            else if (method == "fs/read_text_file" && ReadTextFile is { } read) result = await read(parameters, lifetime.Token);
+            else if (method == "fs/write_text_file" && WriteTextFile is { } write) result = await write(parameters, lifetime.Token);
+            else
             { await Write(RpcJson.Object(("jsonrpc", "2.0"), ("id", JsonNode.Parse(id.GetRawText())), ("error", RpcJson.Object(("code", -32601), ("message", "Client capability not supported: " + method))))); return; }
-            var result = PermissionRequested is null ? RpcJson.Permission() : await PermissionRequested(parameters, lifetime.Token);
             await Write(RpcJson.Object(("jsonrpc", "2.0"), ("id", JsonNode.Parse(id.GetRawText())), ("result", result)));
         }
-        catch (OperationCanceledException) { }
-        catch (IOException) { }
+        catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { }
+        catch (Exception error)
+        {
+            try { await Write(RpcJson.Object(("jsonrpc", "2.0"), ("id", JsonNode.Parse(id.GetRawText())), ("error", RpcJson.Object(("code", error is ArgumentException or JsonException or KeyNotFoundException ? -32602 : -32000), ("message", error.Message))))); }
+            catch (Exception transportError) when (transportError is OperationCanceledException or IOException or ObjectDisposedException) { }
+        }
     }
-    public Task<JsonElement> Initialize(CancellationToken token = default) => Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", RpcJson.Object(("fs", RpcJson.Object(("readTextFile", false), ("writeTextFile", false))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject())))))))), token);
+    public Task<JsonElement> Initialize(CancellationToken token = default) => Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", RpcJson.Object(("fs", RpcJson.Object(("readTextFile", ReadTextFile is not null), ("writeTextFile", WriteTextFile is not null))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject())))))))), token);
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { await reader; return; }

@@ -10,10 +10,13 @@ const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessi
 let turn;
 let permissionTurn;
 const configOptions=[{id:'model',name:'Model',type:'select',currentValue:'small',options:[{value:'small',name:'Small'},{value:'large',name:'Large'}]},{id:'reasoning',name:'Thinking',type:'select',currentValue:'low',options:[{value:'low',name:'Low'},{value:'high',name:'High'}]},{id:'fast',name:'Fast mode',type:'boolean',currentValue:false}];
+if(process.argv.includes('--dirac-defaults')) configOptions.push(...['yolo','auto_approve'].map(id=>({id,name:id,type:'boolean',currentValue:false})));
 if(process.argv.includes('--access')) configOptions.push({id:'mode',name:'Access',type:'select',currentValue:'ask',options:[{value:'ask',name:'Approve'},{value:'full-access',name:'Full access'}]});
 if(process.argv.includes('--claude-access')) configOptions.push({id:'mode',name:'Mode',type:'select',currentValue:'default',options:[{value:'default',name:'Manual'},{value:'bypassPermissions',name:'Bypass permissions'}]});
 createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
+ const promptLog=process.argv.find(a=>a.startsWith('--prompt-log='))?.slice(13);
+ if(m.method==='session/prompt' && promptLog) appendFileSync(promptLog,JSON.stringify(m.params.prompt)+'\n');
  switch(m.method){
   case 'initialize': response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
   case '_dev.dirac/whisper':

@@ -7,6 +7,8 @@ namespace CodexManager;
 public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IAsyncDisposable
 {
     private AcpClient? client;
+    private HashSet<string>? authenticatedProviders;
+    private bool restoreDiracContext;
     private bool loading;
     private bool replaying;
     private bool connected;
@@ -148,12 +150,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private void Configure(JsonElement response)
     {
         if (!response.TryGetProperty("configOptions", out _) && !response.TryGetProperty("models", out _) && !response.TryGetProperty("modes", out _)) return;
-        chat.ConfigOptions = SessionConfig.Read(response); chat.ConfigVersion++; Changed?.Invoke();
+        chat.ConfigOptions = ProviderAuthentication.Filter(SessionConfig.Read(response), authenticatedProviders); chat.ConfigVersion++; Changed?.Invoke();
     }
     public async Task SetConfig(SessionConfig config, string value)
     {
         if (IsChangingHistory || loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
-        await SetConfigCore(config, value);
+        await SetConfigCore(config, value, remember: true);
         await RestoreAccess();
     }
     private static SessionValue? FullAccess(SessionConfig option) => option.Values.FirstOrDefault(v => v.Name.Equals("Full access", StringComparison.OrdinalIgnoreCase) || v.Name.Equals("Bypass permissions", StringComparison.OrdinalIgnoreCase));
@@ -168,7 +170,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (option.Current != value && option.Values.Any(v => v.Value == value)) await SetConfigCore(option, value);
         }
     }
-    private async Task SetConfigCore(SessionConfig config, string value)
+    private async Task SetConfigCore(SessionConfig config, string value, bool remember = false)
     {
         if (!config.Values.Any(v => v.Value == value)) return;
         IsConfiguring = true; Changed?.Invoke();
@@ -182,6 +184,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             var result = await client!.Request(method, parameters, timeout.Token);
             chat.ConfigOptions = chat.ConfigOptions.Select(c => c.Id == config.Id ? c with { Current = value } : c).ToArray(); chat.ConfigVersion++;
             Configure(result);
+            if (remember) store.Setting(DefaultConfigKey(config.Id), value);
             if (FullAccess(config) is not null) store.Setting(AccessKey(config), value);
             if (ModelPicker.IsModel(config)) ModelPicker.Remember(store, chat.Provider, value);
         }
@@ -256,7 +259,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         connected = false;
         if (client is not null) await client.DisposeAsync();
         chat.Commands = []; Changed?.Invoke();
-        client = new(AgentProviders.Start(workspace, command, chat.Provider));
+        authenticatedProviders = await ProviderAuthentication.Read(workspace, chat.Provider);
+        lifetime.Token.ThrowIfCancellationRequested();
+        var files = new AcpFileSystem(workspace, () => chat.SessionId);
+        client = new(AgentProviders.Start(workspace, command, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
         StartIdleTimer();
         var connection = client;
         client.ExtensionNotification += (method, parameters) => Dispatcher.UIThread.Post(() =>
@@ -298,6 +304,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         ReadExtensionCapabilities(init);
         SupportsSteering = SupportsDiracWhisper || init.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("steering", out var steering) && steering.TryGetProperty("supported", out var supported) && supported.ValueKind == JsonValueKind.True;
         loading = chat.SessionId is not null;
+        restoreDiracContext = chat.Provider == AgentProvider.Dirac && loading;
         replaying = loading && replayHistory;
         try
         {
@@ -318,7 +325,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             {
                 await NewSession(timeout.Token);
             }
+            if (chat.Provider is AgentProvider.VTCode or AgentProvider.Dirac && authenticatedProviders is { Count: > 0 } &&
+                chat.ConfigOptions.FirstOrDefault(c => c.Id == "provider") is { } providerOption && !authenticatedProviders.Contains(providerOption.Current) && providerOption.Values.FirstOrDefault() is { } available)
+                await SetConfigCore(providerOption, available.Value);
             await RestoreAccess();
+            if (chat.ConfigOptions.FirstOrDefault(c => c.Id == "provider") is { } selectedProvider && authenticatedProviders?.Contains(selectedProvider.Current) == true) chat.NeedsLogin = false;
             connected = true; connectedAt = DateTimeOffset.UtcNow; StartIdleTimer();
         }
         finally { loading = false; replaying = false; }
@@ -328,10 +339,31 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         var session = await client!.Request("session/new", RpcJson.Object(("cwd", workspace.Path), ("mcpServers", new JsonArray())), token);
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
+        await ApplyNewSessionDefaults();
         if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model)
         {
             var recent = ModelPicker.Recent(store, chat.Provider).FirstOrDefault(v => model.Values.Any(option => option.Value == v));
             if (recent is not null && recent != model.Current) await SetConfigCore(model, recent);
+        }
+    }
+
+    private string DefaultConfigKey(string id) => $"sessionDefault:{chat.Provider}:{workspace.Distro ?? "local"}:{id}";
+    private async Task ApplyNewSessionDefaults()
+    {
+        // Mode/provider changes can replace the available model and reasoning options.
+        HashSet<string> applied = [];
+        while (chat.ConfigOptions.Where(c => !applied.Contains(c.Id)).OrderBy(c => c.Id == "mode" || c.Kind == "mode" ? 0 : c.Id == "provider" ? 1 : ModelPicker.IsModel(c) ? 2 : 3).FirstOrDefault() is { } option)
+        {
+            var id = option.Id; applied.Add(id);
+            var value = store.Setting(DefaultConfigKey(id));
+            if (value is null && chat.Provider == AgentProvider.Dirac && id is "yolo" or "auto_approve") value = "true";
+            if (id == "provider" && authenticatedProviders is { Count: > 0 } &&
+                (value is null || !option.Values.Any(v => v.Value == value)) && !authenticatedProviders.Contains(option.Current)) value = option.Values.FirstOrDefault()?.Value;
+            if (value is not null && option.Values.Any(v => v.Value == value))
+            {
+                if (FullAccess(option) is not null) store.Setting(AccessKey(option), value);
+                if (value != option.Current) await SetConfigCore(option, value);
+            }
         }
     }
 
@@ -379,16 +411,24 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             await RestoreAccess();
             turn.Token.ThrowIfCancellationRequested();
+            string? restoredContext = null;
+            if (restoreDiracContext)
+            {
+                foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+                restoredContext = (await store.ExportChatAsync(chat).WaitAsync(turn.Token)).Plain;
+            }
             var continuation = string.IsNullOrWhiteSpace(text) && attachments.Length == 0;
             var user = new Message { Role = continuation ? "system" : "user", Provider = chat.Provider, Text = continuation ? autoResume ? "Chat auto-resumed after unexpected restart" : "Chat resumed" : text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
             foreach (var a in attachments) user.Attachments.Add(a);
             chat.Messages.Add(user); store.SaveMessage(chat, user);
             chat.Status = "Working…"; Changed?.Invoke();
             var content = new JsonArray();
+            if (!string.IsNullOrWhiteSpace(restoredContext)) content.Add(RpcJson.Object(("type", "text"), ("text", "Saved conversation from this same chat, restored after the agent reconnected. Treat this as prior conversation, not a new request. Continue with the new user message below.\n\n<saved_conversation>\n" + restoredContext + "</saved_conversation>")));
             if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
+            restoreDiracContext = false;
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;
             if (completed) { chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }

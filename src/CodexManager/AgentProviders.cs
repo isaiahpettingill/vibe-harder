@@ -32,16 +32,17 @@ public static class AgentProviders
         Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1" } : null);
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
     public static string LoginCommand(Store store, Workspace workspace, AgentProvider provider) =>
-        store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand") ?? (provider switch
+        NormalizeLoginCommand(provider, store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand")) ?? (provider switch
         {
             AgentProvider.Codex => (store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand") ?? ChatHistory.DefaultCodexCommand) + " login",
             AgentProvider.Claude => "npx -y @anthropic-ai/claude-code@2.1.268 auth login",
             AgentProvider.OpenCode => "opencode auth login",
-            AgentProvider.VTCode => "vtcode login",
+            AgentProvider.VTCode => "vtcode login openai",
             AgentProvider.Dirac => "npx -y dirac-cli@0.5.13 auth",
             AgentProvider.Pi => "pi",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
+    private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => provider == AgentProvider.VTCode && command?.Trim() == "vtcode login" ? null : command;
     public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login" }
         .Any(text => error.Message.Contains(text, StringComparison.OrdinalIgnoreCase));
 }

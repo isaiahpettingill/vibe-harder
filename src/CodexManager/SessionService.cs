@@ -109,6 +109,12 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var chat = chats.Single(c => c.Id == Text("chatId")); var workspaceOwner = workspaces.Single(w => w.Id == chat.WorkspaceId);
         if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
         if (method == "file/download") return new JsonObject { ["path"] = FileLinks.Resolve(Text("path"), workspaceOwner) };
+        if (method == "chat/export")
+        {
+            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+            var page = await store.ReadPageAsync(chat, request["after"]?.GetValue<int>() ?? -1, limit: 50, newer: true);
+            return new JsonObject { ["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["label"] = m.Label, ["text"] = m.Text }).ToArray()), ["after"] = page.Length == 0 ? null : JsonValue.Create(page[^1].Sequence) };
+        }
         var active = runtime(chat, workspaceOwner);
         if (active.IsChangingHistory && method != "chat") throw new IOException("Wait for the history change to finish.");
         if (method == "history/options") return await active.HistoryOptions(request["messageId"]?.GetValue<string>(), request["sequence"]?.GetValue<int>() ?? -1);
