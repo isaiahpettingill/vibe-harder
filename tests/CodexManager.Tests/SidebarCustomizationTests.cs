@@ -41,11 +41,70 @@ public class SidebarCustomizationTests
             await Task.Delay(600, TestContext.Current.CancellationToken);
             Assert.Equal(.65, first.Opacity);
             var end = second.TranslatePoint(new Point(20, 50), window)!.Value;
-            if (pointerType == PointerType.Mouse) { window.MouseMove(end); window.MouseUp(end, MouseButton.Left); }
+            if (pointerType == PointerType.Mouse) { window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left); }
             else first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
             Assert.Equal(0, clicked);
             Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s));
             Assert.Equal(1, first.Opacity);
+        }
+        finally { window.Close(); view.DisposeMobile(); }
+    }
+    [AvaloniaFact]
+    public async Task RealChatRowsAllowImmediateMouseDragAndOrdinaryClicksDoNotLatch()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("sidebar-real-drag-").FullName);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var owner = new Workspace("w", "Workspace", store.DirectoryPath); store.Save(owner);
+        var chats = Enumerable.Range(0, 3).Select(i => new Chat { Id = "chat" + i, Title = "Chat " + i, WorkspaceId = owner.Id }).ToList();
+        foreach (var chat in chats) store.Save(chat);
+        var view = new MainView(store, [owner], chats);
+        var window = new Window { Content = view, Width = 1000, Height = 700 }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            Control Row(string id) => view.GetVisualDescendants().OfType<ChatActivityIndicator>().Single(c => c.Name == "Activity_" + id).GetVisualAncestors().OfType<Grid>().First(c => c.Classes.Contains("chatRow"));
+            var first = Row("chat0");
+            var start = first.TranslatePoint(new Point(40, 10), window)!.Value;
+            window.MouseDown(start, MouseButton.Left); window.MouseUp(start, MouseButton.Left);
+            await Task.Delay(600, TestContext.Current.CancellationToken);
+            Assert.Equal(1, first.Opacity);
+            first = Row("chat0"); var second = Row("chat1");
+            start = first.TranslatePoint(new Point(40, 10), window)!.Value;
+            var end = second.TranslatePoint(new Point(40, second.Bounds.Height - 2), window)!.Value;
+            window.MouseDown(start, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left);
+            Assert.Equal(new[] { "chat1", "chat0", "chat2" }, SidebarOrder.Apply(store, "chats:w", chats, c => c.Id).Select(c => c.Id));
+            window.UpdateLayout();
+            first = Row("chat0"); second = Row("chat1");
+            start = first.TranslatePoint(new Point(40, 10), window)!.Value;
+            end = second.TranslatePoint(new Point(40, 2), window)!.Value;
+            window.MouseDown(start, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton);
+            window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null); window.MouseUp(end, MouseButton.Left);
+            Assert.Equal(new[] { "chat1", "chat0", "chat2" }, SidebarOrder.Apply(store, "chats:w", chats, c => c.Id).Select(c => c.Id));
+        }
+        finally { window.Close(); view.DisposeMobile(); }
+    }
+    [AvaloniaFact]
+    public void WorkspaceDropUsesHeadingRatherThanExpandedGroupMidpoint()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("sidebar-heading-drop-").FullName);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var view = new MainView(store, remoteOnly: true);
+        SidebarOrder.Apply(store, "test", new[] { "first", "second" }, id => id);
+        var firstHeading = new Border { Height = 40, Background = Brushes.Transparent };
+        var secondHeading = new Border { Height = 40, Background = Brushes.Transparent };
+        var first = new StackPanel { Children = { firstHeading, new Border { Height = 60 } } };
+        var second = new StackPanel { Children = { secondHeading, new Border { Height = 200 } } };
+        var register = typeof(MainView).GetMethod("EnableHoldReorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        register.Invoke(view, [first, "test", "first", (Action)(() => { }), firstHeading]);
+        register.Invoke(view, [second, "test", "second", (Action)(() => { }), secondHeading]);
+        view.Content = new StackPanel { Children = { first, second } };
+        var window = new Window { Content = view, Width = 400, Height = 500 }; window.Show();
+        try
+        {
+            var start = firstHeading.TranslatePoint(new Point(20, 20), window)!.Value;
+            var end = secondHeading.TranslatePoint(new Point(20, 35), window)!.Value;
+            window.MouseDown(start, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left);
+            Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, id => id));
         }
         finally { window.Close(); view.DisposeMobile(); }
     }

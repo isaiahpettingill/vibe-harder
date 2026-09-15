@@ -17,55 +17,120 @@ public partial class MainView
         line.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppBorder"));
         return line;
     }
-    private sealed record SidebarDrop(string Scope, string Id);
+    private sealed record SidebarDrop(string Scope, string Id, Control Anchor);
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, SidebarDrop> SidebarDropTargets = new();
+    private bool sidebarRebuildPending;
+    private readonly Border sidebarDropIndicator = new() { Height = 2, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, ZIndex = 1000 };
     private void EnableHoldReorder(Control target, string scope, string id, Action refresh, Control? gestureTarget = null)
     {
         var surface = gestureTarget ?? target;
-        SidebarDropTargets.AddOrUpdate(target, new(scope, id));
+        SidebarDropTargets.AddOrUpdate(target, new(scope, id, surface));
         IDisposable? hold = null;
-        IPointer? dragPointer = null;
+        IPointer? pointer = null;
+        InputElement? inputRoot = null;
         Point origin = default;
-        void CancelHold() { if (hold is null) return; hold.Dispose(); hold = null; sidebarHolding = false; }
-        void FinishDrag(bool rebuild = true)
+        bool dragging = false;
+        (Control Row, SidebarDrop Drop, bool After)? destination = null;
+        void Finish(bool rebuild = true)
         {
-            if (dragPointer is not { } pointer) return;
-            dragPointer = null; sidebarDragging = false; target.Opacity = 1;
-            pointer.Capture(null); if (rebuild && !closing) refresh();
+            hold?.Dispose(); hold = null;
+            var previous = pointer; pointer = null;
+            var wasDragging = dragging; dragging = false;
+            if (inputRoot is { } root)
+            {
+                root.RemoveHandler(PointerMovedEvent, Moved); root.RemoveHandler(PointerReleasedEvent, Released); root.RemoveHandler(KeyDownEvent, KeyPressed);
+                inputRoot = null;
+            }
+            sidebarHolding = false; sidebarDragging = false; destination = null;
+            target.Opacity = 1; RootPanes.Children.Remove(sidebarDropIndicator);
+            if (previous?.Captured == surface) previous.Capture(null);
+            if (rebuild && !closing)
+            {
+                if (sidebarRebuildPending) { sidebarRebuildPending = false; BuildWorkspaceTree(); }
+                else if (wasDragging) refresh();
+            }
+        }
+        void Start()
+        {
+            if (pointer is null || dragging || closing) return;
+            hold?.Dispose(); hold = null; sidebarHolding = false;
+            dragging = true; sidebarDragging = true;
+            pointer.Capture(surface); target.Opacity = .65;
+        }
+        void FindDestination(Point position)
+        {
+            destination = null; RootPanes.Children.Remove(sidebarDropIndicator);
+            for (var hit = this.InputHitTest(position) as Visual; hit is not null; hit = Avalonia.VisualTree.VisualExtensions.GetVisualParent(hit))
+            {
+                if (hit is not Control row) continue;
+                // The ListBoxItem's padding also belongs to its chat's drop area.
+                var candidate = row;
+                if (row is ListBoxItem)
+                    candidate = Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(row).OfType<Control>().FirstOrDefault(c => SidebarDropTargets.TryGetValue(c, out var d) && d.Scope == scope) ?? row;
+                if (!SidebarDropTargets.TryGetValue(candidate, out var drop) || drop.Scope != scope) continue;
+                if (drop.Id == id) return;
+                var relative = this.TranslatePoint(position, drop.Anchor);
+                if (relative is null) return;
+                var after = relative.Value.Y >= drop.Anchor.Bounds.Height / 2;
+                destination = (candidate, drop, after);
+                var edge = after ? candidate.Bounds.Height : 0;
+                if (candidate.TranslatePoint(new Point(0, edge), RootPanes) is { } point)
+                {
+                    sidebarDropIndicator.Background = this.FindResource("AppAccent") as IBrush;
+                    sidebarDropIndicator.Width = candidate.Bounds.Width;
+                    sidebarDropIndicator.Margin = new Thickness(point.X, point.Y - 1, 0, 0);
+                    Grid.SetColumnSpan(sidebarDropIndicator, 3); Grid.SetRowSpan(sidebarDropIndicator, 3);
+                    RootPanes.Children.Add(sidebarDropIndicator);
+                }
+                return;
+            }
+        }
+        void Moved(object? sender, PointerEventArgs e)
+        {
+            if (e.Pointer != pointer) return;
+            if (e.Pointer.Type == PointerType.Mouse && !e.GetCurrentPoint(this).Properties.IsLeftButtonPressed) { Finish(); return; }
+            var position = e.GetPosition(this);
+            if (!dragging)
+            {
+                var delta = position - origin;
+                if (delta.X * delta.X + delta.Y * delta.Y <= 64) return;
+                if (e.Pointer.Type == PointerType.Touch) { Finish(); return; }
+                Start();
+            }
+            if (dragging) { e.Handled = true; FindDestination(position); }
+        }
+        void Released(object? sender, PointerReleasedEventArgs e)
+        {
+            if (e.Pointer != pointer) return;
+            try
+            {
+                if (!dragging) return;
+                e.Handled = true; FindDestination(e.GetPosition(this));
+                if (destination is { } drop) SidebarOrder.Move(store, scope, id, drop.Drop.Id, drop.After);
+            }
+            catch (Exception error) { AppDiagnostics.Record("Reorder sidebar", error); }
+            finally { Finish(); }
+        }
+        void KeyPressed(object? sender, KeyEventArgs e)
+        {
+            if (e.Key == Key.Escape && pointer is not null) { e.Handled = true; Finish(); }
         }
         surface.AddHandler(PointerPressedEvent, (_, e) =>
         {
-            CancelHold();
             if (sidebarDragging || sidebarHolding || !e.GetCurrentPoint(surface).Properties.IsLeftButtonPressed) return;
             for (var source = e.Source as Visual; source is not null && source != surface; source = Avalonia.VisualTree.VisualExtensions.GetVisualParent(source))
                 if (source is IconButton or CheckBox or TextBox) return;
-            origin = e.GetPosition(surface);
-            sidebarHolding = true;
-            hold = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
-            {
-                CancelHold();
-                if (sidebarDragging) return;
-                sidebarDragging = true; dragPointer = e.Pointer;
-                e.Pointer.Capture(surface); target.Opacity = .65;
-            }, TimeSpan.FromMilliseconds(500));
+            origin = e.GetPosition(this); pointer = e.Pointer; sidebarHolding = true;
+            // ListBoxItem and Button capture presses. Observe their subsequent events
+            // at the root so release/movement is not lost outside the inner row.
+            inputRoot = TopLevel.GetTopLevel(surface) ?? (InputElement)this;
+            inputRoot.AddHandler(PointerMovedEvent, Moved, RoutingStrategies.Tunnel, true);
+            inputRoot.AddHandler(PointerReleasedEvent, Released, RoutingStrategies.Tunnel, true);
+            inputRoot.AddHandler(KeyDownEvent, KeyPressed, RoutingStrategies.Tunnel, true);
+            hold = Avalonia.Threading.DispatcherTimer.RunOnce(Start, TimeSpan.FromMilliseconds(500));
         }, RoutingStrategies.Tunnel, true);
-        surface.AddHandler(PointerMovedEvent, (_, e) => { if (dragPointer is not null) { e.Handled = true; return; } var delta = e.GetPosition(surface) - origin; if (delta.X * delta.X + delta.Y * delta.Y > 100) CancelHold(); }, RoutingStrategies.Tunnel, true);
-        surface.AddHandler(PointerReleasedEvent, (_, e) =>
-        {
-            CancelHold();
-            if (dragPointer != e.Pointer) return;
-            e.Handled = true;
-            try
-            {
-                for (var hit = this.InputHitTest(e.GetPosition(this)) as Visual; hit is not null; hit = Avalonia.VisualTree.VisualExtensions.GetVisualParent(hit))
-                    if (hit is Control row && SidebarDropTargets.TryGetValue(row, out var drop) && drop.Scope == scope && drop.Id != id)
-                    { SidebarOrder.Move(store, scope, id, drop.Id, e.GetPosition(row).Y >= row.Bounds.Height / 2); break; }
-            }
-            catch (Exception error) { AppDiagnostics.Record("Reorder sidebar", error); }
-            finally { FinishDrag(); }
-        }, RoutingStrategies.Tunnel, true);
-        surface.PointerCaptureLost += (_, _) => { CancelHold(); if (dragPointer?.Captured != surface) FinishDrag(); };
-        surface.DetachedFromVisualTree += (_, _) => { CancelHold(); FinishDrag(false); };
+        surface.PointerCaptureLost += (_, _) => { if (dragging && pointer?.Captured != surface) Finish(); };
+        surface.DetachedFromVisualTree += (_, _) => { if (pointer is not null) Finish(false); };
     }
     private void ColorMenu(Control anchor, string key, string label, Action refresh)
     {

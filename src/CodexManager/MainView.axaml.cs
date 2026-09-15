@@ -312,6 +312,7 @@ public partial class MainView : UserControl
     }
     private void BuildWorkspaceTree()
     {
+        if (sidebarHolding || sidebarDragging) { sidebarRebuildPending = true; return; }
         var savedHosts = RemoteSettings.Hosts(store);
         foreach (var host in remoteViews.Keys.Where(host => !savedHosts.Contains(host)).ToArray())
         {
