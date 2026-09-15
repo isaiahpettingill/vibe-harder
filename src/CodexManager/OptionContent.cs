@@ -11,7 +11,7 @@ public sealed class OptionContent : StackPanel
     {
         Orientation = Orientation.Horizontal; Spacing = 4;
         var icon = IconFor(option, provider);
-        if (ModelPicker.IsModel(option) && provider is AgentProvider.Dirac or AgentProvider.Pi)
+        if (ModelPicker.IsModel(option) && provider is AgentProvider.Dirac or AgentProvider.Pi or AgentProvider.Cline)
             Children.Add(new Image { Source = BrandAssets.Provider(provider.Value), Width = 13, Height = 13, VerticalAlignment = VerticalAlignment.Center });
         else Children.Add(AppIcons.Create(icon));
         Children.Add(new TextBlock { Text = option.Values.FirstOrDefault(v => v.Value == option.Current)?.Name ?? option.Current, MaxWidth = 135, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });

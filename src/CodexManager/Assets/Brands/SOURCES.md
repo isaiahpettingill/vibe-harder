@@ -12,3 +12,5 @@ The separate Vibe Harder application icon is an original geometric workspace/cha
 
 - Pi: official monochrome mark from https://pi.dev/favicon.svg (downloaded 2026-09-15), used to identify Pi. Paths are unchanged; fills use currentColor to match the app theme.
 - Dirac: original vector drawing of a cursive lowercase Greek delta, requested for this app; not an official brand asset.
+
+- Cline: official filled logo from https://raw.githubusercontent.com/cline/cline/main/apps/cline-hub/src/webview/public/cline-logo-filled.svg (downloaded 2026-09-15). Original path; fill uses currentColor.

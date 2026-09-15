@@ -25,6 +25,7 @@ public sealed record Workspace(string Id, string Name, string Path, string? Dist
 
 public sealed class Chat : Observable
 {
+    public bool IsDeleting { get; set; }
     public const int HistoryPageSize = 64;
     public int NextSequence { get; set; }
     public bool HistoryLoaded { get; set; }

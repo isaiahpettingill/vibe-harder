@@ -13,30 +13,37 @@ namespace CodexManager.Tests;
 
 public class SidebarCustomizationTests
 {
-    [AvaloniaFact]
-    public async Task LongPressReordersWithoutAGrabHandle()
+    [AvaloniaTheory]
+    [InlineData(PointerType.Touch)]
+    [InlineData(PointerType.Mouse)]
+    public async Task LongPressReordersWithoutAGrabHandle(PointerType pointerType)
     {
         var store = new Store(Directory.CreateTempSubdirectory("sidebar-touch-").FullName);
         store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
         SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s);
         var view = new MainView(store, remoteOnly: true);
         var first = new Grid { Height = 60, Background = Brushes.Transparent };
+        var title = new Button { Content = "Workspace", HorizontalAlignment = HorizontalAlignment.Stretch, VerticalAlignment = VerticalAlignment.Stretch };
+        var clicked = 0; title.Click += (_, _) => clicked++; first.Children.Add(title);
         var second = new Grid { Height = 60, Background = Brushes.Transparent };
-        var register = typeof(MainView).GetMethod("DragHandle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        var register = typeof(MainView).GetMethod("EnableHoldReorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
         register.Invoke(view, [first, "test", "first", (Action)(() => { }), null]);
         register.Invoke(view, [second, "test", "second", (Action)(() => { }), null]);
         view.Content = new StackPanel { Children = { first, second } };
         var window = new Window { Width = 300, Height = 250, Content = view }; window.Show();
         try
         {
-            var pointer = new Pointer(123, PointerType.Touch, true);
+            var pointer = new Pointer(123, pointerType, true);
             var properties = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
             var start = first.TranslatePoint(new Point(20, 20), window)!.Value;
-            first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0, properties, KeyModifiers.None));
+            if (pointerType == PointerType.Mouse) window.MouseDown(start, MouseButton.Left);
+            else first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0, properties, KeyModifiers.None));
             await Task.Delay(600, TestContext.Current.CancellationToken);
             Assert.Equal(.65, first.Opacity);
             var end = second.TranslatePoint(new Point(20, 50), window)!.Value;
-            first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            if (pointerType == PointerType.Mouse) { window.MouseMove(end); window.MouseUp(end, MouseButton.Left); }
+            else first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            Assert.Equal(0, clicked);
             Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s));
             Assert.Equal(1, first.Opacity);
         }

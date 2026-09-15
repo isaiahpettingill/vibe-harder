@@ -1,6 +1,6 @@
 namespace CodexManager;
 
-public enum AgentProvider { Codex, Claude, OpenCode, VTCode, Dirac, Pi }
+public enum AgentProvider { Codex, Claude, OpenCode, VTCode, Dirac, Pi, Cline }
 
 public sealed record AgentOption(AgentProvider Provider, string Name, string Icon, string DefaultCommand)
 {
@@ -16,9 +16,10 @@ public static class AgentProviders
         new(AgentProvider.OpenCode, "OpenCode", "▣", "opencode acp"),
         new(AgentProvider.VTCode, "VT Code", "◇", "vtcode acp"),
         new(AgentProvider.Dirac, "Dirac", "◇", "npx -y dirac-cli@0.5.13 --acp"),
-        new(AgentProvider.Pi, "Pi", "◇", "npx -y pi-acp@0.0.33")
+        new(AgentProvider.Pi, "Pi", "◇", "npx -y pi-acp@0.0.33"),
+        new(AgentProvider.Cline, "Cline", "◇", "cline --acp")
     ];
-    public static bool IsAdditional(AgentProvider provider) => provider is AgentProvider.VTCode or AgentProvider.Dirac or AgentProvider.Pi;
+    public static bool IsAdditional(AgentProvider provider) => provider is AgentProvider.VTCode or AgentProvider.Dirac or AgentProvider.Pi or AgentProvider.Cline;
     public static string EnabledKey(AgentProvider provider) => $"agentEnabled:{provider}";
     public static bool IsEnabled(Store store, AgentProvider provider) => Enum.IsDefined(provider) &&
         (store.Setting(EnabledKey(provider)) is { } enabled ? enabled == "1" : !IsAdditional(provider) || store.Setting("additionalAgentsEnabled") == "1");
@@ -40,9 +41,10 @@ public static class AgentProviders
             AgentProvider.VTCode => "vtcode login openai",
             AgentProvider.Dirac => "npx -y dirac-cli@0.5.13 auth",
             AgentProvider.Pi => "pi",
+            AgentProvider.Cline => "cline auth",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
     private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => provider == AgentProvider.VTCode && command?.Trim() == "vtcode login" ? null : command;
-    public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login" }
+    public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "call authenticate", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login" }
         .Any(text => error.Message.Contains(text, StringComparison.OrdinalIgnoreCase));
 }

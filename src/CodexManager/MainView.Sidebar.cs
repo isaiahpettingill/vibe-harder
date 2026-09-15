@@ -12,10 +12,10 @@ public partial class MainView
 {
     private readonly Dictionary<RemoteHost, JsonNode> remoteCatalogs = [];
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
-    private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null)
+    private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null)
     {
-        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
-        var grip = DragHandle(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); }); Grid.SetColumn(grip, 4); row.Children.Add(grip);
+        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
+        EnableHoldReorder(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); });
         ColorMenu(row, "chatColor:" + (colorId ?? chat.Id), "Chat input border color", () => { ApplyChatColors(); foreach (var view in remoteViews.Values) view.ApplyColors(); });
         row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
         var details = new StackPanel { Spacing = 3 };
@@ -28,7 +28,7 @@ public partial class MainView
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
         var archive = new IconButton { Name = "Archive_" + chat.Id, Icon = "archive", Label = chat.Archived ? "Restore chat" : "Archive chat", MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         archive.Click += async (_, e) => { e.Handled = true; await archiveChat(); }; Grid.SetColumn(archive, 3); row.Children.Add(archive);
-        ToolTip.SetTip(row, chat.ProviderLabel); return row;
+        ToolTip.SetTip(row, chat.ProviderLabel); return chat.Archived ? ArchiveSelectableRow(row, chat, colorId ?? chat.Id, remote) : row;
     }
     private void RefreshRemoteSidebar()
     {
@@ -56,7 +56,7 @@ public partial class MainView
                 var scope = "remote:" + host.Address + ":" + host.Port + ":";
                 rows = SidebarOrder.Apply(store, "chats:" + scope + ownerId, rows, c => c.Id).ToList();
                 var list = new ListBox { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = store.Setting("collapsed:" + key) != "1" };
-                list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, anchor => view.RenameChat(anchor, chat.Id, chat.Title), () => view.ArchiveChat(chat.Id, !chat.Archived), "chats:" + scope + ownerId, scope + chat.Id));
+                list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, anchor => view.RenameChat(anchor, chat.Id, chat.Title), () => view.ArchiveChat(chat.Id, !chat.Archived), "chats:" + scope + ownerId, scope + chat.Id, view));
                 list.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
                 list.SelectionChanged += (_, _) => { if (list.SelectedItem is Chat chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
                 var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
@@ -68,7 +68,7 @@ public partial class MainView
                 var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", Classes = { "rowAction" } }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
                 var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + scope + ownerId, true) };
                 var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
-                var grip = DragHandle(group, "workspaces:" + connectionScope, ownerId, RefreshRemoteSidebar, heading); Grid.SetColumn(grip, 1); heading.Children.Add(header); heading.Children.Add(grip);
+                EnableHoldReorder(group, "workspaces:" + connectionScope, ownerId, RefreshRemoteSidebar, heading); heading.Children.Add(header);
                 group.Children.Add(heading); group.Children.Add(list); group.Children.Add(WorkspaceDivider());
                 ColorMenu(title, "workspaceColor:" + scope + ownerId, "Workspace background color", () => { RefreshRemoteSidebar(); view.ApplyColors(); });
                 section.Children.Add(group);

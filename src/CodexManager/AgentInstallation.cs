@@ -8,7 +8,7 @@ public sealed record AgentInstallation(string Message, string Url)
     {
         if (Missing(error.Message, "node") || Missing(error.Message, "npm") || Missing(error.Message, "npx"))
             return new(AgentProviders.IsAdditional(provider) ? $"Node is required to run {AgentProviders.Get(provider).Name} ACP" : "Node is required to run Codex/Claude ACP bridges", "https://nodejs.org/en/download");
-        var binary = provider switch { AgentProvider.OpenCode => "opencode", AgentProvider.Codex => "codex", AgentProvider.VTCode => "vtcode", AgentProvider.Dirac => "dirac", AgentProvider.Pi => "pi", _ => "claude" };
+        var binary = provider switch { AgentProvider.OpenCode => "opencode", AgentProvider.Codex => "codex", AgentProvider.VTCode => "vtcode", AgentProvider.Dirac => "dirac", AgentProvider.Pi => "pi", AgentProvider.Cline => "cline", _ => "claude" };
         if (provider == AgentProvider.Pi && Missing(error.Message, "pi-acp")) return new("Install pi-acp to use Pi ACP", "https://github.com/svkozak/pi-acp");
         if (!Missing(error.Message, binary)) return null;
         return provider switch
@@ -18,6 +18,7 @@ public sealed record AgentInstallation(string Message, string Url)
             AgentProvider.VTCode => new("Install VT Code to use VT Code ACP", "https://github.com/vinhnx/VTCode#installation"),
             AgentProvider.Dirac => new("Install Dirac to use Dirac ACP", "https://dirac.run/"),
             AgentProvider.Pi => new("Install Pi and pi-acp to use Pi ACP", "https://github.com/svkozak/pi-acp"),
+            AgentProvider.Cline => new("Install Cline to use Cline ACP", "https://docs.cline.bot/usage/acp"),
             _ => new("Install Claude Code to use Claude Code ACP", "https://code.claude.com/docs/en/quickstart")
         };
     }

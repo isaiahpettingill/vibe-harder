@@ -718,7 +718,7 @@ public sealed class RemoteView : UserControl, IDisposable
         var client = connection;
         if (client is null) { status.IsVisible = true; if (!hostOffline) status.Text = "Reconnecting to the host…"; UpdateSendAction(); return null; }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(request["method"]?.GetValue<string>() is "list" or "chat" or "terminal/read" or "file/read" ? 15 : 90));
+        timeout.CancelAfter(TimeSpan.FromSeconds(request["method"]?.GetValue<string>() is "list" or "chat" or "terminal/read" or "file/read" ? 15 : request["method"]?.GetValue<string>() == "delete" ? 120 : 90));
         try { var result = await client.Request(request, timeout.Token); return !lifetime.IsCancellationRequested && !connectionCollapsed && !connectionSuspended && ReferenceEquals(connection, client) ? result : null; }
         catch (RemoteOperationException error)
         {
@@ -745,6 +745,19 @@ public sealed class RemoteView : UserControl, IDisposable
     public async Task ArchiveChat(string id, bool archived)
     {
         await Call(new() { ["method"] = "archive", ["chatId"] = id, ["archived"] = archived }); await RefreshList();
+    }
+    public async Task UnarchiveChat(string id)
+    {
+        if (await Call(new() { ["method"] = "archive", ["chatId"] = id, ["archived"] = false }) is null) throw new IOException("Could not unarchive chat. Reconnect and try again.");
+        await RefreshList();
+    }
+    public async Task<string?> DeleteArchivedChat(string id)
+    {
+        var result = await Call(new() { ["method"] = "delete", ["chatId"] = id }) ?? throw new IOException("Could not delete chat. Reconnect and try again.");
+        if (result["deleted"]?.GetValue<bool>() != true) throw new IOException("The host did not confirm deletion.");
+        if (chatId == id) { chatId = null; messages.Clear(); messageRevisions.Clear(); busy = preparing = false; UpdateSendAction(); }
+        await RefreshList();
+        return result["warning"]?.GetValue<string>();
     }
     public void RenameChat(Control anchor, string id, string title)
     {

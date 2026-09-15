@@ -14,7 +14,7 @@ public static class BrandAssets
     {
         if (Images.TryGetValue(provider, out var cached)) return cached;
         if (provider == AgentProvider.VTCode) return Images[provider] = new DrawingImage(new GeometryDrawing { Brush = (IBrush)Application.Current!.Resources["AppText"]!, Geometry = AppIcons.Create("agent").Data });
-        var file = provider switch { AgentProvider.Codex => "openai", AgentProvider.Claude => "anthropic", AgentProvider.Dirac => "dirac", AgentProvider.Pi => "pi", _ => "opencode" };
+        var file = provider switch { AgentProvider.Codex => "openai", AgentProvider.Claude => "anthropic", AgentProvider.Dirac => "dirac", AgentProvider.Pi => "pi", AgentProvider.Cline => "cline", _ => "opencode" };
         using var stream = AssetLoader.Open(new Uri($"avares://VibeHarder.UI/Assets/Brands/{file}.svg"));
         var svg = XDocument.Load(stream).Root!;
         var bounds = svg.Attribute("viewBox")!.Value.Split(' ').Select(n => double.Parse(n, CultureInfo.InvariantCulture)).ToArray();

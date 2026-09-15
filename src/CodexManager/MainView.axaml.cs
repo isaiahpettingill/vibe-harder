@@ -147,7 +147,7 @@ public partial class MainView : UserControl
         workspaces = new((remoteOnly ? [] : loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = remoteOnly ? [] : loadedChats ?? store.Chats();
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
-        remoteSessions = new SessionService(store, workspaces, chats, Runtime);
+        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat };
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
         DragDrop.SetAllowDrop(ComposerBorder, true);
@@ -348,7 +348,7 @@ public partial class MainView : UserControl
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
             var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
-            var grip = DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree, heading); Grid.SetColumn(grip, 1); heading.Children.Add(header); heading.Children.Add(grip);
+            EnableHoldReorder(group, "workspaces", owner.Id, BuildWorkspaceTree, heading); heading.Children.Add(header);
             group.Children.Add(heading); group.Children.Add(list); group.Children.Add(WorkspaceDivider());
             ColorMenu(title, "workspaceColor:" + owner.Id, "Workspace background color", () => { BuildWorkspaceTree(); ApplyChatColors(); });
             WorkspaceTree.Children.Add(group);
@@ -405,6 +405,7 @@ public partial class MainView : UserControl
     }
     private void RefreshChats()
     {
+        UpdateArchiveSelection();
         if (sidebarDragging || sidebarHolding) return;
         var query = SearchBox.Text ?? "";
         refreshingChats = true;
@@ -432,7 +433,7 @@ public partial class MainView : UserControl
     }
     private async void ChatChanged(object? sender, SelectionChangedEventArgs e)
     {
-        if (refreshingChats || sender is not ListBox { SelectedItem: Chat chat, Tag: Workspace owner }) return;
+        if (refreshingChats || sender is not ListBox { SelectedItem: Chat chat, Tag: Workspace owner } || chat.IsDeleting) return;
         if (!recoveringPresentation) ClearRecoveryNotice();
         var connectAgent = !restoringSelection;
         if (!ReferenceEquals(current, chat)) recoveryAttempts = 0;
@@ -1217,7 +1218,7 @@ public partial class MainView : UserControl
         foreach (var archived in new[] { false, true })
         {
             var item = new MenuItem { Header = archived ? "Archived" : "Chats", IsEnabled = archived != showArchived };
-            item.Click += (_, _) => { showArchived = archived; ArchiveViewButton.Content = AppIcons.Label("chevron-down", archived ? "Archived" : "Chats", trailing: true); SearchBox.Text = ""; if (remoteView is not null) RefreshRemoteSidebar(); else SelectNextChat(); };
+            item.Click += (_, _) => { showArchived = archived; archivedSelection.Clear(); UpdateArchiveSelection(); ArchiveViewButton.Content = AppIcons.Label("chevron-down", archived ? "Archived" : "Chats", trailing: true); SearchBox.Text = ""; if (remoteView is not null) RefreshRemoteSidebar(); else SelectNextChat(); };
             menu.Items.Add(item);
         }
         ArchiveViewButton.Flyout = menu; menu.ShowAt(ArchiveViewButton);
@@ -1240,26 +1241,36 @@ public partial class MainView : UserControl
     {
         if (current is not { Busy: false } chat || workspace is null) return;
         var owner = workspace;
-        var codexHistory = chat.Provider == AgentProvider.Codex;
-        var dialog = new Window { Title = codexHistory ? "Delete chat permanently" : "Remove chat", Width = 530, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false };
-        var confirm = new Button { Name = "ConfirmDeleteButton", Content = codexHistory ? "Delete permanently" : "Remove from app" }; var cancel = new Button { Content = "Cancel" };
+        var dialog = new Window { Title = "Delete chat", Width = 530, Height = 260, WindowStartupLocation = WindowStartupLocation.CenterOwner, CanResize = false };
+        var confirm = new Button { Name = "ConfirmDeleteButton", Content = "Delete" }; var cancel = new Button { Content = "Cancel" };
         confirm.Click += (_, _) => dialog.Close(true); cancel.Click += (_, _) => dialog.Close(false);
-        dialog.Content = new StackPanel { Margin = new Thickness(24), Spacing = 18, Children = { new TextBlock { Text = "Delete “" + chat.Title + "”?", FontSize = 20, TextWrapping = TextWrapping.Wrap }, new TextBlock { Text = codexHistory ? "This removes the chat and attachments from this app and permanently deletes its Codex history, including any child sessions. Project files are kept." : "Remove this chat and its attachments from this app? The original agent history is kept. This chat will be skipped by future imports.", TextWrapping = TextWrapping.Wrap }, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { cancel, confirm } } } };
+        dialog.Content = new StackPanel { Margin = new Thickness(24), Spacing = 18, Children = { new TextBlock { Text = "Delete “" + chat.Title + "”?", FontSize = 20, TextWrapping = TextWrapping.Wrap }, new TextBlock { Text = "Chats and attachments will be removed from this app. We will also try to delete provider history, which may also remove child sessions or session worktrees.", TextWrapping = TextWrapping.Wrap }, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Children = { cancel, confirm } } } };
         if (!await dialog.ShowDialog<bool>(desktopWindow!)) return;
         historyOperation = DeleteChat(chat, owner); await historyOperation;
     }
     private async Task DeleteChat(Chat chat, Workspace owner)
     {
-        chat.Busy = true; chat.Status = "Deleting…"; UpdateControls();
+        try { var warning = await DeleteChatCore(chat, owner); StatusText.Text = "Chat deleted." + (warning is null ? "" : " Provider history cleanup: " + warning); }
+        catch (Exception error) { StatusText.Text = "Could not delete chat: " + error.Message; }
+    }
+    private async Task<string?> DeleteChatCore(Chat chat, Workspace owner)
+    {
+        if (chat.IsDeleting || chat.Busy) throw new IOException("Stop the chat before deleting it.");
+        if (ReferenceEquals(current, chat)) { pageLoad?.Cancel(); ClearChat(); }
         try
         {
-            if (runtimes.Remove(chat.Id, out var runtime)) await runtime.DisposeAsync();
-            if (chat.SessionId is not null && chat.Provider == AgentProvider.Codex) await ChatHistory.DeleteFromCodex(owner, chat.SessionId, store.Setting(owner.IsWsl ? "wslCodexCommand" : "localCodexCommand"));
-            if (chat.SessionId is not null) store.Setting(AgentProviders.HiddenHistoryKey(chat), "1");
-            store.Delete(chat); chats.Remove(chat); if (ReferenceEquals(current, chat)) SelectNextChat(); StatusText.Text = chat.Provider == AgentProvider.Codex ? "Chat and Codex history deleted." : "Chat removed from this app.";
+            return await ChatDeletion.Delete(store, chats, chat, owner, async () =>
+            {
+                if (runtimes.Remove(chat.Id, out var runtime)) await runtime.DisposeAsync();
+            });
         }
-        catch (Exception error) { chat.Status = "Delete failed"; StatusText.Text = "History deletion failed; the chat was kept. " + error.Message; }
-        finally { chat.Busy = false; var status = StatusText.Text; UpdateControls(); StatusText.Text = status; }
+        finally { RefreshChats(); UpdateControls(); }
+    }
+    private async Task<string?> DeleteRemoteChat(Chat chat, Workspace owner)
+    {
+        var operation = DeleteChatCore(chat, owner); workspaceClosures.Add(operation);
+        try { return await operation; }
+        finally { workspaceClosures.Remove(operation); }
     }
     private bool TrayAvailable => tray?.IsVisible == true && store.Setting("runInTray") != "0" && Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime && (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || tray.NativeMenuExporter is not null);
     private void ConfigureTray()

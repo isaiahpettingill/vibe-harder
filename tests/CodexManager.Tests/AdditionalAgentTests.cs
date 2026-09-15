@@ -5,6 +5,15 @@ namespace CodexManager.Tests;
 public class AdditionalAgentTests
 {
     [Fact]
+    public void ClineUsesDocumentedCommandsAndRecognizesItsLoginPrompt()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("cline-setup-").FullName);
+        var workspace = new Workspace("w", "Cline", store.DirectoryPath);
+        Assert.Equal("cline --acp", AgentProviders.Command(store, workspace, AgentProvider.Cline));
+        Assert.Equal("cline auth", AgentProviders.LoginCommand(store, workspace, AgentProvider.Cline));
+        Assert.True(AgentProviders.IsAuthenticationError(new IOException("Call authenticate before starting a session")));
+    }
+    [Fact]
     public async Task HostAdvertisesOnlyEnabledProvidersAndRejectsDisabledCreation()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("additional-agents-").FullName);
@@ -22,8 +31,8 @@ public class AdditionalAgentTests
         Assert.Empty(chats);
         store.Setting("additionalAgentsEnabled", "1");
         list = await service.Handle(new JsonObject { ["method"] = "list" });
-        Assert.Equal(6, list!["providers"]!.AsArray().Count);
-        Assert.Equal(6, AgentProviders.Enabled(store).Count());
+        Assert.Equal(7, list!["providers"]!.AsArray().Count);
+        Assert.Equal(7, AgentProviders.Enabled(store).Count());
     }
 
     [Fact]
@@ -66,6 +75,7 @@ public class AdditionalAgentTests
     }
 
     [Theory]
+    [InlineData(AgentProvider.Cline, "cline")]
     [InlineData(AgentProvider.VTCode, "vtcode")]
     [InlineData(AgentProvider.Dirac, "dirac")]
     [InlineData(AgentProvider.Pi, "pi")]

@@ -57,4 +57,34 @@ public static class ChatHistory
         var command = (codexCommand ?? DefaultCodexCommand) + " delete --force " + id.ToString("D");
         await Hosts.Capture(Hosts.Agent(workspace, command), TimeSpan.FromSeconds(90));
     }
+    public static async Task<string?> TryDeleteFromProvider(Store store, Workspace workspace, Chat chat)
+    {
+        if (chat.SessionId is not { } id) return null;
+        try
+        {
+            if (chat.Provider == AgentProvider.Codex)
+                await DeleteFromCodex(workspace, id, store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand"));
+            else
+            {
+                var command = AgentProviders.Command(store, workspace, chat.Provider);
+                if (chat.Provider == AgentProvider.OpenCode && command.TrimEnd().EndsWith(" acp", StringComparison.Ordinal))
+                {
+                    if (!System.Text.RegularExpressions.Regex.IsMatch(id, @"\Ases_[a-zA-Z0-9]+\z")) throw new IOException("Invalid OpenCode session ID.");
+                    await Hosts.Capture(Hosts.Agent(workspace, command.TrimEnd()[..^4] + " session delete " + id), TimeSpan.FromSeconds(90));
+                }
+                else
+                {
+                    await using var client = new AcpClient(AgentProviders.Start(workspace, command, chat.Provider));
+                    using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+                    var init = await client.Initialize(timeout.Token);
+                    if (!init.TryGetProperty("agentCapabilities", out var capabilities) || !capabilities.TryGetProperty("sessionCapabilities", out var sessions) ||
+                        !sessions.TryGetProperty("delete", out var deletion) || deletion.ValueKind is JsonValueKind.False or JsonValueKind.Null)
+                        return AgentProviders.Get(chat.Provider).Name + " does not expose history deletion through ACP.";
+                    await client.Request("session/delete", RpcJson.Object(("sessionId", id)), timeout.Token);
+                }
+            }
+            return null;
+        }
+        catch (Exception error) { AppDiagnostics.Record("Provider history deletion", error); return AgentProviders.Get(chat.Provider).Name + ": " + error.Message; }
+    }
 }

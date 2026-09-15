@@ -2,7 +2,7 @@
 
 <img src="LOGO.svg" alt="Vibe Harder" width="64">
 
-Use Codex, Claude, and OpenCode across your computers.
+Use your coding agents across your computers.
 
 ## Install
 
@@ -28,6 +28,8 @@ curl -fsSL https://github.com/isaiahpettingill/vibe-harder/releases/latest/downl
 2. Open Vibe Harder and choose **Open workspace** to select a folder.
 3. Create a chat, choose your agent, and sign in when prompted.
 4. Type a message and send it.
+
+Enable Cline, Dirac, Pi, or VT Code in **Settings → Agents**. For Cline, install with `npm i -g cline` and sign in with `cline auth`.
 
 To open the current folder from a new terminal:
 

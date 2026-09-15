@@ -7,7 +7,15 @@
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">
         <Button Grid.Row="0" Name="OpenWorkspaceButton" Content="＋  Open workspace" HorizontalAlignment="Stretch" Click="WorkspaceSelectorClick"/>
         <TextBox Grid.Row="1" Name="SearchBox" Margin="0,8,0,0" PlaceholderText="Search all chats…" TextChanged="SearchChanged"/>
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
+        <StackPanel Grid.Row="2">
+          <Grid ColumnDefinitions="*,Auto" Margin="0,6"><Button Name="ArchiveViewButton" Content="Chats ▾" Click="ToggleArchiveView" Padding="6"/><Button Grid.Column="1" Name="ImportChatsButton" Content="Import" Click="ImportChatsClick" ToolTip.Tip="Import previous chats for the selected workspace"/></Grid>
+          <Grid Name="ArchiveSelectionBar" ColumnDefinitions="*,Auto,Auto,Auto" IsVisible="False" Margin="0,0,0,6">
+            <TextBlock Name="ArchiveSelectionCount" Text="Select chats" VerticalAlignment="Center" FontSize="11"/>
+            <local:IconButton Name="RestoreSelectedChats" Grid.Column="1" Icon="archive" Label="Unarchive selected chats" Click="RestoreSelectedChatsClick"/>
+            <local:IconButton Name="DeleteSelectedChats" Grid.Column="2" Icon="delete" Label="Delete selected chats" Click="DeleteSelectedChatsClick"/>
+            <local:IconButton Name="ClearArchiveSelection" Grid.Column="3" Icon="remove" Label="Clear selection" Click="ClearArchiveSelectionClick"/>
+          </Grid>
+        </StackPanel>
         <ScrollViewer Name="WorkspaceScroll" Grid.Row="3" HorizontalScrollBarVisibility="Disabled" AllowAutoHide="False"><StackPanel Name="WorkspaceTree" Spacing="8"/></ScrollViewer>
         <Grid Grid.Row="4" ColumnDefinitions="*,Auto" Margin="0,6,0,0"><local:IconButton Name="SettingsButton" Icon="settings" Label="Settings" Click="SettingsClick" HorizontalAlignment="Left"/><local:IconButton Name="CommandPaletteButton" Grid.Column="1" Icon="command" Label="Command palette (Ctrl+Shift+P)" Click="PaletteClick" Margin="4,0,0,0"/></Grid>
       </Grid>

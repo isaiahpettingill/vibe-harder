@@ -24,6 +24,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     }
     public void Dispose() => terminals.Dispose();
     public event Action? Changed;
+    public Func<Chat, Workspace, Task<string?>>? DeleteChat { get; set; }
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
     {
@@ -107,6 +108,14 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             pending.Completion.TrySetResult(RpcJson.Permission(option)); return JsonValue.Create(true);
         }
         var chat = chats.Single(c => c.Id == Text("chatId")); var workspaceOwner = workspaces.Single(w => w.Id == chat.WorkspaceId);
+        if (chat.IsDeleting) throw new IOException("This chat is being deleted.");
+        if (method == "delete")
+        {
+            var warning = DeleteChat is { } delete ? await delete(chat, workspaceOwner) :
+                await ChatDeletion.Delete(store, chats, chat, workspaceOwner, () => runtime(chat, workspaceOwner).DisposeAsync().AsTask());
+            Changed?.Invoke();
+            return new JsonObject { ["deleted"] = true, ["warning"] = warning };
+        }
         if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
         if (method == "file/download") return new JsonObject { ["path"] = FileLinks.Resolve(Text("path"), workspaceOwner) };
         if (method == "chat/export")
