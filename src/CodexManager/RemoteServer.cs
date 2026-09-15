@@ -36,6 +36,7 @@ public sealed class RemoteServer : IAsyncDisposable
                     while (!lifetime.IsCancellationRequested)
                     {
                         var client = await listener.AcceptTcpClientAsync(lifetime.Token);
+                        client.NoDelay = true;
                         if (clients.Count >= 32) { client.Dispose(); continue; }
                         var task = Serve(client, certificate); clients[client] = task;
                         _ = task.ContinueWith(_ => { clients.TryRemove(client, out var ignored); client.Dispose(); }, TaskScheduler.Default);

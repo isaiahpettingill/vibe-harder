@@ -352,7 +352,29 @@ public sealed class RemoteView : UserControl, IDisposable
         UpdateSendAction();
         terminal = new RemoteTerminalView(Call) { IsVisible = false, ZIndex = 20 };
         terminal.Bind(Panel.BackgroundProperty, this.GetResourceObservable("AppBackground"));
-        Grid.SetRowSpan(terminal, 4); panel.Children.Add(terminal);
+        var terminalLayout = new Grid { Name = "RemoteTerminalLayout", ColumnDefinitions = new ColumnDefinitions("*,0,0") };
+        var terminalSplitter = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false };
+        Grid.SetColumn(terminalSplitter, 1); terminalLayout.Children.Add(panel); terminalLayout.Children.Add(terminalSplitter); terminalLayout.Children.Add(terminal);
+        bool? docked = null;
+        void LayoutTerminal()
+        {
+            // Use the whole window width: a laptop's sidebar must not make its chat look like a phone.
+            var wide = (TopLevel.GetTopLevel(this)?.Bounds.Width ?? Bounds.Width) >= 720;
+            var dock = wide && terminal.IsVisible;
+            if (docked == dock) return;
+            docked = dock;
+            terminalLayout.ColumnDefinitions[0].Width = new GridLength(1, GridUnitType.Star);
+            terminalLayout.ColumnDefinitions[1].Width = new GridLength(dock ? 5 : 0);
+            terminalLayout.ColumnDefinitions[2].Width = dock ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+            terminalSplitter.IsVisible = dock;
+            Grid.SetColumn(terminal, dock ? 2 : 0);
+        }
+        SizeChanged += (_, _) => LayoutTerminal();
+        TopLevel? layoutTopLevel = null;
+        void WindowResized(object? sender, SizeChangedEventArgs e) => LayoutTerminal();
+        AttachedToVisualTree += (_, _) => { layoutTopLevel = TopLevel.GetTopLevel(this); if (layoutTopLevel is not null) layoutTopLevel.SizeChanged += WindowResized; LayoutTerminal(); };
+        DetachedFromVisualTree += (_, _) => { if (layoutTopLevel is not null) layoutTopLevel.SizeChanged -= WindowResized; layoutTopLevel = null; };
+        terminal.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) LayoutTerminal(); };
         terminal.Back += () => terminal.SetVisible(false);
         AddHandler(PointerPressedEvent, (_, e) => { if (e.Pointer.Type == PointerType.Touch && (!terminal.IsVisible || e.GetPosition(terminal).Y < 52)) swipeStart = e.GetPosition(this); else swipeStart = null; }, RoutingStrategies.Tunnel, true);
         AddHandler(PointerReleasedEvent, async (_, e) =>
@@ -363,7 +385,7 @@ public sealed class RemoteView : UserControl, IDisposable
             if (delta.X > 0 && !terminal.IsVisible) await ShowTerminal();
             else if (delta.X < 0 && terminal.IsVisible) terminal.SetVisible(false);
         }, RoutingStrategies.Tunnel, true);
-        Content = panel;
+        Content = terminalLayout;
         timer.Tick += async (_, _) =>
         {
             if (connectionSuspended || connectionCollapsed || polling) return;

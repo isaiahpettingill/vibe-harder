@@ -11,6 +11,59 @@ namespace CodexManager.Tests;
 public class InteractionReviewTests
 {
     [AvaloniaFact]
+    public void RemoteTerminalDocksOnLaptopAndOverlaysOnlyOnNarrowWindows()
+    {
+        using var remote = new RemoteView(new RemoteHost("Test", "127.0.0.1", 1, "", ""));
+        var root = new Grid { ColumnDefinitions = new("280,*") };
+        Grid.SetColumn(remote, 1); root.Children.Add(remote);
+        var window = new Window { Width = 960, Height = 650, Content = root }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            var layout = Assert.IsType<Grid>(remote.Content);
+            var terminal = layout.Children.OfType<RemoteTerminalView>().Single();
+            terminal.SetVisible(true); window.UpdateLayout();
+            Assert.Equal(2, Grid.GetColumn(terminal));
+            Assert.True(layout.Children[0].Bounds.Width > 200);
+            Assert.True(terminal.Bounds.Width > 200);
+            Assert.True(terminal.Bounds.X >= layout.Children[0].Bounds.Right);
+            window.Width = 600; Avalonia.Threading.Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal(0, Grid.GetColumn(terminal));
+            window.Width = 960; Avalonia.Threading.Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
+            Assert.Equal(2, Grid.GetColumn(terminal));
+            terminal.SetVisible(false); window.UpdateLayout();
+            Assert.Equal(0, layout.ColumnDefinitions[2].ActualWidth);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task RemoteTerminalBatchesTypingWhilePreviousInputIsInFlight()
+    {
+        var first = new TaskCompletionSource<JsonNode?>(); var sent = new List<string>();
+        Task<JsonNode?> Call(JsonObject request)
+        {
+            if (request["method"]!.GetValue<string>() == "terminal/input")
+            { sent.Add(request["text"]!.GetValue<string>()); return sent.Count == 1 ? first.Task : Task.FromResult<JsonNode?>(JsonValue.Create(true)); }
+            return Task.FromResult<JsonNode?>(request["method"]!.GetValue<string>() switch
+            {
+                "terminal/open" => new JsonObject { ["id"] = "shell" },
+                "terminal/read" => new JsonObject { ["text"] = "", ["offset"] = 0L },
+                _ => JsonValue.Create(true)
+            });
+        }
+        using var terminal = new RemoteTerminalView(Call);
+        await terminal.Open("w", "Host");
+        var a = terminal.SendKeystroke(new("a"));
+        var b = terminal.SendKeystroke(new("b"));
+        var c = terminal.SendKeystroke(new("c"));
+        Assert.Single(sent);
+        first.SetResult(JsonValue.Create(true));
+        Assert.All(await Task.WhenAll(a, b, c), Assert.True);
+        Assert.Equal(new[] { "a", "bc" }, sent);
+    }
+
+    [AvaloniaFact]
     public async Task TerminalKeyboardStreamsTypingBackspaceAndEnter()
     {
         var input = new StringBuilder();

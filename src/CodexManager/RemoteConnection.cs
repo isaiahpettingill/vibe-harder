@@ -40,6 +40,7 @@ public sealed class RemoteConnection : IDisposable
             return;
         }
         await client!.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
+        client.NoDelay = true;
         stream = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
         {
             if (certificate is null) return false;
@@ -114,7 +115,8 @@ public static class RemoteWire
     {
         var bytes = Encoding.UTF8.GetBytes(value.ToJsonString());
         if (bytes.Length > MaximumFrame) throw new IOException("Remote message is too large.");
-        var header = new byte[4]; BinaryPrimitives.WriteInt32BigEndian(header, bytes.Length);
-        await stream.WriteAsync(header, token).ConfigureAwait(false); await stream.WriteAsync(bytes, token).ConfigureAwait(false);
+        var frame = new byte[4 + bytes.Length]; BinaryPrimitives.WriteInt32BigEndian(frame, bytes.Length);
+        bytes.CopyTo(frame, 4);
+        await stream.WriteAsync(frame, token).ConfigureAwait(false);
     }
 }
