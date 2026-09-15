@@ -13,6 +13,7 @@ public sealed class TerminalSession : IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private bool exited;
     private bool disposed;
+    private bool completionReported;
     private (int Cols, int Rows) ptySize;
     private readonly System.Text.Decoder decoder = System.Text.Encoding.UTF8.GetDecoder();
     public event Action? Completed;
@@ -49,10 +50,11 @@ public sealed class TerminalSession : IDisposable
     }
     private void Write(ReadOnlySpan<byte> data)
     {
+        if (exited || disposed) return;
         if (durable is not null) { if (!disposed) durable.Input(System.Text.Encoding.UTF8.GetString(data)); return; }
         if (exited || disposed || connection is null) return;
         try { connection.WriterStream.Write(data); connection.WriterStream.Flush(); }
-        catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; }
+        catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; Dispatcher.UIThread.Post(ReportCompletion); }
     }
     private void ResizePty()
     {
@@ -60,7 +62,7 @@ public sealed class TerminalSession : IDisposable
         var size = (Math.Max(2, Model.Terminal.Cols), Math.Max(2, Model.Terminal.Rows));
         if (size == ptySize) return; // Pixel-only layout changes must not signal the shell.
         try { connection.Resize(size.Item1, size.Item2); ptySize = size; }
-        catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; }
+        catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; Dispatcher.UIThread.Post(ReportCompletion); }
     }
     public static PtyOptions Options(Workspace workspace, string? command = null)
     {
@@ -101,10 +103,16 @@ public sealed class TerminalSession : IDisposable
                 var text = new string(chars, 0, count);
                 await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed(text); RawOutput?.Invoke(text); Output.Append(copy); OutputChanged?.Invoke(); });
             }
-            await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed("\r\n[Shell exited]\r\n"); RawOutput?.Invoke("\r\n[Shell exited]\r\n"); if (!disposed) Completed?.Invoke(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) { Model.Feed("\r\n[Shell exited]\r\n"); RawOutput?.Invoke("\r\n[Shell exited]\r\n"); } });
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { if (!lifetime.IsCancellationRequested) await Dispatcher.UIThread.InvokeAsync(() => Model.Feed("\r\n" + error.Message)); }
+        finally { exited = true; await Dispatcher.UIThread.InvokeAsync(ReportCompletion); }
+    }
+    private void ReportCompletion()
+    {
+        if (disposed || completionReported) return;
+        completionReported = true; Completed?.Invoke();
     }
     public void Dispose()
     {

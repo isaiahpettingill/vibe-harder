@@ -34,6 +34,8 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private long offset;
     private (int Cols, int Rows) size;
     private string caption = "Remote terminal";
+    private string? workspaceId;
+    private bool opening;
     public string? TerminalId { get; private set; }
     public event Action? Back;
     public RemoteTerminalView(Func<JsonObject, Task<JsonNode?>> call, bool? mobile = null)
@@ -58,6 +60,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             Item("Copy", terminal.CopyText); Item("Paste", terminal.PasteText);
             Item("Select all", () => { terminal.SelectAll(); return Task.CompletedTask; });
             Item("Interrupt (Ctrl+C)", async () => await Input(model.Terminal.Engine.GenerateCharInput('c', TerminalModifiers.Control)));
+            Item("Reconnect terminal", async () => { if (workspaceId is { } workspace) await Open(workspace, caption); });
             Item("Close terminal", async () =>
             {
                 if (TerminalId is not { } id) return;
@@ -123,13 +126,22 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     }
     public async Task Open(string workspaceId, string caption)
     {
-        this.caption = caption;
-        Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; model.Feed("\u001bc");
-        var result = await call(new() { ["method"] = "terminal/open", ["workspaceId"] = workspaceId });
-        TerminalId = result?["id"]?.GetValue<string>(); Ready(TerminalId is not null);
-        status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : caption;
-        if (disposed) return;
-        size = default; if (IsVisible && !sleeping) timer.Start(); await Poll();
+        if (opening || disposed) return;
+        opening = true;
+        this.workspaceId = workspaceId;
+        try
+        {
+            this.caption = caption;
+            Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; model.Feed("\u001bc");
+            while (pendingInput.TryDequeue(out var pending)) pending.Completion.TrySetResult(false);
+            var result = await call(new() { ["method"] = "terminal/open", ["workspaceId"] = workspaceId });
+            if (disposed) return;
+            TerminalId = result?["id"]?.GetValue<string>(); Ready(TerminalId is not null);
+            status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : caption;
+            size = default; if (IsVisible && !sleeping) timer.Start(); await Poll();
+        }
+        catch (Exception error) { Ready(false); status.Text = AppDiagnostics.Message("Could not open terminal", error); }
+        finally { opening = false; }
     }
     public void SetSleeping(bool value) { sleeping = value; if (value) ReleaseKeyboard(); if (!value && IsVisible && !disposed) timer.Start(); else timer.Stop(); }
     public void SetVisible(bool visible) { IsVisible = visible; if (!visible) ReleaseKeyboard(); if (visible && !disposed && !sleeping) timer.Start(); else timer.Stop(); }
@@ -182,7 +194,13 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             var result = await call(new() { ["method"] = "terminal/read", ["terminalId"] = id, ["offset"] = offset });
             if (disposed || id != TerminalId) return;
             if (result is null) { Ready(false); status.Text = "Reconnecting to the host terminal…"; return; }
-            if (result["error"] is { } error) { TerminalId = null; Ready(false); status.Text = error.GetValue<string>(); timer.Stop(); return; }
+            if (result["error"] is { } error)
+            {
+                Ready(false); var message = error.GetValue<string>(); status.Text = message;
+                if (message.StartsWith("This terminal has closed", StringComparison.Ordinal)) { TerminalId = null; timer.Stop(); }
+                else { size = default; status.Text = "Reconnecting to the host terminal: " + message; timer.Interval = TimeSpan.FromSeconds(1); }
+                return;
+            }
             Ready(true); status.Text = caption;
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             var output = result["text"]!.GetValue<string>();
@@ -194,7 +212,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             timer.Interval = TimeSpan.FromMilliseconds(DateTimeOffset.UtcNow < interactiveUntil ? 33 : 150);
             if (result["exited"]?.GetValue<bool>() == true) { Ready(false); TerminalId = null; ReleaseKeyboard(); status.Text = "Shell exited. Reopen the terminal to start a new shell."; timer.Stop(); }
         }
-        catch (Exception error) { if (!disposed) status.Text = AppDiagnostics.Message("Terminal refresh failed", error); }
+        catch (Exception error) { if (!disposed) { Ready(false); status.Text = AppDiagnostics.Message("Terminal refresh failed", error); } }
         finally { polling = false; }
     }
     public void Dispose() { disposed = true; timer.Stop(); ReleaseKeyboard(); Back = null; }

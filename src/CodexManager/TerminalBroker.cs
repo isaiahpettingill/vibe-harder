@@ -37,7 +37,12 @@ public static class TerminalBroker
         await pipe.ConnectAsync(connectTimeout, timeout.Token);
         await Write(pipe, request, timeout.Token);
         var result = await Read(pipe, timeout.Token);
-        if (result["error"] is { } error) throw new IOException(error.GetValue<string>());
+        if (result["error"] is { } error)
+        {
+            var message = error.GetValue<string>();
+            if (message.StartsWith("This terminal has closed", StringComparison.Ordinal)) throw new TerminalClosedException(message);
+            throw new IOException(message);
+        }
         return result;
     }
     private static void Start(string profile)
@@ -162,4 +167,5 @@ public static class TerminalBroker
         return new JsonObject();
     }
 }
+internal sealed class TerminalClosedException(string message) : IOException(message);
 #endif

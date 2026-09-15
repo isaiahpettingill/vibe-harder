@@ -199,6 +199,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private CancellationTokenSource? connectAttempt;
     private DateTimeOffset reconnectAfter;
     private int reconnectFailures;
+    private bool hostOffline;
     public void SetPresentationSleeping(bool sleeping)
     {
         if (lifetime.IsCancellationRequested) return;
@@ -607,11 +608,21 @@ public sealed class RemoteView : UserControl, IDisposable
         connection?.Dispose(); connection = null;
         using var attempt = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         connectAttempt = attempt; attempt.CancelAfter(TimeSpan.FromSeconds(30));
-        status.IsVisible = true; status.Text = "Connecting…";
+        status.IsVisible = true; status.Text = hostOffline ? "Offline · checking connection…" : "Connecting…";
         UpdateSendAction();
         RemoteConnection? candidate = null;
-        try { candidate = new RemoteConnection(host); await candidate.Connect(attempt.Token); attempt.Token.ThrowIfCancellationRequested(); connection = candidate; status.Text = "Connected"; status.IsVisible = false; await RefreshList(); if (connection is not null) reconnectFailures = 0; }
-        catch (Exception error) { if (!connectionCollapsed && !connectionSuspended && !lifetime.IsCancellationRequested) { status.IsVisible = true; status.Text = error.Message + (candidate?.ObservedFingerprint is { } pin && pin != host.Fingerprint ? "\nObserved host fingerprint: " + pin + "\nVerify it on the host before changing the saved fingerprint." : "\nRetrying connection…"); } candidate?.Dispose(); if (ReferenceEquals(connection, candidate)) connection = null; }
+        try { candidate = new RemoteConnection(host); await candidate.Connect(attempt.Token); attempt.Token.ThrowIfCancellationRequested(); connection = candidate; hostOffline = false; status.Text = "Connected"; status.IsVisible = false; await RefreshList(); if (connection is not null) reconnectFailures = 0; }
+        catch (Exception error)
+        {
+            if (!connectionCollapsed && !connectionSuspended && !lifetime.IsCancellationRequested && !attempt.IsCancellationRequested)
+            {
+                hostOffline = candidate?.TransportConnected == false;
+                status.IsVisible = true;
+                status.Text = hostOffline ? $"Offline · cannot reach {host.Address}:{host.Port}. Retrying automatically."
+                    : error.Message + (candidate?.ObservedFingerprint is { } pin && pin != host.Fingerprint ? "\nObserved host fingerprint: " + pin + "\nVerify it on the host before changing the saved fingerprint." : "\nRetrying connection…");
+            }
+            candidate?.Dispose(); if (ReferenceEquals(connection, candidate)) connection = null;
+        }
         finally
         {
             connectAttempt = null; connecting = false;
@@ -673,7 +684,7 @@ public sealed class RemoteView : UserControl, IDisposable
     {
         if (connectionCollapsed || connectionSuspended || lifetime.IsCancellationRequested) return null;
         var client = connection;
-        if (client is null) { status.IsVisible = true; status.Text = "Reconnecting to the host…"; UpdateSendAction(); return null; }
+        if (client is null) { status.IsVisible = true; if (!hostOffline) status.Text = "Reconnecting to the host…"; UpdateSendAction(); return null; }
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         timeout.CancelAfter(TimeSpan.FromSeconds(request["method"]?.GetValue<string>() is "list" or "chat" or "terminal/read" or "file/read" ? 15 : 90));
         try { var result = await client.Request(request, timeout.Token); return !lifetime.IsCancellationRequested && !connectionCollapsed && !connectionSuspended && ReferenceEquals(connection, client) ? result : null; }

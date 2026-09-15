@@ -85,6 +85,16 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         IsSteering = true; store.Setting("steering:" + chat.Id, JsonSerializer.Serialize(input, StoreJsonContext.Default.PendingInput)); Changed?.Invoke();
         try
         {
+            if (SupportsDiracWhisper)
+            {
+                if (input.Attachments.Length > 0 || string.IsNullOrWhiteSpace(input.Text)) return false;
+                var accepted = whisperAccepted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+                await client.Notify("_dev.dirac/whisper", RpcJson.Object(("sessionId", chat.SessionId), ("text", input.Text)));
+                await accepted.Task.WaitAsync(TimeSpan.FromSeconds(10), lifetime.Token);
+                var whispered = new Message { Role = "user", Provider = chat.Provider, Text = input.Text };
+                chat.Messages.Add(whispered); store.SaveMessage(chat, whispered);
+                return true;
+            }
             var content = new JsonArray();
             if (!string.IsNullOrWhiteSpace(input.Text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", input.Text)));
             foreach (var a in input.Attachments) content.Add((JsonNode)a.ToContent());
@@ -108,7 +118,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             return true;
         }
         catch (Exception error) { chat.Status = "Could not steer: " + error.Message; return false; }
-        finally { store.Setting("steering:" + chat.Id, ""); IsSteering = false; Changed?.Invoke(); }
+        finally { whisperAccepted = null; store.Setting("steering:" + chat.Id, ""); IsSteering = false; Changed?.Invoke(); }
     }
     public async Task SendQueuedNow(PendingInput input, bool waitForCompletion = true)
     {
@@ -249,6 +259,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         client = new(AgentProviders.Start(workspace, command, chat.Provider));
         StartIdleTimer();
         var connection = client;
+        client.ExtensionNotification += (method, parameters) => Dispatcher.UIThread.Post(() =>
+        {
+            if (!ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
+            if (method == "_dev.dirac/steering_status" && parameters.TryGetProperty("sessionId", out var session) && session.GetString() == chat.SessionId &&
+                parameters.TryGetProperty("status", out var status) && status.GetString() is "queued" or "sent") whisperAccepted?.TrySetResult();
+        });
         client.AuthenticationChanged += needsLogin => Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && ReferenceEquals(client, connection)) { chat.NeedsLogin = needsLogin; Changed?.Invoke(); } });
         client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
@@ -279,7 +295,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         timeout.CancelAfter(TimeSpan.FromSeconds(90));
         var init = await client.Initialize(timeout.Token);
         ReadHistoryCapabilities(init);
-        SupportsSteering = init.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("steering", out var steering) && steering.TryGetProperty("supported", out var supported) && supported.ValueKind == JsonValueKind.True;
+        ReadExtensionCapabilities(init);
+        SupportsSteering = SupportsDiracWhisper || init.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("steering", out var steering) && steering.TryGetProperty("supported", out var supported) && supported.ValueKind == JsonValueKind.True;
         loading = chat.SessionId is not null;
         replaying = loading && replayHistory;
         try

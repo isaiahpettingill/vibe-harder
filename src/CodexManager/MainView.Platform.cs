@@ -78,6 +78,7 @@ public partial class MainView
 
     private void InitializeLayout()
     {
+        Classes.Set("touchSidebar", OperatingSystem.IsAndroid());
         sidebarWidth = RootPanes.ColumnDefinitions[0].Width.Value;
         sidebarOpen = store.Setting("sidebarCollapsed") != "1";
         SidebarToggle.Click += (_, _) => { sidebarOpen = !sidebarOpen; if (!compact) store.Setting("sidebarCollapsed", sidebarOpen ? "0" : "1"); ApplyLayout(); };
@@ -85,6 +86,7 @@ public partial class MainView
         SizeChanged += (_, _) =>
         {
             var narrow = Bounds.Width < 720;
+            Classes.Set("touchSidebar", OperatingSystem.IsAndroid() || OperatingSystem.IsBrowser() && narrow);
             if (narrow != compact) { compact = narrow; sidebarOpen = !narrow && store.Setting("sidebarCollapsed") != "1"; }
             ApplyLayout();
             if (remoteOnly && inputTopLevel is not null) ApplyMobileInsets();

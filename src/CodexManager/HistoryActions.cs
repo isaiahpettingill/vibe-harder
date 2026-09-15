@@ -48,8 +48,12 @@ public static class HistoryActions
             {
                 Item("Fork from here…", true, false); Item("Revert to here…", false, false);
             }
-            if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { IsEnabled = false, Header = new TextBlock { Text = options["reason"]?.GetValue<string>(), MaxWidth = 330, TextWrapping = TextWrapping.Wrap } });
-            if (message is null) menu.ShowAt(anchor);
+            if (message is null && options["checkpoints"]?.GetValue<bool>() == true)
+            {
+                var checkpoints = new MenuItem { Header = "Restore checkpoint…" };
+                checkpoints.Click += async (_, _) => await ShowCheckpoints(anchor, call, selected); menu.Items.Add(checkpoints);
+            }
+            if (message is null && menu.Items.Count > 0) menu.ShowAt(anchor);
         }
         catch (Exception error) { if (message is null) Error(anchor, error.Message); }
         return menu;
@@ -58,6 +62,41 @@ public static class HistoryActions
     {
         if (TopLevel.GetTopLevel(anchor) is not null) new Flyout { Content = new TextBlock { Text = text, MaxWidth = 360, TextWrapping = TextWrapping.Wrap } }.ShowAt(anchor);
     }
+    private static async Task ShowCheckpoints(Control anchor, Func<JsonObject, Task<JsonNode?>> call, Action<string> selected)
+    {
+        try
+        {
+            var result = await call(new() { ["method"] = "checkpoints/list" });
+            if (result?["checkpoints"] is not JsonArray checkpoints) throw new IOException("Could not load checkpoints. Try again.");
+            var popup = new Flyout(); var rows = new StackPanel { Spacing = 6 };
+            var notice = new TextBlock { Text = "Restores conversation and workspace files to the selected checkpoint. Later changes and queued messages will be discarded.", TextWrapping = TextWrapping.Wrap, MaxWidth = 380 };
+            var choices = new ComboBox { Name = "CheckpointPicker", HorizontalAlignment = HorizontalAlignment.Stretch };
+            choices.ItemsSource = checkpoints.OfType<JsonObject>().Select(c => new CheckpointChoice(c["id"]!.GetValue<string>(),
+                DateTimeOffset.TryParse(c["createdAt"]?.GetValue<string>(), out var date) ? date.ToLocalTime().ToString("g") + " · " + c["commitHash"]?.GetValue<string>()?[..Math.Min(8, c["commitHash"]!.GetValue<string>().Length)] : c["id"]!.GetValue<string>())).ToArray();
+            choices.SelectedIndex = choices.ItemCount > 0 ? 0 : -1;
+            var restore = new Button { Name = "RestoreCheckpoint", Content = "Restore checkpoint", IsEnabled = choices.ItemCount > 0 };
+            var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
+            restore.Click += async (_, _) =>
+            {
+                if (choices.SelectedItem is not CheckpointChoice choice) return;
+                restore.IsEnabled = false; choices.IsEnabled = false;
+                try
+                {
+                    var response = await call(new() { ["method"] = "checkpoints/restore", ["checkpointId"] = choice.Id });
+                    if (response?["id"]?.GetValue<string>() is not { } id) throw new IOException("Checkpoint restore did not complete. Check the connection before trying again.");
+                    popup.Hide(); selected(id);
+                }
+                catch (Exception failure) { error.Text = failure.Message; }
+                finally { restore.IsEnabled = true; choices.IsEnabled = true; }
+            };
+            rows.Children.Add(notice);
+            if (choices.ItemCount == 0) rows.Children.Add(new TextBlock { Text = "No checkpoints yet." });
+            else { rows.Children.Add(choices); rows.Children.Add(restore); }
+            rows.Children.Add(error); popup.Content = rows; popup.ShowAt(anchor);
+        }
+        catch (Exception error) { Error(anchor, error.Message); }
+    }
+    private sealed record CheckpointChoice(string Id, string Label) { public override string ToString() => Label; }
     private static void Edit(Control anchor, Message? message, string? checkpoint, bool fork, bool edit, Func<JsonObject, Task<JsonNode?>> call, Action<string> selected)
     {
         var files = edit ? message!.Attachments.ToList() : [];

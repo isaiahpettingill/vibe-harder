@@ -67,7 +67,7 @@ public sealed partial class ChatRuntime
         var point = selected is not null && await CanBranchAt(selected);
         return new JsonObject
         {
-            ["fork"] = SupportsFork, ["point"] = point, ["edit"] = edit,
+            ["fork"] = SupportsFork, ["point"] = point, ["edit"] = edit, ["checkpoints"] = SupportsCheckpoints,
             ["checkpoint"] = selected is null ? null : Fingerprint(selected.Text),
             ["reason"] = !SupportsFork ? "This ACP adapter does not support session forking or history rollback."
                 : !supportsClaudePoint ? "This ACP adapter supports full-chat forks, but not forks or edits at a specific message."

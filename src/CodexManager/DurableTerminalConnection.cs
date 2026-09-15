@@ -65,10 +65,16 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
                     if (text.Length > 0) output(text);
                 });
                 offset = result["offset"]!.GetValue<long>(); warned = false;
-                if (result["exited"]?.GetValue<bool>() == true) { await Dispatcher.UIThread.InvokeAsync(completed); return; }
+                if (result["exited"]?.GetValue<bool>() == true) { await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) completed(); }); Dispose(); return; }
                 await Task.Delay(100, lifetime.Token);
             }
             catch (OperationCanceledException) when (lifetime.IsCancellationRequested) { return; }
+            catch (TerminalClosedException)
+            {
+                await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) { output("\r\n[Terminal session ended. Reconnect to start a new shell.]\r\n"); completed(); } });
+                Dispose();
+                return;
+            }
             catch (Exception error)
             {
                 if (!warned) await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) output("\r\n[Reconnecting to terminal: " + error.Message + "]\r\n"); });

@@ -56,5 +56,9 @@
     <Style Selector="Grid.chatRow Button.rowAction"><Setter Property="Opacity" Value="0"/></Style>
     <Style Selector="Grid.chatRow:pointerover Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="Grid.chatRow:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="Grid.workspaceHeading Button.rowAction"><Setter Property="Opacity" Value="0"/></Style>
+    <Style Selector="Grid.workspaceHeading:pointerover Button.rowAction, Grid.workspaceHeading:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="UserControl.touchSidebar Button.rowAction"><Setter Property="Opacity" Value="0.3"/></Style>
+    <Style Selector="UserControl.touchSidebar Button.dragHandle"><Setter Property="IsVisible" Value="False"/></Style>
   </Application.Styles>
 </Application>

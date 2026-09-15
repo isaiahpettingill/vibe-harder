@@ -20,6 +20,7 @@ public sealed class AcpClient : IAsyncDisposable
     public event Action<JsonElement>? Update;
     public event Action? Disconnected;
     public event Action<bool>? AuthenticationChanged;
+    public event Action<string, JsonElement>? ExtensionNotification;
     public Func<JsonElement, Task>? UpdateAsync { get; set; }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? PermissionRequested { get; set; }
     public AcpClient(ProcessStartInfo start)
@@ -68,6 +69,8 @@ public sealed class AcpClient : IAsyncDisposable
                         message.GetProperty("params").TryGetProperty("authStatus", out var auth) &&
                         auth.ValueKind == JsonValueKind.Object && auth.TryGetProperty("kind", out var kind))
                         AuthenticationChanged?.Invoke(kind.GetString() == "none");
+                    else if (method.GetString() is { } extension && extension.StartsWith('_') && message.TryGetProperty("params", out var parameters))
+                        ExtensionNotification?.Invoke(extension, parameters.Clone());
                 }
                 else if (message.TryGetProperty("id", out var id) && id.TryGetInt64(out var number) && pending.TryRemove(number, out var completion))
                 {

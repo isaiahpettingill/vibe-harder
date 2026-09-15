@@ -28,12 +28,11 @@ public partial class MainView
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
         var archive = new IconButton { Name = "Archive_" + chat.Id, Icon = "archive", Label = chat.Archived ? "Restore chat" : "Archive chat", MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         archive.Click += async (_, e) => { e.Handled = true; await archiveChat(); }; Grid.SetColumn(archive, 3); row.Children.Add(archive);
-        if (OperatingSystem.IsAndroid()) { rename.Opacity = 1; archive.Opacity = 1; grip.Opacity = 1; }
         ToolTip.SetTip(row, chat.ProviderLabel); return row;
     }
     private void RefreshRemoteSidebar()
     {
-        if (sidebarDragging) return;
+        if (sidebarDragging || sidebarHolding) return;
         if (remoteView is { } active) ImportChatsButton.IsEnabled = active.HasWorkspace;
         foreach (var (remoteHost, catalog) in remoteCatalogs)
         {
@@ -61,15 +60,15 @@ public partial class MainView
                 list.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
                 list.SelectionChanged += (_, _) => { if (list.SelectedItem is Chat chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
                 var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
-                var collapse = new IconButton { Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = "Collapse or expand workspace" };
+                var collapse = new IconButton { Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = "Collapse or expand workspace", Classes = { "rowAction" } };
                 collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; store.Setting("collapsed:" + key, list.IsVisible ? "0" : "1"); }; header.Children.Add(collapse);
                 var title = new Button { Content = workspace["name"]!.GetValue<string>() + (workspace["distro"]?.GetValue<string>() is { } distro ? " · " + distro + " (WSL)" : " · Files on " + host.Name), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
                 title.Click += (_, _) => { OpenRemoteHost(host, ownerId); }; Grid.SetColumn(title, 1); header.Children.Add(title);
-                var create = new IconButton { Icon = "add", IconSize = 10, Label = "New chat" }; create.Click += (_, _) => { OpenRemoteHost(host); view.ShowNewChat(OpenWorkspaceButton, ownerId); }; Grid.SetColumn(create, 2); header.Children.Add(create);
-                var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)" }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
+                var create = new IconButton { Icon = "add", IconSize = 10, Label = "New chat", Classes = { "rowAction" } }; create.Click += (_, _) => { OpenRemoteHost(host); view.ShowNewChat(OpenWorkspaceButton, ownerId); }; Grid.SetColumn(create, 2); header.Children.Add(create);
+                var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", Classes = { "rowAction" } }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
                 var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + scope + ownerId, true) };
-                var heading = new Grid { ColumnDefinitions = new("Auto,*") };
-                heading.Children.Add(DragHandle(group, "workspaces:" + connectionScope, ownerId, RefreshRemoteSidebar)); Grid.SetColumn(header, 1); heading.Children.Add(header);
+                var heading = new Grid { ColumnDefinitions = new("Auto,*"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
+                heading.Children.Add(DragHandle(group, "workspaces:" + connectionScope, ownerId, RefreshRemoteSidebar, heading)); Grid.SetColumn(header, 1); heading.Children.Add(header);
                 group.Children.Add(heading); group.Children.Add(list);
                 ColorMenu(title, "workspaceColor:" + scope + ownerId, "Workspace background color", () => { RefreshRemoteSidebar(); view.ApplyColors(); });
                 section.Children.Add(group);

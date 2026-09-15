@@ -35,7 +35,7 @@ public static class AgentProviders
             AgentProvider.Codex => (store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand") ?? ChatHistory.DefaultCodexCommand) + " login",
             AgentProvider.Claude => "npx -y @anthropic-ai/claude-code@2.1.268 auth login",
             AgentProvider.OpenCode => "opencode auth login",
-            AgentProvider.VTCode => "vtcode",
+            AgentProvider.VTCode => "vtcode login",
             AgentProvider.Dirac => "npx -y dirac-cli@0.5.13 auth",
             AgentProvider.Pi => "pi",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))

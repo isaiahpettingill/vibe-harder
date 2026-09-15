@@ -6,11 +6,59 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
+using Avalonia.Headless;
+using Avalonia.Input;
 
 namespace CodexManager.Tests;
 
 public class SidebarCustomizationTests
 {
+    [AvaloniaFact]
+    public async Task LongPressReordersWithoutAGrabHandle()
+    {
+        var store = new Store(Directory.CreateTempSubdirectory("sidebar-touch-").FullName);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s);
+        var view = new MainView(store, remoteOnly: true);
+        var first = new Grid { Height = 60, Background = Brushes.Transparent };
+        var second = new Grid { Height = 60, Background = Brushes.Transparent };
+        var register = typeof(MainView).GetMethod("DragHandle", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+        register.Invoke(view, [first, "test", "first", (Action)(() => { }), null]);
+        register.Invoke(view, [second, "test", "second", (Action)(() => { }), null]);
+        view.Content = new StackPanel { Children = { first, second } };
+        var window = new Window { Width = 300, Height = 250, Content = view }; window.Show();
+        try
+        {
+            var pointer = new Pointer(123, PointerType.Touch, true);
+            var properties = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
+            var start = first.TranslatePoint(new Point(20, 20), window)!.Value;
+            first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0, properties, KeyModifiers.None));
+            await Task.Delay(600, TestContext.Current.CancellationToken);
+            Assert.Equal(.65, first.Opacity);
+            var end = second.TranslatePoint(new Point(20, 50), window)!.Value;
+            first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s));
+            Assert.Equal(1, first.Opacity);
+        }
+        finally { window.Close(); view.DisposeMobile(); }
+    }
+    [AvaloniaFact]
+    public void WorkspaceActionsRevealOnHoverAndMobileHidesHandles()
+    {
+        var grip = new IconButton { Classes = { "rowAction", "dragHandle" } };
+        var action = new IconButton { Classes = { "rowAction" }, Margin = new Thickness(40, 0, 0, 0) };
+        var heading = new Grid { Classes = { "workspaceHeading" }, Background = Brushes.Transparent, Children = { grip, action }, Height = 50 };
+        var root = new UserControl { Content = heading };
+        var window = new Window { Width = 300, Height = 150, Content = root }; window.Show();
+        try
+        {
+            window.MouseMove(new Point(290, 145)); Assert.Equal(0, grip.Opacity); Assert.Equal(0, action.Opacity);
+            window.MouseMove(heading.TranslatePoint(new Point(10, 10), window)!.Value);
+            Assert.Equal(1, grip.Opacity); Assert.Equal(1, action.Opacity);
+            root.Classes.Add("touchSidebar"); Assert.False(grip.IsVisible); Assert.Equal(.3, action.Opacity);
+        }
+        finally { window.Close(); }
+    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

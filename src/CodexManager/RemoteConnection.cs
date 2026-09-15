@@ -27,6 +27,7 @@ public sealed class RemoteConnection : IDisposable
     private readonly SemaphoreSlim gate = new(1);
     private int disposed;
     public string? ObservedFingerprint { get; private set; }
+    public bool TransportConnected { get; private set; }
     public RemoteConnection(RemoteHost host) => this.host = host;
     internal Task OpenForPairing(CancellationToken token) => Open(token, pairing: true);
     private async Task Open(CancellationToken token, bool pairing = false)
@@ -37,9 +38,13 @@ public sealed class RemoteConnection : IDisposable
             ObservedFingerprint = "web:" + endpoint.GetLeftPart(UriPartial.Authority);
             socket = new();
             await socket.ConnectAsync(new UriBuilder(endpoint) { Scheme = "wss", Path = "/remote" }.Uri, token);
+            TransportConnected = true;
             return;
         }
-        await client!.ConnectAsync(host.Address, host.Port, token).ConfigureAwait(false);
+        using var reachability = CancellationTokenSource.CreateLinkedTokenSource(token);
+        reachability.CancelAfter(TimeSpan.FromSeconds(5));
+        await client!.ConnectAsync(host.Address, host.Port, reachability.Token).ConfigureAwait(false);
+        TransportConnected = true;
         client.NoDelay = true;
         stream = new SslStream(client.GetStream(), false, (_, certificate, _, _) =>
         {

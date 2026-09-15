@@ -10,14 +10,17 @@ namespace CodexManager;
 public partial class MainView
 {
     private bool sidebarDragging;
+    private bool sidebarHolding;
     private (string Scope, string Id)? sidebarDrag;
     private static readonly DataFormat<string> SidebarDragFormat = DataFormat.CreateStringApplicationFormat("vibeharder-sidebar");
-    private IconButton DragHandle(Control target, string scope, string id, Action refresh)
+    private sealed record SidebarDrop(string Scope, string Id);
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, SidebarDrop> SidebarDropTargets = new();
+    private IconButton DragHandle(Control target, string scope, string id, Action refresh, Control? gestureTarget = null)
     {
-        var handle = new IconButton { Icon = "drag", IconSize = 10, Label = "Drag to reorder", MinWidth = 16, Padding = new Thickness(2), VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
-        handle.AddHandler(PointerPressedEvent, async (_, e) =>
+        var handle = new IconButton { Icon = "drag", IconSize = 10, Label = "Drag to reorder", MinWidth = 16, Padding = new Thickness(2), VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction", "dragHandle" } };
+        async Task StartDrag(PointerPressedEventArgs e)
         {
-            if (!e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed || sidebarDragging) return;
+            if (sidebarDragging) return;
             e.Handled = true; sidebarDragging = true; sidebarDrag = (scope, id);
             try
             {
@@ -26,7 +29,53 @@ public partial class MainView
             }
             catch (Exception error) { AppDiagnostics.Record("Reorder sidebar", error); }
             finally { sidebarDragging = false; sidebarDrag = null; target.Opacity = 1; refresh(); }
-        }, RoutingStrategies.Tunnel);
+        }
+        handle.AddHandler(PointerPressedEvent, async (_, e) => { if (e.Pointer.Type != PointerType.Touch && e.GetCurrentPoint(handle).Properties.IsLeftButtonPressed) await StartDrag(e); }, RoutingStrategies.Tunnel);
+        var surface = gestureTarget ?? target;
+        SidebarDropTargets.AddOrUpdate(target, new(scope, id));
+        IDisposable? hold = null;
+        IPointer? touchDrag = null;
+        Point origin = default;
+        void CancelHold() { if (hold is null) return; hold.Dispose(); hold = null; sidebarHolding = false; }
+        void FinishTouch(bool rebuild = true)
+        {
+            if (touchDrag is not { } pointer) return;
+            touchDrag = null; sidebarDragging = false; sidebarDrag = null; target.Opacity = 1;
+            pointer.Capture(null); if (rebuild && !closing) refresh();
+        }
+        surface.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            CancelHold();
+            if (e.Pointer.Type != PointerType.Touch || sidebarDragging || sidebarHolding) return;
+            for (var source = e.Source as Visual; source is not null && source != surface; source = Avalonia.VisualTree.VisualExtensions.GetVisualParent(source))
+                if (source is IconButton) return;
+            origin = e.GetPosition(surface);
+            sidebarHolding = true;
+            hold = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
+            {
+                CancelHold();
+                if (sidebarDragging) return;
+                sidebarDragging = true; sidebarDrag = (scope, id); touchDrag = e.Pointer;
+                e.Pointer.Capture(surface); target.Opacity = .65;
+            }, TimeSpan.FromMilliseconds(500));
+        }, RoutingStrategies.Tunnel, true);
+        surface.AddHandler(PointerMovedEvent, (_, e) => { if (touchDrag is not null) { e.Handled = true; return; } var delta = e.GetPosition(surface) - origin; if (delta.X * delta.X + delta.Y * delta.Y > 100) CancelHold(); }, RoutingStrategies.Tunnel, true);
+        surface.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            CancelHold();
+            if (touchDrag != e.Pointer) return;
+            e.Handled = true;
+            try
+            {
+                for (var hit = this.InputHitTest(e.GetPosition(this)) as Visual; hit is not null; hit = Avalonia.VisualTree.VisualExtensions.GetVisualParent(hit))
+                    if (hit is Control row && SidebarDropTargets.TryGetValue(row, out var drop) && drop.Scope == scope && drop.Id != id)
+                    { SidebarOrder.Move(store, scope, id, drop.Id, e.GetPosition(row).Y >= row.Bounds.Height / 2); break; }
+            }
+            catch (Exception error) { AppDiagnostics.Record("Reorder sidebar", error); }
+            finally { FinishTouch(); }
+        }, RoutingStrategies.Tunnel, true);
+        surface.PointerCaptureLost += (_, _) => { CancelHold(); if (touchDrag?.Captured != surface) FinishTouch(); };
+        surface.DetachedFromVisualTree += (_, _) => { CancelHold(); FinishTouch(false); };
         DragDrop.SetAllowDrop(target, true);
         target.AddHandler(DragDrop.DragOverEvent, (_, e) =>
         {

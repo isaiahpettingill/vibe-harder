@@ -112,6 +112,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var active = runtime(chat, workspaceOwner);
         if (active.IsChangingHistory && method != "chat") throw new IOException("Wait for the history change to finish.");
         if (method == "history/options") return await active.HistoryOptions(request["messageId"]?.GetValue<string>(), request["sequence"]?.GetValue<int>() ?? -1);
+        if (method == "checkpoints/list") return await active.Checkpoints();
+        if (method == "checkpoints/restore") { await active.RestoreCheckpoint(Text("checkpointId")); Changed?.Invoke(); return Summary(chat); }
         if (method == "history/branch")
         {
             var branch = await active.BranchHistory(request["messageId"]?.GetValue<string>(), request["sequence"]?.GetValue<int>() ?? -1, request["checkpoint"]?.GetValue<string>(), request["fork"]?.GetValue<bool>() ?? false);

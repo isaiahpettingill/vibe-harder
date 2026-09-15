@@ -326,10 +326,10 @@ public partial class MainView : UserControl
             var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
             title.Click += (_, _) => SelectWorkspace(owner, true);
-            var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", IconSize = 10, Label = "New chat" };
+            var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", IconSize = 10, Label = "New chat", Classes = { "rowAction" } };
             ToolTip.SetTip(create, "New chat"); Grid.SetColumn(create, 2);
             create.Flyout = ProviderMenu(owner);
-            var close = new IconButton { Name = "CloseWorkspace_" + owner.Id, Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)" };
+            var close = new IconButton { Name = "CloseWorkspace_" + owner.Id, Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", Classes = { "rowAction" } };
             ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 3);
             close.Click += async (_, _) =>
             {
@@ -341,14 +341,14 @@ public partial class MainView : UserControl
             header.Children.Add(title); header.Children.Add(create); header.Children.Add(close);
             var list = new ListBox { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
             list.IsVisible = store.Setting("collapsed:" + owner.Id) != "1";
-            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
+            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace", Classes = { "rowAction" } };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; store.Setting("collapsed:" + owner.Id, list.IsVisible ? "0" : "1"); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
-            var heading = new Grid { ColumnDefinitions = new("Auto,*") };
-            heading.Children.Add(DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree)); Grid.SetColumn(header, 1); heading.Children.Add(header);
+            var heading = new Grid { ColumnDefinitions = new("Auto,*"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
+            heading.Children.Add(DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree, heading)); Grid.SetColumn(header, 1); heading.Children.Add(header);
             group.Children.Add(heading); group.Children.Add(list);
             ColorMenu(title, "workspaceColor:" + owner.Id, "Workspace background color", () => { BuildWorkspaceTree(); ApplyChatColors(); });
             WorkspaceTree.Children.Add(group);
@@ -405,7 +405,7 @@ public partial class MainView : UserControl
     }
     private void RefreshChats()
     {
-        if (sidebarDragging) return;
+        if (sidebarDragging || sidebarHolding) return;
         var query = SearchBox.Text ?? "";
         refreshingChats = true;
         foreach (var (id, list) in workspaceLists)
@@ -1106,10 +1106,29 @@ public partial class MainView : UserControl
         var control = CreateTerminalControl(session, 13);
         var tab = new TabItem { Content = control, MinHeight = 26, Padding = new(6, 2) };
         var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close terminal", Padding = new Thickness(3, 0), MinHeight = 18, Height = 18 };
+        var reconnect = new IconButton { Name = "ReconnectTerminal", Icon = "refresh", IconSize = 10, Label = "Reconnect terminal", Padding = new Thickness(3, 0), MinHeight = 18, Height = 18, IsVisible = durableId is not null, IsEnabled = false };
         var list = terminals.GetValueOrDefault(owner.Id);
         if (list is null) terminals[owner.Id] = list = [];
-        tab.Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { new TextBlock { FontSize = 11, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis, Text = title ?? $"{owner.Host} {list.Count + 1}", VerticalAlignment = VerticalAlignment.Center }, close } };
+        tab.Header = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Children = { new TextBlock { FontSize = 11, MaxWidth = 130, TextTrimming = TextTrimming.CharacterEllipsis, Text = title ?? $"{owner.Host} {list.Count + 1}", VerticalAlignment = VerticalAlignment.Center }, reconnect, close } };
         list.Add((tab, session));
+        reconnect.Click += async (_, _) =>
+        {
+            if (!reconnect.IsEnabled || closing) return;
+            reconnect.IsEnabled = false; close.IsEnabled = false;
+            var replacement = new TerminalSession();
+            try
+            {
+                await replacement.Start(owner, settings: store, durableId: durableId);
+                var index = list.FindIndex(t => t.Tab == tab);
+                if (closing || index < 0) { replacement.Dispose(); return; }
+                session.Dispose(); session = replacement;
+                if (completed is not null) session.Completed += completed;
+                control = CreateTerminalControl(session, 13); tab.Content = control;
+                list[index] = (tab, session); control.Focus();
+            }
+            catch (Exception error) { replacement.Dispose(); StatusText.Text = "Could not reconnect terminal: " + error.Message; }
+            finally { reconnect.IsEnabled = true; close.IsEnabled = true; }
+        };
         close.Click += async (_, _) =>
         {
             try { await session.Close(); }
@@ -1131,6 +1150,7 @@ public partial class MainView : UserControl
             control.Focus(); return tab;
         }
         catch (Exception error) { session.Dispose(); session.Model.Feed("Could not start terminal: " + error.Message); StatusText.Text = error.Message; return null; }
+        finally { reconnect.IsEnabled = true; }
     }
     private void TerminalResizeStart(object? sender, PointerPressedEventArgs e) { resizeY = e.GetPosition(this).X; resizeHeight = TerminalDrawer.Width; e.Pointer.Capture(sender as IInputElement); }
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }

@@ -15,7 +15,13 @@ if(process.argv.includes('--claude-access')) configOptions.push({id:'mode',name:
 createInterface({input:process.stdin}).on('line',line=>{
  const m=JSON.parse(line);
  switch(m.method){
-  case 'initialize': response(m.id,{protocolVersion:1,agentCapabilities:{loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
+  case 'initialize': response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
+  case '_dev.dirac/whisper':
+   if(turn) emit({jsonrpc:'2.0',method:'_dev.dirac/steering_status',params:{sessionId:m.params.sessionId,steeringMessageId:'s1',status:'queued'}});break;
+  case '_dev.dirac/checkpoints.list': response(m.id,{checkpoints:[{id:'checkpoint-1',createdAt:'2026-09-15T12:00:00Z',commitHash:'123456789',messageId:'message-1'}]});break;
+  case '_dev.dirac/checkpoints.restore':
+   if(m.params.checkpointId!=='checkpoint-1') throw new Error('Unknown checkpoint');
+   response(m.id,{});break;
   case '_session/steering':
    if(process.argv.includes('--detached')) {response(turn,{stopReason:'end_turn'});turn=null;response(m.id,{outcome:'startedNewTurn'});break;}
    response(m.id,{outcome:turn?'injected':'promptRequired'});break;
