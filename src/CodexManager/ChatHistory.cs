@@ -8,7 +8,7 @@ public static class ChatHistory
     public const string DefaultCodexCommand = "npx -y @openai/codex@0.154.0";
     public static async Task<List<Chat>> Discover(Workspace workspace, string command, CancellationToken token = default, AgentProvider provider = AgentProvider.Codex, Action<bool>? authenticationChanged = null)
     {
-        await using var client = new AcpClient(Hosts.Agent(workspace, command));
+        await using var client = new AcpClient(AgentProviders.Start(workspace, command, provider));
         client.AuthenticationChanged += needsLogin => authenticationChanged?.Invoke(needsLogin);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token);
         timeout.CancelAfter(TimeSpan.FromSeconds(90));

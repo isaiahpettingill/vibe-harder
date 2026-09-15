@@ -27,7 +27,12 @@ public class SettingsUiTests
                 window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var dialog = window.OwnedWindows.Single(w => w.Title == "Settings");
                 Assert.True(window.IsEnabled);
-                Assert.Equal(5, dialog.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").ItemCount);
+                Assert.Single(dialog.GetLogicalDescendants().OfType<TextBlock>(), t => t.Text == "Color theme");
+                var extra = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "AdditionalAgentsEnabled");
+                Assert.False(extra.IsChecked);
+                extra.IsChecked = true; Assert.Equal(6, AgentProviders.Enabled(store).Count());
+                extra.IsChecked = false; Assert.Equal(3, AgentProviders.Enabled(store).Count());
+                Assert.Equal(6, dialog.GetLogicalDescendants().OfType<ListBox>().Single(b => b.Name == "SettingsCategories").ItemCount);
                 dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.True(dialog.IsVisible); dialog.Close();
                 await Wait(() => !dialog.IsVisible);

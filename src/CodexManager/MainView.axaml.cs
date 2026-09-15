@@ -262,8 +262,7 @@ public partial class MainView : UserControl
         RefreshChats();
         ChatList.SelectedItem = chats.FirstOrDefault(c => c.WorkspaceId == selected.Id && c.Archived == showArchived && c.Id == store.Setting("chat:" + selected.Id)) ?? ChatList.Items.FirstOrDefault();
         if (ChatList.SelectedItem is null) ClearChat();
-        TerminalTabs.ItemsSource = terminals.GetValueOrDefault(selected.Id)?.Select(t => t.Tab).ToArray();
-        if (TerminalTabs.ItemCount > 0) TerminalTabs.SelectedIndex = 0;
+        SwitchTerminalWorkspace(selected.Id);
         UpdateControls();
         if (startChat && !chats.Any(c => c.WorkspaceId == selected.Id && !c.Archived))
             NewChat(Enum.TryParse<AgentProvider>(store.Setting("lastProvider"), out var provider) ? provider : AgentProvider.Codex);
@@ -379,7 +378,7 @@ public partial class MainView : UserControl
     private MenuFlyout ProviderMenu(Workspace owner)
     {
         var menu = new MenuFlyout();
-        foreach (var provider in new[] { AgentProvider.Claude, AgentProvider.Codex, AgentProvider.OpenCode })
+        foreach (var provider in AgentProviders.Enabled(store).Select(p => p.Provider))
         {
             var item = new MenuItem { Header = AgentProviders.Get(provider).Name, Icon = new Image { Source = BrandAssets.Provider(provider), Width = 16, Height = 16 } };
             item.Click += (_, _) => { SelectWorkspace(owner); NewChat(provider); };
@@ -420,6 +419,7 @@ public partial class MainView : UserControl
     private void NewChat(AgentProvider provider = AgentProvider.Codex)
     {
         if (workspace is null) return;
+        if (!AgentProviders.IsEnabled(store, provider)) provider = AgentProvider.Codex;
         showArchived = false; ArchiveViewButton.Content = AppIcons.Label("chevron-down", "Chats", trailing: true);
         var chat = new Chat { WorkspaceId = workspace.Id, Provider = provider }; store.Save(chat); chats.Insert(0, chat);
         SearchBox.Text = ""; RefreshChats(); ChatList.SelectedItem = chat;
@@ -436,8 +436,7 @@ public partial class MainView : UserControl
         {
             if (current is not null) { current.Draft = Composer.Text ?? ""; store.Save(current); }
             workspace = owner; store.Setting("workspace", owner.Id); WorkspaceHeading.Text = $"{owner.Host}  /  {owner.Path}";
-            TerminalTabs.ItemsSource = terminals.GetValueOrDefault(owner.Id)?.Select(t => t.Tab).ToArray();
-            if (TerminalTabs.ItemCount > 0) TerminalTabs.SelectedIndex = 0;
+            SwitchTerminalWorkspace(owner.Id);
         }
         refreshingChats = true;
         foreach (var list in workspaceLists.Values.Where(l => l != sender)) list.SelectedItem = null;
@@ -592,6 +591,7 @@ public partial class MainView : UserControl
         LoginHeading.Text = $"Sign in to {AgentProviders.Get(provider).Name} in {workspace?.Host} to continue this chat.";
         LoginTerminalHost.Content = login.Control;
         LoginTerminalHost.IsVisible = login.Control is not null;
+        PasteLoginButton.IsVisible = login.Control is not null;
         LoginButton.IsVisible = login.Control is null;
         LoginUrl.Text = login.Session?.Output.Link ?? "";
         LoginLinkPanel.IsVisible = login.Session?.Output.Link is not null;
@@ -612,7 +612,7 @@ public partial class MainView : UserControl
     private void UpdateComposerAction()
     {
         var stop = ComposerShowsStop;
-        SendButton.Icon = ComposerLoading ? "loading" : stop ? "stop" : "send";
+        SendButton.Icon = ComposerLoading ? "connecting" : stop ? "stop" : "send";
         SendButton.Label = ComposerLoading ? "Loading chat" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
         var runtime = current is null ? null : runtimes.GetValueOrDefault(current.Id);
         SendButton.IsEnabled = current is not null && !ComposerLoading && (stop || (runtime is not { IsReconnecting: true } and not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true)));
@@ -846,7 +846,7 @@ public partial class MainView : UserControl
         if (remoteView is not null) { remoteView.ShowImport(ImportChatsButton); return; }
         if (workspace is not { } owner) return;
         var dialog = new Window { Title = "Import chats", Width = 400, Height = 290, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var options = AgentProviders.All.Select(p => new CheckBox { Content = p.Label, Tag = p.Provider, IsChecked = p.Provider != AgentProvider.Codex }).ToArray();
+        var options = AgentProviders.Enabled(store).Select(p => new CheckBox { Content = p.Label, Tag = p.Provider, IsChecked = p.Provider != AgentProvider.Codex }).ToArray();
         var import = new Button { Name = "ConfirmImportButton", Content = "Import", HorizontalAlignment = HorizontalAlignment.Right, Classes = { "accent" } };
         var panel = new StackPanel { Margin = new Thickness(14), Spacing = 6 };
         panel.Children.Add(new TextBlock { Text = "Import previous chats for " + owner.Name, TextWrapping = TextWrapping.Wrap });
@@ -911,10 +911,18 @@ public partial class MainView : UserControl
         appearance.Children.Add(new Separator()); appearance.Children.Add(FontSettings.CreateContent(store));
         var connections = new ConnectionSettingsView(store, false, ConfigureRemoteServer, ConfigureWebServer);
         connections.Paired += host => { BuildWorkspaceTree(); OpenRemoteHost(host); desktopWindow?.Activate(); };
+        var additional = new StackPanel { Spacing = 8 };
+        var additionalCommands = new StackPanel { Spacing = 8, IsEnabled = store.Setting("additionalAgentsEnabled") == "1" };
+        var enableAdditional = new CheckBox { Name = "AdditionalAgentsEnabled", Content = "Enable VT Code, Dirac, and Pi", IsChecked = additionalCommands.IsEnabled };
+        enableAdditional.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("additionalAgentsEnabled", enableAdditional.IsChecked == true ? "1" : "0"); additionalCommands.IsEnabled = enableAdditional.IsChecked == true; });
+        additional.Children.Add(enableAdditional);
+        additional.Children.Add(new TextBlock { Text = "Install and configure these agents on the computer running the chats. Pi requires Node.js 22+ and pi in PATH; pi-acp is launched through npx. VT Code ACP is enabled automatically. Dirac manages its own provider credentials. Existing chats are kept when this switch is off.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
+        additional.Children.Add(additionalCommands);
         panel = agents;
         var fields = new Dictionary<string, TextBox>();
         foreach (var provider in AgentProviders.All)
         {
+            panel = AgentProviders.IsAdditional(provider.Provider) ? additionalCommands : agents;
             panel.Children.Add(new TextBlock { Text = provider.Label, FontWeight = FontWeight.SemiBold });
             foreach (var isWsl in new[] { false, true })
             {
@@ -928,6 +936,7 @@ public partial class MainView : UserControl
                 panel.Children.Add(new TextBlock { Text = "Account setup command", Classes = { "muted" } }); panel.Children.Add(loginField);
             }
         }
+        panel = agents;
         foreach (var key in new[] { "localCodexCommand", "wslCodexCommand" })
         {
             panel.Children.Add(new TextBlock { Text = key.StartsWith("wsl") ? "WSL Codex deletion command" : "Local Codex deletion command", Classes = { "muted" } });
@@ -935,7 +944,7 @@ public partial class MainView : UserControl
         }
         panel.Children.Add(new TextBlock { Text = "Sign in to each agent in its own environment. OpenCode uses opencode acp; Claude uses the Claude Agent SDK adapter. Commands apply to new connections and imports.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var save = new Button { Name = "SaveSettings", Content = "Apply agent commands", Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left }; panel.Children.Add(save);
-        save.Click += async (_, _) =>
+        async void SaveAgentCommands(object? sender, RoutedEventArgs args)
         {
             if (fields.Values.Any(f => string.IsNullOrWhiteSpace(f.Text))) { saveError.Text = "Fill in all agent commands before saving."; return; }
             save.IsEnabled = false; saveError.Text = "";
@@ -949,8 +958,11 @@ public partial class MainView : UserControl
             }
             catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not save settings", error); }
             finally { save.IsEnabled = true; }
-        };
-        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Connections"] = connections };
+        }
+        save.Click += SaveAgentCommands;
+        var saveAdditional = new Button { Content = "Apply agent commands", Classes = { "accent" } };
+        saveAdditional.Click += SaveAgentCommands; additionalCommands.Children.Add(saveAdditional);
+        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Additional agents"] = additional, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Connections"] = connections };
         var navigation = new ListBox { Name = "SettingsCategories", Classes = { "settingsNavigation" }, ItemsSource = pages.Keys.ToArray(), Background = Brushes.Transparent, Margin = new Thickness(8, 16) };
         var content = new Grid { Margin = new Thickness(24, 20), RowDefinitions = new("Auto,*,Auto") };
         var heading = new TextBlock { FontSize = 20, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 20) }; content.Children.Add(heading);
@@ -986,7 +998,7 @@ public partial class MainView : UserControl
         {
             commands.Add(new("New terminal", owner.Caption, () => NewTerminal(target: owner)));
             commands.Add(new("Import previous chats", owner.Caption, () => { ImportChatsClick(this, new()); return Task.CompletedTask; }));
-            foreach (var provider in AgentProviders.All)
+            foreach (var provider in AgentProviders.Enabled(store))
             {
                 commands.Add(new("New " + provider.Name + " chat", provider.Label, () => { SelectWorkspace(owner); NewChat(provider.Provider); return Task.CompletedTask; }));
                 commands.Add(new(provider.Provider == AgentProvider.OpenCode ? "OpenCode: add provider" : provider.Name + ": log in", owner.Host + " terminal", () => Login(owner, provider.Provider)));
@@ -1035,6 +1047,12 @@ public partial class MainView : UserControl
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         return control;
     }
+    private async void PasteLoginClick(object? sender, RoutedEventArgs e)
+    {
+        if (LoginTerminalHost.Content is not ThemedTerminalControl terminal) return;
+        await terminal.PasteText();
+        terminal.Focus();
+    }
     private async Task Login(Workspace owner, AgentProvider provider)
     {
         var key = $"{owner.Id}:{provider}";
@@ -1072,8 +1090,7 @@ public partial class MainView : UserControl
         if (TerminalTabs.ItemCount == 0)
         {
             var saved = workspace is null ? [] : (store.Setting("terminalTabs:" + workspace.Id) ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
-            if (saved.Length == 0) await NewTerminal();
-            else foreach (var id in saved) await NewTerminal(durableId: id);
+            foreach (var id in saved) await NewTerminal(durableId: id);
         }
         else if (TerminalTabs.SelectedItem is TabItem { Content: Control terminal }) terminal.Focus();
     }
@@ -1099,9 +1116,9 @@ public partial class MainView : UserControl
             catch (Exception error) { StatusText.Text = "Could not close terminal: " + error.Message; return; }
             list.RemoveAll(t => t.Tab == tab);
             store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>()));
-            TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); if (list.Count > 0) TerminalTabs.SelectedIndex = 0;
+            if (terminalPaneWorkspace == owner.Id) { TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); if (list.Count > 0) TerminalTabs.SelectedIndex = 0; }
         };
-        TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); TerminalTabs.SelectedItem = tab; TerminalDrawer.IsVisible = true;
+        if (workspace?.Id == owner.Id) { SwitchTerminalWorkspace(owner.Id); TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); TerminalTabs.SelectedItem = tab; TerminalDrawer.IsVisible = true; }
         try
         {
             if (durableId is not null)

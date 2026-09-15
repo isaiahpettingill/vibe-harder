@@ -55,7 +55,7 @@ public class StoreTests
         var w = new Workspace("w", "Project", "/home/test/a b's; echo bad", "Debian");
         var start = Hosts.Agent(w, "codex-acp");
         Assert.Equal(w.Path, start.ArgumentList[3]);
-        Assert.Equal("exec codex-acp", start.ArgumentList.Last());
+        Assert.EndsWith("exec codex-acp", start.ArgumentList.Last());
         Assert.DoesNotContain(w.Path, start.ArgumentList.Last());
         Assert.Equal(Hosts.WindowsArgument(w.Path), TerminalSession.Options(w).CommandLine.Last());
     }

@@ -71,6 +71,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     public bool IsSteering { get; private set; }
     public void Queue(PendingInput input) { chat.QueuedInputs.Add(input); store.Save(chat); Changed?.Invoke(); }
     public void RemoveQueued(PendingInput input) { chat.QueuedInputs.Remove(input); store.Save(chat); Changed?.Invoke(); }
+    public void EditQueued(PendingInput input, string text)
+    {
+        var index = chat.QueuedInputs.IndexOf(input);
+        if (index < 0) throw new IOException("This message is no longer queued.");
+        if (string.IsNullOrWhiteSpace(text) && input.Attachments.Length == 0) throw new IOException("Enter a message.");
+        chat.QueuedInputs[index] = input with { Text = text }; store.Save(chat); Changed?.Invoke();
+    }
     public Task<bool> Steer(PendingInput input) => IsSteering ? Task.FromResult(false) : steeringTask = SteerCore(input);
     private async Task<bool> SteerCore(PendingInput input)
     {
@@ -103,16 +110,16 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         catch (Exception error) { chat.Status = "Could not steer: " + error.Message; return false; }
         finally { store.Setting("steering:" + chat.Id, ""); IsSteering = false; Changed?.Invoke(); }
     }
-    public async Task SendQueuedNow(PendingInput input)
+    public async Task SendQueuedNow(PendingInput input, bool waitForCompletion = true)
     {
         if (!chat.QueuedInputs.Contains(input)) return;
         if (IsPrompting) await Stop();
         if (chat.Busy || lifetime.IsCancellationRequested) return;
-        RemoveQueued(input); await Send(input.Text, input.Attachments);
+        RemoveQueued(input); var sending = Send(input.Text, input.Attachments); if (waitForCompletion) await sending;
     }
     public async Task AdvanceQueued()
     {
-        if (IsChangingHistory || advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
+        if (IsChangingHistory || advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || installation is not null || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
         advancingQueue = true;
         try
         {
@@ -178,7 +185,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         {
             token.ThrowIfCancellationRequested();
             try { await Connect(replayHistory); return; }
-            catch (Exception error) when (attempt < 5 && error is not OperationCanceledException && !AgentProviders.IsAuthenticationError(error) && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
+            catch (Exception error) when (attempt < 5 && error is not OperationCanceledException && !AgentProviders.IsAuthenticationError(error) && installation is null && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
             {
                 if (replayHistory) { chat.Messages.Clear(); foreach (var message in previous) chat.Messages.Add(message); }
                 chat.Status = $"Reconnecting ({attempt}/4)…"; Changed?.Invoke();
@@ -212,16 +219,34 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             await ConnectWithRecovery(false, recoveryCancellation?.Token ?? lifetime.Token); chat.Status = "Ready";
         }
         catch (OperationCanceledException) { chat.Status = lifetime.IsCancellationRequested ? "Disconnected" : "Reconnect timed out or was cancelled — try reconnecting"; }
-        catch (Exception error) { chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error); chat.Status = "Reconnect failed: " + error.Message; }
+        catch (Exception error) { chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error); chat.Status = "Reconnect failed: " + error.Message; ShowInstallation(); }
         finally { chat.Busy = false; reconnecting = false; Changed?.Invoke(); }
     }
     public async Task Connect(bool replayHistory = false)
+    {
+        installation = null;
+        try { await ConnectCore(replayHistory); }
+        catch (Exception error) when (AgentInstallation.FromError(chat.Provider, error) is { } missing)
+        {
+            installation = missing; ShowInstallation(); throw;
+        }
+    }
+    private AgentInstallation? installation;
+    private void ShowInstallation()
+    {
+        if (installation is not { } missing) return;
+        chat.Status = missing.Message;
+        var text = $"[{missing.Message}]({missing.Url})\n\nInstall it in {workspace.Host}, then reconnect this chat.";
+        if (!chat.Messages.Any(m => m.Role == "system" && m.Text == text)) Add("system", text);
+        Changed?.Invoke();
+    }
+    private async Task ConnectCore(bool replayHistory)
     {
         if (connected && client?.Alive == true) return;
         connected = false;
         if (client is not null) await client.DisposeAsync();
         chat.Commands = []; Changed?.Invoke();
-        client = new(Hosts.Agent(workspace, command));
+        client = new(AgentProviders.Start(workspace, command, chat.Provider));
         StartIdleTimer();
         var connection = client;
         client.AuthenticationChanged += needsLogin => Dispatcher.UIThread.Post(() => { if (!lifetime.IsCancellationRequested && ReferenceEquals(client, connection)) { chat.NeedsLogin = needsLogin; Changed?.Invoke(); } });
@@ -315,6 +340,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error);
             chat.Messages.Clear(); foreach (var message in previous) chat.Messages.Add(message);
             chat.Status = "History unavailable: " + error.Message;
+            ShowInstallation();
         }
         finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); }
     }
@@ -358,11 +384,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         catch (Exception error)
         {
             chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error);
-            recoverConnection = (client?.Alive != true || IsNetworkFailure(error)) && !turn.IsCancellationRequested && !chat.NeedsLogin;
+            recoverConnection = (client?.Alive != true || IsNetworkFailure(error)) && !turn.IsCancellationRequested && !chat.NeedsLogin && installation is null;
             lastTurnRecoverable = recoverConnection;
             chat.InterruptedInput = new(text, attachments);
             chat.Status = "Connection error";
-            if (!IsRecovering) Add("system", recoverConnection ? "**Connection interrupted.** Waiting to reconnect and restore this session.\n\n" + error.Message : "**Could not complete the turn.**\n\n" + error.Message + $"\n\nCheck the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment.");
+            ShowInstallation();
+            if (!IsRecovering && installation is null) Add("system", recoverConnection ? "**Connection interrupted.** Waiting to reconnect and restore this session.\n\n" + error.Message : "**Could not complete the turn.**\n\n" + error.Message + $"\n\nCheck the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment.");
             // Keep failed input available to retry, including attachments.
             if (!IsRecovering) RestoreInput(text, attachments);
         }
@@ -409,6 +436,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 chat.Status = $"Recovering connection (attempt {++attempt})…"; Changed?.Invoke();
                 await Reconnect();
                 if (token.IsCancellationRequested) return;
+                if (installation is not null) { ShowInstallation(); return; }
                 if (chat.NeedsLogin) { chat.Status = "Interrupted — sign in to resume"; return; }
                 if (IsConnected)
                 {

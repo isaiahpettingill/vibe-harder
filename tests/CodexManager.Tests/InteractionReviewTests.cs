@@ -5,11 +5,121 @@ using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
+using Avalonia.Input.Platform;
 
 namespace CodexManager.Tests;
 
 public class InteractionReviewTests
 {
+    [AvaloniaFact]
+    public async Task LoginPasteButtonSendsClipboardToTheLoginTerminal()
+    {
+        using var store = new Store(Path.Combine(Path.GetTempPath(), "login-paste-" + Guid.NewGuid().ToString("N")));
+        var view = new MainView(store, [], []);
+        var window = new Window { Content = view }; view.AttachDesktop(window); window.Show();
+        try
+        {
+            var model = new SvcSystems.UI.Terminal.TerminalControlModel();
+            var terminal = new ThemedTerminalControl { Model = model }; var sent = "";
+            model.UserInput += (_, e) => sent += Encoding.UTF8.GetString(e.Data.Span);
+            view.FindControl<ContentControl>("LoginTerminalHost")!.Content = terminal;
+            view.FindControl<Border>("LoginPanel")!.IsVisible = true;
+            view.FindControl<ContentControl>("LoginTerminalHost")!.IsVisible = true;
+            view.FindControl<Button>("PasteLoginButton")!.IsVisible = true;
+            window.UpdateLayout();
+            await window.Clipboard!.SetTextAsync("test-sign-in-code");
+            view.FindControl<Button>("PasteLoginButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            for (var i = 0; i < 50 && sent.Length == 0; i++) await Task.Delay(10);
+            Assert.Equal("test-sign-in-code", sent);
+        }
+        finally { view.RequestExit(); await Task.Delay(200, TestContext.Current.CancellationToken); }
+    }
+
+    [AvaloniaFact]
+    public async Task LocalWorkspaceRestoresTerminalSelectionWidthAndVisibility()
+    {
+        using var store = new Store(Path.Combine(Path.GetTempPath(), "terminal-workspaces-" + Guid.NewGuid().ToString("N")));
+        var view = new MainView(store, [], []);
+        var window = new Window { Content = view }; view.AttachDesktop(window); window.Show();
+        try
+        {
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        var sessions = (Dictionary<string, List<(TabItem Tab, TerminalSession Session)>>)typeof(MainView).GetField("terminals", flags)!.GetValue(view)!;
+        using var first = new TerminalSession(); using var second = new TerminalSession();
+        var firstTab = new TabItem(); var secondTab = new TabItem();
+        sessions["one"] = [(firstTab, first), (secondTab, second)];
+        var change = typeof(MainView).GetMethod("SwitchTerminalWorkspace", flags)!;
+        var tabs = view.FindControl<TabControl>("TerminalTabs")!; var drawer = view.FindControl<Grid>("TerminalDrawer")!;
+        change.Invoke(view, ["one"]); tabs.SelectedItem = secondTab; drawer.Width = 300; drawer.IsVisible = true;
+        change.Invoke(view, ["two"]); Assert.False(drawer.IsVisible); Assert.Equal(0, tabs.ItemCount);
+        Assert.True(view.FindControl<StackPanel>("TerminalEmptyState")!.IsVisible);
+        change.Invoke(view, ["one"]); Assert.True(drawer.IsVisible); Assert.Same(secondTab, tabs.SelectedItem); Assert.Equal(300, drawer.Width);
+        Assert.False(view.FindControl<StackPanel>("TerminalEmptyState")!.IsVisible);
+        drawer.IsVisible = false; change.Invoke(view, ["two"]); change.Invoke(view, ["one"]); Assert.False(drawer.IsVisible);
+        }
+        finally { view.RequestExit(); await Task.Delay(200, TestContext.Current.CancellationToken); }
+    }
+
+    [AvaloniaFact]
+    public async Task PredictionIsVisibleWhileInputWaitsForTheHost()
+    {
+        var reply = new TaskCompletionSource<JsonNode?>(); var output = ""; var inputs = 0;
+        Task<JsonNode?> Call(JsonObject r)
+        {
+            var method = r["method"]!.GetValue<string>();
+            if (method == "terminal/input") { if (++inputs == 1) output = "a"; else return reply.Task; }
+            JsonNode result = method switch { "terminal/open" => new JsonObject { ["id"] = "s" }, "terminal/read" => new JsonObject { ["text"] = output, ["offset"] = 0L }, _ => JsonValue.Create(true)! };
+            if (method == "terminal/read") output = "";
+            return Task.FromResult<JsonNode?>(result);
+        }
+        using var terminal = new RemoteTerminalView(Call);
+        var window = new Window { Width = 800, Height = 500, Content = terminal }; window.Show(); window.UpdateLayout();
+        try
+        {
+            await terminal.Open("w", "Host"); await terminal.SendKeystroke(new("a"));
+            var poll = typeof(RemoteTerminalView).GetMethod("Poll", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            await (Task)poll.Invoke(terminal, null)!;
+            var pending = terminal.SendKeystroke(new("b"));
+            try { Assert.False(pending.IsCompleted); Assert.Contains(terminal.Children.OfType<TextBlock>(), t => t.Text == "b"); }
+            finally { reply.TrySetResult(JsonValue.Create(true)); await pending; }
+            output = "b"; await (Task)poll.Invoke(terminal, null)!;
+            Assert.DoesNotContain(terminal.Children.OfType<TextBlock>(), t => t.Text == "b");
+        }
+        finally { window.Close(); }
+    }
+
+    [Fact]
+    public void PredictionWaitsForEchoAndReconcilesWithoutDuplicatingText()
+    {
+        var p = new TerminalPrediction();
+        p.Input("a", 0, 0, 80, true); Assert.Empty(p.Visible);
+        p.Reconcile(1, 0, _ => "a", true);
+        p.Input("bc", 1, 0, 80, true); Assert.Equal("bc", p.Visible);
+        p.Reconcile(2, 0, _ => "b", true); Assert.Equal("c", p.Visible);
+        p.Reconcile(3, 0, _ => "c", true); Assert.Empty(p.Visible);
+        p.Input("\r", 3, 0, 80, true);
+        p.Input("secret", 0, 1, 80, true); p.Reconcile(0, 1, _ => "", true); Assert.Empty(p.Visible);
+        p.Reset(); p.Input("a", 0, 0, 80, true); p.Reconcile(1, 0, _ => "*", true); Assert.False(p.Confirmed);
+    }
+
+    [AvaloniaFact]
+    public void RemoteWorkspaceRestoresTerminalViewAndVisibility()
+    {
+        using var remote = new RemoteView(new RemoteHost("Test", "127.0.0.1", 1, "", ""));
+        var window = new Window { Width = 960, Height = 650, Content = remote }; window.Show();
+        try
+        {
+            var change = (Action<string>)typeof(RemoteView).GetField("switchTerminalWorkspace", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(remote)!;
+            var layout = Assert.IsType<Grid>(remote.Content);
+            change("one"); var one = layout.Children.OfType<RemoteTerminalView>().Single(); one.SetVisible(true);
+            change("two"); var two = layout.Children.OfType<RemoteTerminalView>().Single();
+            Assert.NotSame(one, two); Assert.False(two.IsVisible); Assert.False(one.IsVisible);
+            change("one"); Assert.Same(one, layout.Children.OfType<RemoteTerminalView>().Single()); Assert.True(one.IsVisible);
+            change("two"); Assert.Same(two, layout.Children.OfType<RemoteTerminalView>().Single()); Assert.False(two.IsVisible);
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public void RemoteTerminalDocksOnLaptopAndOverlaysOnlyOnNarrowWindows()
     {

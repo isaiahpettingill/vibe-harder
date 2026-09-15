@@ -37,6 +37,7 @@ public sealed partial class ThemedTerminalControl
         }
         return linkCellSize = new Size(Math.Max(FontSize * .6, 1), Math.Max(FontSize * 1.4, 1));
     }
+    internal (Point Origin, Size Cell) PredictionMetrics() => (Children.FirstOrDefault()?.Bounds.TopLeft ?? default, LinkCellSize());
 
     public Uri? LinkAt(Point position)
     {

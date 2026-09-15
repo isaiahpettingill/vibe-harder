@@ -66,6 +66,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         if (method == "list") return new JsonObject
         {
+            ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
             ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
             ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
             ["workspaces"] = new JsonArray(workspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
@@ -85,12 +86,14 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
             if (!Enum.TryParse<AgentProvider>(Text("provider"), out var provider) || !Enum.IsDefined(provider)) throw new IOException("Unknown provider.");
+            if (!AgentProviders.IsEnabled(store, provider)) throw new IOException("Enable this provider in Settings > Additional agents on the host.");
             var created = new Chat { WorkspaceId = owner.Id, Provider = provider, RetainHistory = false }; chats.Add(created); store.Save(created); Changed?.Invoke(); return Summary(created);
         }
         if (method == "import")
         {
             var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
             var provider = Enum.Parse<AgentProvider>(Text("provider"));
+            if (!AgentProviders.IsEnabled(store, provider)) throw new IOException("Enable this provider in Settings > Additional agents on the host.");
             var found = await ChatHistory.Discover(owner, AgentProviders.Command(store, owner, provider), provider: provider);
             foreach (var imported in found.Where(c => !chats.Any(saved => saved.WorkspaceId == owner.Id && saved.Provider == provider && saved.SessionId == c.SessionId) && store.Setting(AgentProviders.HiddenHistoryKey(c)) != "1"))
             { chats.Add(imported); store.Save(imported); }
@@ -155,10 +158,12 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             return result;
         }
         if (method == "queue/advance") { await active.AdvanceQueued(); return Summary(chat); }
-        if (method is "queue/steer" or "queue/remove")
+        if (method is "queue/steer" or "queue/remove" or "queue/edit" or "queue/send")
         {
             var queued = chat.QueuedInputs.FirstOrDefault(q => q.Id == Text("queueId")) ?? throw new IOException("This message is no longer queued.");
             if (method == "queue/remove") active.RemoveQueued(queued);
+            else if (method == "queue/edit") active.EditQueued(queued, Text("text"));
+            else if (method == "queue/send") await active.SendQueuedNow(queued, waitForCompletion: false);
             else if (await active.Steer(queued)) active.RemoveQueued(queued);
             else throw new IOException("Steering was not accepted. The message remains queued.");
             return Summary(chat);

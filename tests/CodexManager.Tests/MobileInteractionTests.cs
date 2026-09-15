@@ -44,7 +44,7 @@ public class MobileInteractionTests
     }
 
     [AvaloniaFact]
-    public async Task ReloadShowsSpinnerInsteadOfStop()
+    public async Task ReloadShowsPulsingDotInsteadOfStop()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
@@ -56,8 +56,9 @@ public class MobileInteractionTests
         try
         {
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            window.FindControl<Button>("ReconnectChatButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             var button = window.FindControl<IconButton>("SendButton")!;
-            while (button.Content is not LoadingSpinner) await Task.Delay(20, timeout.Token);
+            while (button.Content is not ConnectingIndicator) await Task.Delay(20, timeout.Token);
             Assert.False(button.IsEnabled);
             Assert.Equal("Loading chat", Avalonia.Automation.AutomationProperties.GetName(button));
         }

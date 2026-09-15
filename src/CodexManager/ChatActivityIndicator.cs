@@ -14,6 +14,7 @@ public sealed class ChatActivityIndicator : Grid
     private readonly Avalonia.Controls.Shapes.Path spinner;
     private readonly Ellipse unread;
     private readonly PathIcon warning;
+    private readonly ConnectingIndicator connecting = new() { Name = "ConnectingDot", IsVisible = false };
     private readonly RotateTransform rotation = new();
     private readonly DispatcherTimer timer = new() { Interval = TimeSpan.FromMilliseconds(60) };
     private bool attached;
@@ -28,7 +29,7 @@ public sealed class ChatActivityIndicator : Grid
         unread = new Ellipse { Width = 6, Height = 6, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Center, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Center };
         unread.Bind(Shape.FillProperty, this.GetResourceObservable("AppAccent"));
         warning = AppIcons.Create("warning", 14); warning.Name = "PermissionWarning"; warning.Foreground = Brushes.Goldenrod;
-        Children.Add(provider); Children.Add(spinner); Children.Add(unread); Children.Add(warning);
+        Children.Add(provider); Children.Add(spinner); Children.Add(unread); Children.Add(warning); Children.Add(connecting);
         timer.Tick += (_, _) => rotation.Angle = (rotation.Angle + 24) % 360;
         Update();
     }
@@ -43,15 +44,16 @@ public sealed class ChatActivityIndicator : Grid
     }
     private void ChatChanged(object? sender, PropertyChangedEventArgs e)
     {
-        if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.HasUnreadCompletion) or nameof(Chat.NeedsPermission)) Update();
+        if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status) or nameof(Chat.HasUnreadCompletion) or nameof(Chat.NeedsPermission)) Update();
     }
     private void Update()
     {
         warning.IsVisible = chat.NeedsPermission;
-        spinner.IsVisible = chat.Busy && !chat.NeedsPermission;
+        connecting.IsVisible = chat.Busy && !chat.NeedsPermission && ConnectingIndicator.IsConnecting(chat.Status);
+        spinner.IsVisible = chat.Busy && !chat.NeedsPermission && !connecting.IsVisible;
         unread.IsVisible = !chat.NeedsPermission && !chat.Busy && chat.HasUnreadCompletion;
         provider.IsVisible = !chat.NeedsPermission && !chat.Busy && !chat.HasUnreadCompletion;
-        ToolTip.SetTip(this, chat.NeedsPermission ? "Needs permission" : chat.Busy ? "Chat in progress" : chat.HasUnreadCompletion ? "New completed reply" : chat.ProviderLabel);
+        ToolTip.SetTip(this, chat.NeedsPermission ? "Needs permission" : connecting.IsVisible ? "Connecting" : chat.Busy ? "Chat in progress" : chat.HasUnreadCompletion ? "New completed reply" : chat.ProviderLabel);
         if (attached && spinner.IsVisible) timer.Start(); else timer.Stop();
     }
 }

@@ -7,7 +7,14 @@ public static class Hosts
 {
     public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@1.11.0";
     public static string ResourceDirectory => OperatingSystem.IsMacOS() && Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) == "MacOS" && Directory.Exists(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) : AppContext.BaseDirectory;
-    public static string WindowsShellCommand(string command) => command.StartsWith("npx ", StringComparison.Ordinal) ? "npx.cmd " + command[4..] : command;
+    public static string WindowsShellCommand(string command)
+    {
+        if (command.StartsWith("npx ", StringComparison.Ordinal)) return "npx.cmd " + command[4..];
+        foreach (var name in new[] { "npm", "opencode", "codex", "claude", "dirac", "pi", "pi-acp" })
+            if (command == name || command.StartsWith(name + " ", StringComparison.Ordinal))
+                return "& $(if (Get-Command " + name + ".cmd -ErrorAction SilentlyContinue) { '" + name + ".cmd' } else { '" + name + "' })" + command[name.Length..];
+        return command;
+    }
     public static string LocalShellCommand(string command)
     {
         if (OperatingSystem.IsWindows()) return command;
@@ -31,23 +38,27 @@ public static class Hosts
         }
         result.Append('\\', slashes * 2); return result.Append('"').ToString();
     }
-    public static ProcessStartInfo Agent(Workspace workspace, string command)
+    public static ProcessStartInfo Agent(Workspace workspace, string command, IReadOnlyDictionary<string, string>? environment = null)
     {
         ProcessStartInfo info;
         if (workspace.IsWsl)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WSL workspaces require Windows.");
-            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", "exec " + command);
+            if (environment is not null) command = "env " + string.Join(" ", environment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
+            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", "export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH\"; exec " + command);
         }
         else if (OperatingSystem.IsWindows())
         {
             info = Info("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WindowsShellCommand(command));
             info.WorkingDirectory = workspace.Path;
+            var paths = new[] { Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process), Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User), Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop", "shims") };
+            info.Environment["PATH"] = string.Join(Path.PathSeparator, paths.Where(p => !string.IsNullOrWhiteSpace(p)).SelectMany(p => Environment.ExpandEnvironmentVariables(p!).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)).Distinct(StringComparer.OrdinalIgnoreCase));
         }
         else
         {
             info = Info("/bin/sh", "-lc", LocalShellCommand("exec " + command)); info.WorkingDirectory = workspace.Path;
         }
+        if (!workspace.IsWsl && environment is not null) foreach (var pair in environment) info.Environment[pair.Key] = pair.Value;
         return info;
     }
     public static ProcessStartInfo Info(string file, params string[] args)

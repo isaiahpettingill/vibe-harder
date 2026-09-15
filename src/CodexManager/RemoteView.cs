@@ -70,7 +70,8 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly WrapPanel attachmentChips = new();
     private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
-    private readonly StackPanel queuedMessages = new() { Spacing = 4 };
+    private readonly StackPanel queuedMessages = new();
+    private readonly Expander queuePanel = new() { Name = "RemoteQueuePanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch };
     private bool busy, sending, preparing;
     private bool advancingQueue;
     private readonly ListBox slashCommands = new() { Name = "RemoteSlashCommands", IsVisible = false, MaxHeight = 150 };
@@ -131,6 +132,8 @@ public sealed class RemoteView : UserControl, IDisposable
     private ListBox output = null!;
     private RemoteTerminalView terminal = null!;
     private string? terminalWorkspace;
+    private readonly Dictionary<string, (RemoteTerminalView View, bool Visible, GridLength ChatWidth, GridLength TerminalWidth)> workspaceTerminals = [];
+    private Action<string>? switchTerminalWorkspace;
     private bool openingTerminal;
     private Point? swipeStart;
     private string queueJson = "";
@@ -257,7 +260,7 @@ public sealed class RemoteView : UserControl, IDisposable
         var openTerminal = new IconButton { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
         openTerminal.Click += async (_, _) => await ShowTerminal(); Grid.SetColumn(openTerminal, 2); remoteHeader.Children.Add(openTerminal); panel.Children.Add(remoteHeader);
         openTerminal.IsEnabled = workspaces.SelectedItem is not null;
-        workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; ApplyColors(); };
+        workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; if (workspaces.SelectedItem is RemoteItem owner) switchTerminalWorkspace?.Invoke(owner.Id); ApplyColors(); };
         workspaces.SelectionChanged += (_, _) => FilterChats();
         var split = new Grid { ColumnDefinitions = new("0,0,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
@@ -286,7 +289,9 @@ public sealed class RemoteView : UserControl, IDisposable
         var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
         panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
         Grid.SetRow(approvalScroll, 2); panel.Children.Add(approvalScroll);
-        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(new ScrollViewer { Content = queuedMessages, MaxHeight = 120 }); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(new SlashCommandOverlay(composer, slashCommands)); input.Children.Add(composer);
+        queuePanel.Content = new ScrollViewer { Content = queuedMessages, MaxHeight = 150, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
+        queuedMessages.Children.CollectionChanged += (_, _) => { var count = queuedMessages.Children.Count; queuePanel.IsVisible = count > 0; queuePanel.Header = $"{count} queued message{(count == 1 ? "" : "s")}"; };
+        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(queuePanel); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(new SlashCommandOverlay(composer, slashCommands)); input.Children.Add(composer);
         slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
         DragDrop.SetAllowDrop(input, true);
         input.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
@@ -376,6 +381,28 @@ public sealed class RemoteView : UserControl, IDisposable
         DetachedFromVisualTree += (_, _) => { if (layoutTopLevel is not null) layoutTopLevel.SizeChanged -= WindowResized; layoutTopLevel = null; };
         terminal.PropertyChanged += (_, e) => { if (e.Property == IsVisibleProperty) LayoutTerminal(); };
         terminal.Back += () => terminal.SetVisible(false);
+        switchTerminalWorkspace = id =>
+        {
+            if (terminalWorkspace == id) return;
+            if (terminalWorkspace is { } previous)
+                workspaceTerminals[previous] = (terminal, terminal.IsVisible, terminalLayout.ColumnDefinitions[0].Width, terminalLayout.ColumnDefinitions[2].Width);
+            else terminal.Dispose();
+            terminal.SetVisible(false); terminalLayout.Children.Remove(terminal);
+            terminalWorkspace = id;
+            if (workspaceTerminals.TryGetValue(id, out var saved)) terminal = saved.View;
+            else
+            {
+                var view = new RemoteTerminalView(Call) { IsVisible = false, ZIndex = 20 };
+                view.Bind(Panel.BackgroundProperty, this.GetResourceObservable("AppBackground"));
+                view.Back += () => view.SetVisible(false);
+                view.PropertyChanged += (_, e) => { if (ReferenceEquals(terminal, view) && e.Property == IsVisibleProperty) LayoutTerminal(); };
+                terminal = view;
+            }
+            terminalLayout.Children.Add(terminal);
+            terminal.SetSleeping(presentationSleeping || connectionSuspended || connectionCollapsed);
+            docked = null; terminal.SetVisible(saved.Visible); LayoutTerminal();
+            if (docked == true && saved.Visible && saved.TerminalWidth.Value > 0) { terminalLayout.ColumnDefinitions[0].Width = saved.ChatWidth; terminalLayout.ColumnDefinitions[2].Width = saved.TerminalWidth; }
+        };
         AddHandler(PointerPressedEvent, (_, e) => { if (e.Pointer.Type == PointerType.Touch && (!terminal.IsVisible || e.GetPosition(terminal).Y < 52)) swipeStart = e.GetPosition(this); else swipeStart = null; }, RoutingStrategies.Tunnel, true);
         AddHandler(PointerReleasedEvent, async (_, e) =>
         {
@@ -471,13 +498,14 @@ public sealed class RemoteView : UserControl, IDisposable
     public async Task ShowTerminal()
     {
         if (openingTerminal || workspaces.SelectedItem is not RemoteItem owner) return;
-        openingTerminal = true; terminal.SetVisible(true);
+        switchTerminalWorkspace?.Invoke(owner.Id);
+        var selectedTerminal = terminal;
+        openingTerminal = true; selectedTerminal.SetVisible(true);
         try
         {
-            if (terminalWorkspace != owner.Id || terminal.TerminalId is null)
+            if (selectedTerminal.TerminalId is null)
             {
-                await terminal.Open(owner.Id, host.Name + " · " + owner.Name);
-                terminalWorkspace = terminal.TerminalId is null ? null : owner.Id;
+                await selectedTerminal.Open(owner.Id, host.Name + " · " + owner.Name);
             }
         }
         finally { openingTerminal = false; }
@@ -494,7 +522,7 @@ public sealed class RemoteView : UserControl, IDisposable
     private void UpdateSendAction()
     {
         var stop = busy && !preparing && !HasDraft;
-        send.Icon = preparing ? "loading" : stop ? "stop" : "send";
+        send.Icon = preparing ? "connecting" : stop ? "stop" : "send";
         send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";
         send.IsEnabled = connection is not null && !sending && !preparing && chatId is not null && (stop || HasDraft);
     }
@@ -526,13 +554,23 @@ public sealed class RemoteView : UserControl, IDisposable
         foreach (var item in queue)
         {
             var id = item!["id"]!.GetValue<string>(); var chat = chatId;
-            var row = new Grid { ColumnDefinitions = new("*,Auto,Auto") };
-            row.Children.Add(new TextBlock { Text = item["text"]?.GetValue<string>() is { Length: > 0 } text ? text : item["attachments"] + " attachments", TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            var row = new Grid { ColumnDefinitions = new("*,Auto,Auto,Auto,Auto"), Margin = new Thickness(2) };
+            row.Children.Add(new TextBlock { Text = item["text"]?.GetValue<string>() is { Length: > 0 } text ? text : item["attachments"] + " attachments", TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, MaxLines = 2, FontSize = 11 });
             var steer = new IconButton { Name = "RemoteSteerQueued", Icon = "steer", Label = "Steer with queued message", IsVisible = supported };
             var remove = new IconButton { Icon = "remove", Label = "Remove queued message" };
+            var edit = new IconButton { Icon = "edit", Label = "Edit queued message" };
+            var sendNow = new IconButton { Icon = "send", Label = "Send now (interrupt current turn)" };
+            edit.Click += (_, _) =>
+            {
+                var popup = new Flyout(); var input = new TextBox { Text = item["text"]?.GetValue<string>() ?? "", AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinWidth = 240, MaxWidth = 420, MaxHeight = 200 };
+                var save = new Button { Content = "Save" };
+                save.Click += async (_, _) => { save.IsEnabled = false; try { if (await Call(new() { ["method"] = "queue/edit", ["chatId"] = chat, ["queueId"] = id, ["text"] = input.Text ?? "" }) is not null) popup.Hide(); } finally { save.IsEnabled = true; } };
+                popup.Content = new StackPanel { Spacing = 8, Children = { input, save } }; popup.ShowAt(edit); input.Focus();
+            };
+            sendNow.Click += async (_, _) => { sendNow.IsEnabled = false; try { await Call(new() { ["method"] = "queue/send", ["chatId"] = chat, ["queueId"] = id }); } finally { sendNow.IsEnabled = true; } };
             steer.Click += async (_, _) => { steer.IsEnabled = false; await Call(new() { ["method"] = "queue/steer", ["chatId"] = chat, ["queueId"] = id }); steer.IsEnabled = true; };
             remove.Click += async (_, _) => await Call(new() { ["method"] = "queue/remove", ["chatId"] = chat, ["queueId"] = id });
-            Grid.SetColumn(steer, 1); row.Children.Add(steer); Grid.SetColumn(remove, 2); row.Children.Add(remove); queuedMessages.Children.Add(row);
+            Grid.SetColumn(remove, 1); row.Children.Add(remove); Grid.SetColumn(edit, 2); row.Children.Add(edit); Grid.SetColumn(steer, 3); row.Children.Add(steer); Grid.SetColumn(sendNow, 4); row.Children.Add(sendNow); queuedMessages.Children.Add(row);
         }
     }
     private static Message ReadMessage(JsonNode row)
@@ -581,9 +619,11 @@ public sealed class RemoteView : UserControl, IDisposable
             if (reconnectRequested && !connectionSuspended && !connectionCollapsed && !lifetime.IsCancellationRequested) _ = Connect();
         }
     }
+    private IReadOnlyList<AgentOption> enabledProviders = AgentProviders.All.Where(p => !AgentProviders.IsAdditional(p.Provider)).ToArray();
     private async Task RefreshList()
     {
         var result = await Call(new() { ["method"] = "list" }); if (result is null || lifetime.IsCancellationRequested) return;
+        enabledProviders = AgentProviders.All.Where(p => result["providers"] is JsonArray providers ? providers.Any(v => v?.GetValue<string>() == p.Provider.ToString()) : !AgentProviders.IsAdditional(p.Provider)).ToArray();
         chatRows = result["chats"]!.AsArray();
         if (result["permissions"] is JsonArray pending)
         {
@@ -673,7 +713,7 @@ public sealed class RemoteView : UserControl, IDisposable
     public void ShowImport(Control anchor)
     {
         var menu = new MenuFlyout();
-        foreach (var provider in AgentProviders.All)
+        foreach (var provider in enabledProviders)
         {
             var item = new MenuItem { Header = provider.Name };
             item.Click += async (_, _) => { if (workspaces.SelectedItem is RemoteItem owner) { await Call(new() { ["method"] = "import", ["workspaceId"] = owner.Id, ["provider"] = provider.Provider.ToString() }); await RefreshList(); } };
@@ -684,7 +724,7 @@ public sealed class RemoteView : UserControl, IDisposable
     public void ShowNewChat(Control anchor, string workspaceId)
     {
         var menu = new MenuFlyout();
-        foreach (var provider in AgentProviders.All)
+        foreach (var provider in enabledProviders)
         {
             var item = new MenuItem { Header = provider.Name };
             item.Click += async (_, _) =>
@@ -699,7 +739,7 @@ public sealed class RemoteView : UserControl, IDisposable
     public void Dispose()
     {
         if (lifetime.IsCancellationRequested) return;
-        timer.Stop(); lifetime.Cancel(); terminal.Dispose(); var client = connection; connection = null; client?.Dispose();
+        timer.Stop(); lifetime.Cancel(); terminal.Dispose(); foreach (var state in workspaceTerminals.Values) state.View.Dispose(); workspaceTerminals.Clear(); var client = connection; connection = null; client?.Dispose();
         foreach (var permission in notifiedPermissions) PermissionNotifications.Dismiss(host.Address + permission);
         notifiedPermissions.Clear(); messageRevisions.Clear(); CatalogChanged = null; WorkspaceNavigation = null; WorkspaceOpened = null;
         messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null;

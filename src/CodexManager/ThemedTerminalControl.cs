@@ -47,7 +47,7 @@ public sealed partial class ThemedTerminalControl : TerminalControl
         var shortcut = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
         if (shortcut && e.Key == Key.C && (HasSelection || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
         { e.Handled = true; _ = CopyText(); return; }
-        if (shortcut && e.Key == Key.V)
+        if (shortcut && e.Key == Key.V || e.Key == Key.Insert && e.KeyModifiers == KeyModifiers.Shift)
         { e.Handled = true; _ = PasteText(); return; }
         base.OnKeyDown(e);
     }

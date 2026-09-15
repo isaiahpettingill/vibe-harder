@@ -24,6 +24,7 @@
             <StackPanel Orientation="Horizontal" Spacing="8"><Button Name="LoginButton" Content="Log in to Codex" Click="LoginClick" Classes="accent"/><Button Name="CheckLoginButton" Content="Already signed in? Check again" Click="CheckLoginClick"/></StackPanel>
             <StackPanel Name="LoginLinkPanel" IsVisible="False" Spacing="6"><TextBox Name="LoginUrl" IsReadOnly="True"/><StackPanel Orientation="Horizontal" Spacing="8"><Button Content="Open in browser" Click="OpenLoginLinkClick"/><local:IconButton Name="CopyLoginLinkButton" Label="Copy login link" Click="CopyLoginLinkClick"/></StackPanel></StackPanel>
             <ContentControl Name="LoginTerminalHost" IsVisible="False" Height="220"/>
+            <Button Name="PasteLoginButton" Content="Paste into terminal" Click="PasteLoginClick" IsVisible="False" Focusable="False" HorizontalAlignment="Left"/>
           </StackPanel>
         </Border>
         <Grid Grid.Row="2" Margin="14,0,14,10" RowDefinitions="Auto,*">
@@ -61,6 +62,10 @@
         <Border Background="{DynamicResource AppBorder}" PointerPressed="TerminalResizeStart" PointerMoved="TerminalResizeMove" PointerReleased="TerminalResizeEnd" Cursor="SizeWestEast"/>
         <TabControl Grid.Column="1" Name="TerminalTabs" Margin="4,0,4,4"><TabControl.Styles><Style Selector="TabItem"><Setter Property="MinHeight" Value="26"/><Setter Property="Padding" Value="6,2"/><Setter Property="FontSize" Value="11"/></Style><Style Selector="TabControl /template/ ItemsPresenter#PART_ItemsPresenter"><Setter Property="Margin" Value="0,0,28,2"/><Setter Property="MinHeight" Value="26"/></Style></TabControl.Styles></TabControl>
         <local:IconButton Name="NewTerminalButton" Grid.Column="1" Icon="add" Label="New terminal" Click="NewTerminalClick" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,2,6,0"/>
+        <StackPanel Name="TerminalEmptyState" Grid.Column="1" IsVisible="{Binding !ItemCount, ElementName=TerminalTabs}" HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+          <TextBlock Text="No terminal open" Foreground="{DynamicResource AppMuted}" HorizontalAlignment="Center" FontSize="12"/>
+          <Button Content="New terminal" Click="NewTerminalClick" HorizontalAlignment="Center" FontSize="12"/>
+        </StackPanel>
       </Grid>
     </Grid>
     <Border Name="StatusBar" Grid.Row="2" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>

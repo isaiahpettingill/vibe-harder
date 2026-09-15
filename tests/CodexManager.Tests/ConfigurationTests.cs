@@ -12,7 +12,8 @@ public class ConfigurationTests
         Assert.Equal("npx.cmd -y example login", TerminalSession.Options(local, command).CommandLine.Last());
         Assert.Equal("custom-wrapper npx login", Hosts.Agent(local, "custom-wrapper npx login").ArgumentList.Last());
         var wsl = new Workspace("w", "Linux", "/tmp", "Debian");
-        Assert.Equal("exec " + command, Hosts.Agent(wsl, command).ArgumentList.Last());
+        Assert.EndsWith("exec " + command, Hosts.Agent(wsl, command).ArgumentList.Last());
+        Assert.Contains("$HOME/.opencode/bin", Hosts.Agent(wsl, command).ArgumentList.Last());
     }
     [Fact]
     public void WslResolutionUsesLinuxOverridesAndKeepsDefaultOpenCodeLayer()

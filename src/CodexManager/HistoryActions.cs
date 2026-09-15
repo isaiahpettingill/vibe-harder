@@ -4,18 +4,38 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.Input.Platform;
 
 namespace CodexManager;
 
 public static class HistoryActions
 {
-    public static async Task Show(Control anchor, Message? message, Func<JsonObject, Task<JsonNode?>> call, Action<string> selected)
+    public static async Task<MenuFlyout> Show(Control anchor, Message? message, Func<JsonObject, Task<JsonNode?>> call, Action<string> selected)
     {
+        var menu = new MenuFlyout();
+        if (message is not null)
+        {
+            var copy = new MenuItem { Header = "Copy text" };
+            copy.Click += async (_, _) => { try { if (TopLevel.GetTopLevel(anchor)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(message.Text); } catch (Exception error) { Error(anchor, error.Message); } };
+            menu.Items.Add(copy);
+            if (message.Attachments.Count > 0)
+            {
+                var files = new MenuItem { Header = "Show attachments" };
+                files.Click += (_, _) =>
+                {
+                    var content = new StackPanel { Spacing = 8, MaxWidth = 640 };
+                    foreach (var file in message.Attachments)
+                        content.Children.Add(file.IsImage ? new AttachmentPreview { Attachment = file, IsExpanded = true } : new TextBlock { Text = file.Name, TextWrapping = TextWrapping.Wrap });
+                    new Flyout { Content = new ScrollViewer { Content = content, MaxHeight = 420 } }.ShowAt(anchor);
+                };
+                menu.Items.Add(files);
+            }
+            menu.ShowAt(anchor);
+        }
         try
         {
             var options = await call(new() { ["method"] = "history/options", ["messageId"] = message?.Id, ["sequence"] = message?.Sequence ?? -1 });
-            if (options is null || TopLevel.GetTopLevel(anchor) is null) return;
-            var menu = new MenuFlyout();
+            if (options is null || TopLevel.GetTopLevel(anchor) is null) return menu;
             void Item(string title, bool fork, bool edit)
             {
                 var item = new MenuItem { Header = title };
@@ -29,9 +49,10 @@ public static class HistoryActions
                 Item("Fork from here…", true, false); Item("Revert to here…", false, false);
             }
             if (menu.Items.Count == 0) menu.Items.Add(new MenuItem { IsEnabled = false, Header = new TextBlock { Text = options["reason"]?.GetValue<string>(), MaxWidth = 330, TextWrapping = TextWrapping.Wrap } });
-            menu.ShowAt(anchor);
+            if (message is null) menu.ShowAt(anchor);
         }
-        catch (Exception error) { Error(anchor, error.Message); }
+        catch (Exception error) { if (message is null) Error(anchor, error.Message); }
+        return menu;
     }
     private static void Error(Control anchor, string text)
     {

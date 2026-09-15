@@ -20,6 +20,8 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private readonly TextBlock status = new() { Text = "Connecting to the host terminal…", TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis };
     private readonly Queue<(string Id, string Text, TaskCompletionSource<bool> Completion)> pendingInput = new();
     private bool sendingInput;
+    private readonly TerminalPrediction prediction = new();
+    private readonly TextBlock predictedText = new() { IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, ZIndex = 10 };
     private bool polling, disposed, sleeping;
     private readonly bool mobile;
     private readonly Grid keyBar = new() { Name = "TerminalKeyBar", RowDefinitions = new("Auto,Auto"), ColumnDefinitions = new("*,*,*,*,*,*,*"), IsEnabled = false };
@@ -68,6 +70,10 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         Grid.SetColumn(actions, 2); header.Children.Add(actions); Children.Add(header);
         terminal.Bind(ThemedTerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         Grid.SetRow(terminal, 1); Children.Add(terminal);
+        Grid.SetRow(predictedText, 1); Children.Add(predictedText);
+        predictedText.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppForeground"));
+        terminal.SizeChanged += (_, _) => ClearPrediction();
+        terminal.AddHandler(PointerWheelChangedEvent, (_, _) => ClearPrediction(), Avalonia.Interactivity.RoutingStrategies.Tunnel, true);
         keyBar.IsVisible = this.mobile; Grid.SetRow(keyBar, 2); Children.Add(keyBar);
         var keys = new (string Label, TerminalKeystroke Stroke)[] {
             ("ESC", new(Key: TerminalKey.Escape)), ("/", new("/")), ("−", new("-")),
@@ -103,8 +109,8 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     }
     private void UpdateModifiers() { control.Classes.Set("accent", ctrlHeld); alt.Classes.Set("accent", altHeld); }
     public void FocusInput() { if (mobile && IsVisible && InputReady && !sleeping) MobileTerminalKeyboard.Current?.Focus(keyboardReceiver, true); }
-    private void ReleaseKeyboard() { MobileTerminalKeyboard.Current?.Release(keyboardReceiver); ctrlHeld = altHeld = false; UpdateModifiers(); }
-    private void Ready(bool value) { InputReady = value; keyBar.IsEnabled = value; }
+    private void ReleaseKeyboard() { ClearPrediction(); MobileTerminalKeyboard.Current?.Release(keyboardReceiver); ctrlHeld = altHeld = false; UpdateModifiers(); }
+    private void Ready(bool value) { InputReady = value; keyBar.IsEnabled = value; if (!value) ClearPrediction(); }
     public async Task<bool> SendKeystroke(TerminalKeystroke input)
     {
         var modifiers = input.Modifiers | (ctrlHeld ? TerminalModifiers.Control : 0) | (altHeld ? TerminalModifiers.Alt : 0);
@@ -123,14 +129,17 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         TerminalId = result?["id"]?.GetValue<string>(); Ready(TerminalId is not null);
         status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : caption;
         if (disposed) return;
-        size = default; timer.Start(); await Poll();
+        size = default; if (IsVisible && !sleeping) timer.Start(); await Poll();
     }
     public void SetSleeping(bool value) { sleeping = value; if (value) ReleaseKeyboard(); if (!value && IsVisible && !disposed) timer.Start(); else timer.Stop(); }
-    public void SetVisible(bool visible) { IsVisible = visible; if (!visible) ReleaseKeyboard(); if (visible && !disposed) timer.Start(); else timer.Stop(); }
+    public void SetVisible(bool visible) { IsVisible = visible; if (!visible) ReleaseKeyboard(); if (visible && !disposed && !sleeping) timer.Start(); else timer.Stop(); }
     private Task<bool> Input(string text)
     {
         var id = TerminalId;
         if (!InputReady || disposed || sleeping || !IsVisible || id is null) return Task.FromResult(false);
+        var buffer = model.Terminal.Buffer;
+        prediction.Input(text, buffer.X, buffer.YBase + buffer.Y, model.Terminal.Cols, PredictionEligible());
+        RenderPrediction();
         interactiveUntil = DateTimeOffset.UtcNow.AddSeconds(2); timer.Interval = TimeSpan.FromMilliseconds(33);
         var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         pendingInput.Enqueue((id, text, completion));
@@ -145,7 +154,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             while (pendingInput.Count > 0)
             {
                 var batch = new List<TaskCompletionSource<bool>>(); var text = new StringBuilder(); var id = pendingInput.Peek().Id;
-                while (pendingInput.TryPeek(out var next) && next.Id == id)
+                while (pendingInput.TryPeek(out var next) && next.Id == id && (text.Length == 0 || text.Length + next.Text.Length <= 65536))
                 { pendingInput.Dequeue(); text.Append(next.Text); batch.Add(next.Completion); }
                 var sent = false;
                 try
@@ -153,10 +162,10 @@ public sealed class RemoteTerminalView : Grid, IDisposable
                     if (InputReady && !disposed && !sleeping && IsVisible && id == TerminalId)
                     {
                         sent = await call(new() { ["method"] = "terminal/input", ["terminalId"] = id, ["text"] = text.ToString() }) is not null;
-                        if (!sent) { Ready(false); status.Text = "Connection interrupted. Reconnecting…"; }
+                        if (!sent) { ClearPrediction(); Ready(false); status.Text = "Connection interrupted. Reconnecting…"; }
                     }
                 }
-                catch (Exception error) { Ready(false); status.Text = AppDiagnostics.Message("Terminal input failed", error); }
+                catch (Exception error) { ClearPrediction(); Ready(false); status.Text = AppDiagnostics.Message("Terminal input failed", error); }
                 finally { foreach (var completion in batch) completion.TrySetResult(sent); }
             }
         }
@@ -178,6 +187,9 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             var output = result["text"]!.GetValue<string>();
             model.Feed(output); offset = result["offset"]!.GetValue<long>();
+            var buffer = model.Terminal.Buffer;
+            prediction.Reconcile(buffer.X, buffer.YBase + buffer.Y, col => buffer.GetLine(buffer.YBase + buffer.Y)?[col].Content ?? "", PredictionEligible());
+            RenderPrediction();
             if (output.Length > 0) interactiveUntil = DateTimeOffset.UtcNow.AddSeconds(2);
             timer.Interval = TimeSpan.FromMilliseconds(DateTimeOffset.UtcNow < interactiveUntil ? 33 : 150);
             if (result["exited"]?.GetValue<bool>() == true) { Ready(false); TerminalId = null; ReleaseKeyboard(); status.Text = "Shell exited. Reopen the terminal to start a new shell."; timer.Stop(); }
@@ -186,4 +198,13 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         finally { polling = false; }
     }
     public void Dispose() { disposed = true; timer.Stop(); ReleaseKeyboard(); Back = null; }
+    private bool PredictionEligible() => !model.Terminal.Engine.IsAlternateBufferActive && !model.IsMouseModeActive && !terminal.HasSelection && model.ScrollOffset == model.Terminal.Buffer.YBase;
+    private void ClearPrediction() { prediction.Reset(); predictedText.Text = ""; }
+    private void RenderPrediction()
+    {
+        var (origin, cell) = terminal.PredictionMetrics();
+        predictedText.FontFamily = terminal.FontFamily; predictedText.FontSize = terminal.FontSize;
+        predictedText.Margin = new Thickness(origin.X + prediction.Column * cell.Width, origin.Y + (prediction.Row - model.ScrollOffset) * cell.Height, 0, 0);
+        predictedText.Text = prediction.Visible;
+    }
 }

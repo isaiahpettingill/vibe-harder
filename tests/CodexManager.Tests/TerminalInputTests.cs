@@ -73,6 +73,27 @@ public class TerminalInputTests
         finally { window.Close(); }
     }
 
+    [AvaloniaTheory]
+    [InlineData(Key.Insert, Avalonia.Input.RawInputModifiers.Shift, PhysicalKey.Insert)]
+    [InlineData(Key.V, Avalonia.Input.RawInputModifiers.Control, PhysicalKey.V)]
+    [InlineData(Key.V, Avalonia.Input.RawInputModifiers.Control | Avalonia.Input.RawInputModifiers.Shift, PhysicalKey.V)]
+    public async Task PasteShortcutsPasteLoginCodeWithoutSubmittingIt(Key key, Avalonia.Input.RawInputModifiers modifiers, PhysicalKey physical)
+    {
+        var model = new TerminalControlModel(new TerminalOptions());
+        var terminal = new ThemedTerminalControl { Model = model };
+        var window = new Window { Content = terminal }; window.Show();
+        try
+        {
+            var sent = ""; model.UserInput += (_, e) => sent += System.Text.Encoding.UTF8.GetString(e.Data.Span);
+            await window.Clipboard!.SetTextAsync("test-login-code");
+            terminal.Focus();
+            window.KeyPress(key, modifiers, physical, "");
+            for (var i = 0; i < 50 && sent.Length == 0; i++) await Task.Delay(10);
+            Assert.Equal("test-login-code", sent);
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task PasteUsesBracketedPasteForInteractivePrograms()
     {

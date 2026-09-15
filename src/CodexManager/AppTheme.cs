@@ -46,6 +46,9 @@ public static class AppTheme
         foreach (var key in new[] { "SystemControlForegroundBaseHighBrush", "TextFillColorPrimaryBrush" }) Brush(key, palette.Text);
         foreach (var key in new[] { "SystemControlBackgroundChromeMediumLowBrush", "SystemControlBackgroundAltHighBrush", "SystemControlBackgroundChromeLowBrush" }) Brush(key, palette.Surface);
         for (var i = 0; i < 16; i++) Brush("SvcSystems.UI.TerminalColor" + i, palette.Ansi[i]);
+        // The renderer uses ANSI color zero for its default canvas background.
+        // ANSI black is a lighter surface in some palettes (Tokyo Night/Nord).
+        Brush("SvcSystems.UI.TerminalColor0", palette.Background);
         Brush("SvcSystems.UI.TerminalCaretBrush", palette.Text);
         // The terminal paints selection after glyphs. An opaque brush hides
         // the selected text entirely, so use a translucent accent overlay.

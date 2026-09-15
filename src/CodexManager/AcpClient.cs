@@ -12,6 +12,7 @@ public sealed class AcpClient : IAsyncDisposable
     private readonly SemaphoreSlim writes = new(1);
     private readonly CancellationTokenSource lifetime = new();
     private readonly Task reader;
+    private readonly Task errorReader;
     private long nextId;
     private int disposed;
     private string diagnostics = "";
@@ -24,8 +25,8 @@ public sealed class AcpClient : IAsyncDisposable
     public AcpClient(ProcessStartInfo start)
     {
         process = Process.Start(start) ?? throw new IOException("Could not start the agent.");
+        errorReader = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync(lifetime.Token) is { } line) diagnostics = (diagnostics + "\n" + line)[^Math.Min(4000, diagnostics.Length + line.Length + 1)..]; } catch (Exception error) when (error is OperationCanceledException or IOException or ObjectDisposedException) { } });
         reader = Task.Run(ReadLoop);
-        _ = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync(lifetime.Token) is { } line) diagnostics = (diagnostics + "\n" + line)[^Math.Min(4000, diagnostics.Length + line.Length + 1)..]; } catch (OperationCanceledException) { } });
     }
     public async Task<JsonElement> Request(string method, JsonObject parameters, CancellationToken cancellation = default)
     {
@@ -74,6 +75,7 @@ public sealed class AcpClient : IAsyncDisposable
                     else completion.TrySetResult(message.GetProperty("result").Clone());
                 }
             }
+            await Task.WhenAny(errorReader, Task.Delay(200));
             failure = new IOException("Agent exited. " + diagnostics.Trim());
         }
         catch (Exception error) { failure = error; }

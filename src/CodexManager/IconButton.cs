@@ -99,7 +99,8 @@ public sealed class IconButton : Button
         {
             if (icon == value) return;
             icon = value;
-            Content = value == "loading" ? new LoadingSpinner() : AppIcons.Create(value, IconSize);
+            Content = value == "connecting" ? new ConnectingIndicator() : value == "loading" ? new LoadingSpinner() : AppIcons.Create(value, IconSize);
+            if (Content is ConnectingIndicator connecting) connecting.Dot.Bind(Avalonia.Controls.Shapes.Shape.FillProperty, this.GetObservable(ForegroundProperty));
             if (Content is LoadingSpinner spinner)
                 foreach (var arc in spinner.Children.OfType<Avalonia.Controls.Shapes.Path>()) arc.Bind(Avalonia.Controls.Shapes.Shape.StrokeProperty, this.GetObservable(ForegroundProperty));
         }

@@ -16,7 +16,7 @@ public sealed class MessageView : UserControl
     private readonly ScrollViewer details;
     private bool expanded;
     private bool attached;
-    private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Edit, revert, or fork from this message", VerticalAlignment = VerticalAlignment.Top };
+    private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Message actions", VerticalAlignment = VerticalAlignment.Top };
     public bool IsExpandedOutput => IsOutput && expanded;
     private bool IsOutput => Message?.Role is "tool" or "thought";
     static MessageView() => MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
