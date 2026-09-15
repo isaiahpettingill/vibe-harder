@@ -12,8 +12,10 @@ public class AutomaticRecoveryTests
         using var store = new Store(directory); var workspace = new Workspace("w", "Resume", directory); store.Save(workspace);
         var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
         await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --commands");
-        await runtime.Send(" ", []);
+        await runtime.Send(" ", [], autoResume: true);
         Assert.Contains(chat.Messages, m => m.Role == "assistant" && m.Text == " ");
+        Assert.Contains(chat.Messages, m => m.Role == "system" && m.Text == "Chat auto-resumed after unexpected restart");
+        Assert.DoesNotContain(chat.Messages, m => m.Role == "user" && string.IsNullOrWhiteSpace(m.Text));
     }
     [AvaloniaFact]
     public async Task NetworkErrorWithLivingAdapterKeepsRetryingUntilWifiReturns()
@@ -74,7 +76,8 @@ public class AutomaticRecoveryTests
         while ((!chat.Messages.Any(m => m.Text == "Hello **world**") || runtime.IsRecovering) && DateTime.UtcNow < until) await Task.Delay(25);
         Assert.Contains(chat.Messages, m => m.Text == "Hello **world**");
         Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == "disconnect");
-        Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == " ");
+        Assert.Single(chat.Messages, m => m.Role == "system" && m.Text == "Chat auto-resumed after unexpected restart");
+        Assert.DoesNotContain(chat.Messages, m => m.Role == "user" && string.IsNullOrWhiteSpace(m.Text));
         Assert.Null(chat.InterruptedInput); Assert.False(chat.Busy); Assert.False(runtime.IsRecovering);
         Assert.Equal("", store.Setting("interrupted:" + chat.Id));
     }

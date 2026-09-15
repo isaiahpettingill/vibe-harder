@@ -48,13 +48,14 @@ public sealed class MessageView : UserControl
     public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; Refresh(); } }
     private void Refresh()
     {
-        history.IsVisible = Message?.Role is "user" or "assistant" or "tool";
+        var legacyResume = Message is { Role: "user", Attachments.Count: 0 } && string.IsNullOrWhiteSpace(Message.Text);
+        history.IsVisible = !legacyResume && Message?.Role is "user" or "assistant" or "tool";
         title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
         var text = Message?.Text ?? "";
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];
         if (preview.Length > 100) preview = preview[..100] + "…";
-        title.Text = IsOutput ? (expanded ? "▾ " : "▸ ") + (Message?.Role == "thought" ? "Thinking" : preview.Length > 0 ? preview : "Tool output") : Message?.Label;
+        title.Text = IsOutput ? (expanded ? "▾ " : "▸ ") + (Message?.Role == "thought" ? "Thinking" : preview.Length > 0 ? preview : "Tool output") : legacyResume ? "SESSION" : Message?.Label;
         toggle.IsHitTestVisible = IsOutput; toggle.Focusable = IsOutput;
         details.IsVisible = !IsOutput || expanded;
         details.MaxHeight = IsOutput ? 420 : double.PositiveInfinity;
@@ -62,7 +63,7 @@ public sealed class MessageView : UserControl
         {
             body ??= new ChatMarkdown { Muted = IsOutput };
             details.Content = body;
-            body.Text = Message?.Text ?? "";
+            body.Text = legacyResume ? "Chat auto-resumed after unexpected restart" : Message?.Text ?? "";
         }
         else { details.Content = null; body = null; }
     }

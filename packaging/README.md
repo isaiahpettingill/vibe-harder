@@ -24,7 +24,7 @@ curl -fsSL https://github.com/isaiahpettingill/vibe-harder/releases/latest/downl
 sh /tmp/vibe-harder-install.sh
 ```
 
-The standalone [install.sh](../install.sh) detects x64/ARM64 and glibc/musl, downloads the latest stable release, verifies the package checksum, and runs its per-user installer. It prefers Native AOT, with a bundled-runtime fallback for glibc older than 2.38. Run it again to update. It supports curl or wget and needs tar plus sha256sum or shasum. Other CPU architectures are not currently published.
+The standalone [install.sh](../install.sh) detects x64/ARM64 and glibc/musl, downloads the latest stable release, verifies the package checksum, and runs its per-user installer. It always installs Native AOT, requiring glibc 2.38+ on glibc distributions; older distributions must upgrade or manually download a bundled-runtime package. Run it again to update. It supports curl or wget and needs tar plus sha256sum or shasum. Other CPU architectures are not currently published.
 
 The script does not change system packages. Desktop use requires X11/XWayland, fontconfig, and native Skia dependencies. On Debian/Ubuntu these include `libfontconfig1 libx11-6 libice6 libsm6 libicu-dev`; on Alpine, `fontconfig libx11 libice libsm icu-libs`. The glibc packages require glibc 2.34 or newer (for example Ubuntu 22.04+ or Debian 12+). Headless use is described in [REMOTE.md](../REMOTE.md).
 

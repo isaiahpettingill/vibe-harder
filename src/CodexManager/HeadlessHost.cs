@@ -69,7 +69,7 @@ public static class HeadlessHost
         if (store.Setting("autoResume") == "1")
             foreach (var chat in chats.Where(c => c.InterruptedInput is not null))
                 if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner)
-                { var input = chat.InterruptedInput!; chat.InterruptedInput = null; _ = Runtime(chat, owner).Send(" ", []); }
+                { var input = chat.InterruptedInput!; chat.InterruptedInput = null; _ = Runtime(chat, owner).Send(" ", [], autoResume: true); }
         Dispatcher.UIThread.MainLoop(stopped.Token);
     }
 }

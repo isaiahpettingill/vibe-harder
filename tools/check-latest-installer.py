@@ -24,7 +24,7 @@ class LatestInstallerTests(unittest.TestCase):
             rid = ("linux-musl" if libc == "musl" else "linux") + (
                 "-x64" if arch == "x86_64" else "-arm64"
             )
-            mode = "bundled" if libc == "glibc" and version == "2.36" else "aot"
+            mode = "aot"
             asset = f"VibeHarder-9.8.7-{rid}-{mode}.tar.gz"
             (package / "VibeHarder").write_text("#!/bin/sh\nexit 0\n")
             (package / "runtime.txt").write_text(rid)
@@ -71,7 +71,7 @@ shutil.copy(Path(os.environ['FIXTURE'])/name, args[args.index('--output')+1])
                 text=True,
                 capture_output=True,
             )
-            if bad_checksum or version == "2.31" or arch == "armv7l":
+            if bad_checksum or version in ("2.31", "2.36") or arch == "armv7l":
                 self.assertNotEqual(0, result.returncode)
                 self.assertFalse((data / "codex-manager").exists())
             else:
@@ -94,7 +94,7 @@ shutil.copy(Path(os.environ['FIXTURE'])/name, args[args.index('--output')+1])
                 with self.subTest(arch=arch, libc=libc):
                     self.install(arch, libc)
 
-    def test_old_glibc_uses_bundled_runtime(self):
+    def test_old_glibc_rejects_instead_of_switching_to_bundled(self):
         self.install(version="2.36")
 
     def test_bad_checksum_installs_nothing(self):

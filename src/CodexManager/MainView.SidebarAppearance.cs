@@ -11,6 +11,12 @@ public partial class MainView
 {
     private bool sidebarDragging;
     private bool sidebarHolding;
+    private Control WorkspaceDivider()
+    {
+        var line = new Border { Height = 1, Margin = new Thickness(8, 7, 8, 7), Opacity = .5, IsHitTestVisible = false };
+        line.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppBorder"));
+        return line;
+    }
     private (string Scope, string Id)? sidebarDrag;
     private static readonly DataFormat<string> SidebarDragFormat = DataFormat.CreateStringApplicationFormat("vibeharder-sidebar");
     private sealed record SidebarDrop(string Scope, string Id);

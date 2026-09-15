@@ -361,8 +361,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         }
         finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); }
     }
-    public Task Send(string text, Attachment[] attachments) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments);
-    private async Task SendCore(string text, Attachment[] attachments)
+    public Task Send(string text, Attachment[] attachments, bool autoResume = false) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments, autoResume);
+    private async Task SendCore(string text, Attachment[] attachments, bool autoResume)
     {
         if (chat.Busy) return;
         lastTurnRecoverable = false;
@@ -379,7 +379,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             await RestoreAccess();
             turn.Token.ThrowIfCancellationRequested();
-            var user = new Message { Role = "user", Provider = chat.Provider, Text = text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
+            var continuation = string.IsNullOrWhiteSpace(text) && attachments.Length == 0;
+            var user = new Message { Role = continuation ? "system" : "user", Provider = chat.Provider, Text = continuation ? autoResume ? "Chat auto-resumed after unexpected restart" : "Chat resumed" : text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
             foreach (var a in attachments) user.Attachments.Add(a);
             chat.Messages.Add(user); store.SaveMessage(chat, user);
             chat.Status = "Working…"; Changed?.Invoke();
@@ -462,7 +463,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                     if (chat.Provider != AgentProvider.Codex && store.Setting("autoResume") != "1") { chat.Status = "Interrupted — resume required"; return; }
                     if (chat.Draft == input.Text) chat.Draft = "";
                     foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
-                    await Send(" ", []);
+                    await Send(" ", [], autoResume: true);
                     if (chat.InterruptedInput is null || !lastTurnRecoverable || token.IsCancellationRequested) return;
                 }
                 await Task.Delay(TimeSpan.FromSeconds(Math.Min(30, attempt * 2)), token);

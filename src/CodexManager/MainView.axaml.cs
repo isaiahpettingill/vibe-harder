@@ -341,15 +341,15 @@ public partial class MainView : UserControl
             header.Children.Add(title); header.Children.Add(create); header.Children.Add(close);
             var list = new ListBox { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
             list.IsVisible = store.Setting("collapsed:" + owner.Id) != "1";
-            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace", Classes = { "rowAction" } };
+            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; store.Setting("collapsed:" + owner.Id, list.IsVisible ? "0" : "1"); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
-            var heading = new Grid { ColumnDefinitions = new("Auto,*"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
-            heading.Children.Add(DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree, heading)); Grid.SetColumn(header, 1); heading.Children.Add(header);
-            group.Children.Add(heading); group.Children.Add(list);
+            var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
+            var grip = DragHandle(group, "workspaces", owner.Id, BuildWorkspaceTree, heading); Grid.SetColumn(grip, 1); heading.Children.Add(header); heading.Children.Add(grip);
+            group.Children.Add(heading); group.Children.Add(list); group.Children.Add(WorkspaceDivider());
             ColorMenu(title, "workspaceColor:" + owner.Id, "Workspace background color", () => { BuildWorkspaceTree(); ApplyChatColors(); });
             WorkspaceTree.Children.Add(group);
         }
@@ -1324,7 +1324,7 @@ public partial class MainView : UserControl
                 var owner = store.Workspaces().FirstOrDefault(w => w.Id == chat.WorkspaceId);
                 if (owner is null) continue;
                 if (!workspaces.Any(w => w.Id == owner.Id)) { workspaces.Add(owner); store.Setting("closed:" + owner.Id, "0"); BuildWorkspaceTree(); }
-                _ = ResumeInterrupted(chat, owner, chat.InterruptedInput!, updateResume.Contains(chat.Id));
+                _ = ResumeInterrupted(chat, owner, chat.InterruptedInput!, updateResume.Contains(chat.Id), automatic: true);
             }
             return;
         }
@@ -1351,7 +1351,7 @@ public partial class MainView : UserControl
         };
         await dialog.ShowDialog(desktopWindow!);
     }
-    private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input, bool afterUpdate = false)
+    private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input, bool afterUpdate = false, bool automatic = false)
     {
         var runtime = Runtime(chat, owner);
         while (runtime.IsReconnecting || runtime.IsLoadingHistory) { if (closing) return; await Task.Delay(50); }
@@ -1369,7 +1369,7 @@ public partial class MainView : UserControl
         chat.InterruptedInput = null;
         if (chat.Draft == input.Text) { chat.Draft = ""; if (ReferenceEquals(current, chat)) Composer.Text = ""; }
         foreach (var attachment in input.Attachments) chat.Attachments.Remove(attachment);
-        await runtime.Send(" ", []);
+        await runtime.Send(" ", [], autoResume: automatic);
     }
     private bool shutdownComplete;
     private async void OnClosing(object? sender, WindowClosingEventArgs e)

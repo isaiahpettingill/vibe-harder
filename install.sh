@@ -29,12 +29,9 @@ for tool in tar mktemp sed awk grep; do command -v "$tool" >/dev/null 2>&1 || fa
 if [ "$libc" = linux ]; then
     glibc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
     glibc=${glibc##* }
-    if [ -n "$glibc" ] && ! awk -v v="$glibc" 'BEGIN { split(v, n, "."); exit !(n[1] > 2 || (n[1] == 2 && n[2] >= 34)) }'; then
-        fail 'Available releases require glibc 2.34 or newer. Upgrade this distribution before installing.'
+    if ! awk -v v="$glibc" 'BEGIN { split(v, n, "."); exit !(n[1] > 2 || (n[1] == 2 && n[2] >= 38)) }'; then
+        fail 'Native AOT requires glibc 2.38 or newer. Upgrade this distribution or manually download a bundled release.'
     fi
-    # Native AOT assets are built on Ubuntu 24.04. The bundled runtime
-    # has an older libc baseline and does not require an installed SDK.
-    if ! awk -v v="$glibc" 'BEGIN { split(v, n, "."); exit !(n[1] > 2 || (n[1] == 2 && n[2] >= 38)) }'; then mode=bundled; fi
 fi
 if command -v curl >/dev/null 2>&1; then
     fetch() { curl --fail --silent --show-error --location --retry 3 --connect-timeout 20 --output "$2" "$1"; }
