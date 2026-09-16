@@ -17,7 +17,7 @@ public partial class MainView
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null)
     {
         var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
-        EnableHoldReorder(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); });
+        if (!chat.Archived) EnableHoldReorder(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); });
         ColorMenu(row, "chatColor:" + (colorId ?? chat.Id), "Chat input border color", () => { ApplyChatColors(); foreach (var view in remoteViews.Values) view.ApplyColors(); });
         row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
         var details = new StackPanel { Spacing = 3 };
@@ -57,12 +57,13 @@ public partial class MainView
                 {
                     var id = record["id"]!.GetValue<string>(); var activityKey = connectionScope + id;
                     if (!remoteActivity.TryGetValue(activityKey, out var chat)) remoteActivity[activityKey] = chat = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(record["provider"]!.GetValue<string>()) };
+                    if (DateTimeOffset.TryParse(record["updated"]?.GetValue<string>(), out var updated)) chat.Updated = updated;
                     chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
                     if (chat.Title.Contains(SearchBox.Text ?? "", StringComparison.OrdinalIgnoreCase)) rows.Add(chat);
                 }
                 var scope = "remote:" + host.Address + ":" + host.Port + ":";
-                rows = SidebarOrder.Apply(store, "chats:" + scope + ownerId, rows, c => c.Id).ToList();
+                rows = showArchived ? rows.OrderByDescending(c => c.Updated).ThenBy(c => c.Id).ToList() : SidebarOrder.Apply(store, "chats:" + scope + ownerId, rows, c => c.Id).ToList();
                 var visualKey = connectionScope + ownerId;
                 retained.Add(visualKey);
                 var signature = workspace["name"] + "\0" + workspace["distro"] + "\0" + showArchived + "\0" + store.Setting("workspaceColor:" + scope + ownerId);
@@ -72,23 +73,23 @@ public partial class MainView
                     try
                     {
                         if (cached.List.ItemsSource is not IEnumerable<Chat> previous || !previous.SequenceEqual(rows)) cached.List.ItemsSource = rows;
-                        cached.List.IsVisible = store.Setting("collapsed:" + key) != "1";
+                        cached.List.IsVisible = WorkspaceExpanded(key);
                         cached.Collapse.Icon = cached.List.IsVisible ? "chevron-down" : "chevron-right";
                         cached.List.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
                     }
                     finally { applyingRemoteSidebar = false; }
                     desired.Add(cached.Group); continue;
                 }
-                var list = new SidebarChatList { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = store.Setting("collapsed:" + key) != "1" };
+                var list = new SidebarChatList { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = WorkspaceExpanded(key) };
                 list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, anchor => view.RenameChat(anchor, chat.Id, chat.Title), () => view.ArchiveChat(chat.Id, !chat.Archived), "chats:" + scope + ownerId, scope + chat.Id, view));
                 list.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
-                list.SelectionChanged += (_, _) => { if (!applyingRemoteSidebar && list.SelectedItem is Chat chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
+                list.SelectionChanged += (_, _) => { if (!applyingRemoteSidebar && !showArchived && list.SelectedItem is Chat { Archived: false } chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
                 var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
                 var collapse = new IconButton { Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = "Collapse or expand workspace" };
-                collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; store.Setting("collapsed:" + key, list.IsVisible ? "0" : "1"); }; header.Children.Add(collapse);
+                collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; SetWorkspaceExpanded(key, list.IsVisible); }; header.Children.Add(collapse);
                 var title = new Button { Content = workspace["name"]!.GetValue<string>() + (workspace["distro"]?.GetValue<string>() is { } distro ? " · " + distro + " (WSL)" : " · Files on " + host.Name), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-                title.Click += (_, _) => { OpenRemoteHost(host, ownerId); }; Grid.SetColumn(title, 1); header.Children.Add(title);
-                var create = new IconButton { Icon = "add", IconSize = 10, Label = "New chat", Classes = { "rowAction" } }; create.Click += (_, _) => view.ShowNewChat(create, ownerId, () => OpenRemoteHost(host)); Grid.SetColumn(create, 2); header.Children.Add(create);
+                title.Click += (_, _) => { if (showArchived) { SetWorkspaceExpanded(key, !WorkspaceExpanded(key)); RefreshRemoteSidebar(); } else OpenRemoteHost(host, ownerId); }; Grid.SetColumn(title, 1); header.Children.Add(title);
+                var create = new IconButton { Icon = "add", IconSize = 10, Label = "New chat", IsVisible = !showArchived, Classes = { "rowAction" } }; create.Click += (_, _) => view.ShowNewChat(create, ownerId, () => OpenRemoteHost(host)); Grid.SetColumn(create, 2); header.Children.Add(create);
                 var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", Classes = { "rowAction" } }; close.Click += (_, _) => { store.Setting("closed:" + key, "1"); RefreshRemoteSidebar(); }; Grid.SetColumn(close, 3); header.Children.Add(close);
                 var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + scope + ownerId, true) };
                 var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };

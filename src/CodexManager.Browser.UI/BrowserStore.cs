@@ -19,6 +19,7 @@ public sealed class Store : IDisposable
     public Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false) => throw RemoteOnly();
     public Task<(string Plain, string Html)> ExportChatAsync(Chat chat) => throw RemoteOnly();
     public Task<HashSet<string>> SearchChatIdsAsync(string query, CancellationToken token) => throw RemoteOnly();
+    public Task<ChatSearchHit[]> SearchMessagesAsync(Chat chat, string query, CancellationToken token) => throw RemoteOnly();
     public void ClearHistory(Chat chat) => throw RemoteOnly();
     public void ApplyRecentPage(Chat chat, Message[] messages) => throw RemoteOnly();
     public void ReleaseHistory(Chat chat) => throw RemoteOnly();

@@ -41,11 +41,11 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     }
     public async Task<JsonNode?> Handle(JsonObject request)
     {
+        var method = request["method"]?.GetValue<string>() ?? "";
         var result = await HandleCore(request);
-        if (result is JsonObject summary && summary["id"] is JsonValue id && chats.FirstOrDefault(c => c.Id == id.GetValue<string>()) is { } chat)
+        if (method is not ("archive" or "rename") && result is JsonObject summary && summary["id"] is JsonValue id && chats.FirstOrDefault(c => c.Id == id.GetValue<string>()) is { Archived: false } chat)
             summary["preparing"] = runtime(chat, workspaces.Single(w => w.Id == chat.WorkspaceId)).IsPreparing;
         // A successful mutation reply must survive an immediate host restart.
-        var method = request["method"]?.GetValue<string>() ?? "";
         if (method is not ("list" or "chat") && !method.StartsWith("terminal/", StringComparison.Ordinal)) await store.FlushAsync();
         return result;
     }
@@ -69,8 +69,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
             ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
             ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
-            ["workspaces"] = new JsonArray(workspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
-            ["chats"] = new JsonArray(chats.Select(c => (JsonNode)Summary(c)).ToArray())
+            ["workspaces"] = new JsonArray(workspaces.Where(w => store.Setting("closed:" + w.Id) != "1").Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
+            ["chats"] = new JsonArray(chats.Where(c => store.Setting("closed:" + c.WorkspaceId) != "1").Select(c => (JsonNode)Summary(c)).ToArray())
         };
         if (method == "workspace")
         {
@@ -79,7 +79,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var workspace = new Workspace(Guid.NewGuid().ToString("N"), Text("name"), path, string.IsNullOrWhiteSpace(distro) ? null : distro);
             await Hosts.Validate(workspace);
             var existing = workspaces.FirstOrDefault(w => w.Path == path && w.Distro == workspace.Distro);
-            if (existing is not null) return JsonValue.Create(existing.Id);
+            if (existing is not null) { store.Setting("closed:" + existing.Id, "0"); Changed?.Invoke(); return JsonValue.Create(existing.Id); }
             workspaces.Add(workspace); store.Save(workspace); Changed?.Invoke(); return JsonValue.Create(workspace.Id);
         }
         if (method == "create")
@@ -115,6 +115,14 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             Changed?.Invoke();
             return new JsonObject { ["deleted"] = true, ["warning"] = warning };
         }
+        if (method == "archive")
+        {
+            chat.Archived = request["archived"]?.GetValue<bool>() ?? true;
+            store.Save(chat);
+            if (chat.Archived) await runtime(chat, workspaceOwner).Stop();
+            Changed?.Invoke(); return Summary(chat);
+        }
+        if (chat.Archived && method != "rename") throw new IOException("Unarchive this chat before using it.");
         if (method == "file/read") return await FileLinks.Read(request, workspaceOwner);
         if (method == "file/download") return new JsonObject { ["path"] = FileLinks.Resolve(Text("path"), workspaceOwner) };
         if (method == "chat/export")
@@ -122,6 +130,12 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             foreach (var message in chat.Messages) store.SaveMessage(chat, message);
             var page = await store.ReadPageAsync(chat, request["after"]?.GetValue<int>() ?? -1, limit: 50, newer: true);
             return new JsonObject { ["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["label"] = m.Label, ["text"] = m.Text }).ToArray()), ["after"] = page.Length == 0 ? null : JsonValue.Create(page[^1].Sequence) };
+        }
+        if (method == "chat/search")
+        {
+            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
+            var hits = await store.SearchMessagesAsync(chat, Text("query"), CancellationToken.None);
+            return new JsonArray(hits.Select(hit => (JsonNode)new JsonObject { ["id"] = hit.Id, ["sequence"] = hit.Sequence, ["preview"] = hit.Preview }).ToArray());
         }
         var active = runtime(chat, workspaceOwner);
         if (active.IsChangingHistory && method != "chat") throw new IOException("Wait for the history change to finish.");
@@ -197,7 +211,6 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else if (method == "stop") await active.Stop();
         else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); Changed?.Invoke(); }
         else if (method == "read") { chat.HasUnreadCompletion = false; store.Save(chat); }
-        else if (method == "archive") { chat.Archived = request["archived"]?.GetValue<bool>() ?? true; store.Save(chat); Changed?.Invoke(); }
         else if (method == "reconnect") await active.Reconnect();
         else if (method == "resume")
         {
@@ -210,5 +223,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
+    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
 }

@@ -8,6 +8,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
 {
     private AcpClient? client;
     private HashSet<string>? authenticatedProviders;
+    private string vtOpenAiMethod = "chatgpt";
+    private bool vtOpenAiPinned;
     private bool restoreDiracContext;
     private bool loading;
     private bool replaying;
@@ -152,7 +154,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private void Configure(JsonElement response)
     {
         if (!response.TryGetProperty("configOptions", out _) && !response.TryGetProperty("models", out _) && !response.TryGetProperty("modes", out _)) return;
-        chat.ConfigOptions = ProviderAuthentication.Filter(SessionConfig.Read(response), authenticatedProviders); chat.ConfigVersion++; Changed?.Invoke();
+        chat.ConfigOptions = ProviderAuthentication.Filter(SessionConfig.Read(response), authenticatedProviders);
+        if (chat.Provider == AgentProvider.VTCode && chat.ConfigOptions.Any(c => c.Id == "provider" && c.Current == "openai"))
+            chat.ConfigOptions = chat.ConfigOptions.Append(VtCodeLaunch.AuthenticationBadge(vtOpenAiMethod, vtOpenAiPinned)).ToArray();
+        chat.ConfigVersion++; Changed?.Invoke();
     }
     public async Task SetConfig(SessionConfig config, string value)
     {
@@ -174,7 +179,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     }
     private async Task SetConfigCore(SessionConfig config, string value, bool remember = false)
     {
-        if (!config.Values.Any(v => v.Value == value)) return;
+        if (config.Id == VtCodeLaunch.AuthenticationOption || !config.Values.Any(v => v.Value == value)) return;
         IsConfiguring = true; Changed?.Invoke();
         try
         {
@@ -264,7 +269,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         authenticatedProviders = await ProviderAuthentication.Read(workspace, chat.Provider);
         lifetime.Token.ThrowIfCancellationRequested();
         var files = new AcpFileSystem(workspace, () => chat.SessionId);
-        var launchCommand = chat.Provider == AgentProvider.VTCode ? VtCodeLaunch.WithAuthentication(command, authenticatedProviders) : command;
+        var launchCommand = command;
+        if (chat.Provider == AgentProvider.VTCode)
+        {
+            vtOpenAiMethod = VtCodeLaunch.Method(store, workspace);
+            (launchCommand, vtOpenAiPinned) = VtCodeLaunch.Prepare(command, authenticatedProviders, vtOpenAiMethod);
+        }
         client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
         StartIdleTimer();
         var connection = client;
@@ -410,6 +420,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     {
         activePlan = null;
         if (chat.Busy) return;
+        if (chat.Archived) throw new IOException("Unarchive this chat before using it.");
         lastTurnRecoverable = false;
         chat.HasUnreadCompletion = false; chat.Busy = true; chat.Status = "Connecting…"; Changed?.Invoke();
         turn = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -424,6 +435,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             await RestoreAccess();
             turn.Token.ThrowIfCancellationRequested();
+            if (chat.Provider == AgentProvider.VTCode)
+                VtCodeLaunch.EnsureAuthentication(chat.ConfigOptions, vtOpenAiPinned);
             string? restoredContext = null;
             if (restoreDiracContext)
             {

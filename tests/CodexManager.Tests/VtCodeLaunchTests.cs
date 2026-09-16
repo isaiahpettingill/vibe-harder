@@ -6,21 +6,42 @@ public class VtCodeLaunchTests
 {
     [Theory]
     [InlineData("vtcode acp", "vtcode --provider openai --api-key-env OPENAI_API_KEY acp")]
-    [InlineData("\"C:\\Agent Tools\\vtcode.exe\" acp", "\"C:\\Agent Tools\\vtcode.exe\" --provider openai --api-key-env OPENAI_API_KEY acp")]
-    [InlineData("/home/user/.local/bin/vtcode --config /tmp/agent.toml acp", "/home/user/.local/bin/vtcode --provider openai --api-key-env OPENAI_API_KEY --config /tmp/agent.toml acp")]
     [InlineData("vtcode acp --provider=openai", "vtcode --api-key-env OPENAI_API_KEY acp --provider=openai")]
     [InlineData("vtcode acp --provider openrouter", "vtcode acp --provider openrouter")]
-    [InlineData("vtcode acp --api-key-env COMPANY_KEY", "vtcode acp --api-key-env COMPANY_KEY")]
-    [InlineData("node custom-bridge.mjs", "node custom-bridge.mjs")]
-    [InlineData("vtcode acp; echo done", "vtcode acp; echo done")]
-    public void InitializesOpenAiAuthWithoutOverwritingExplicitRoutes(string command, string expected) =>
-        Assert.Equal(expected, VtCodeLaunch.WithAuthentication(command, new HashSet<string> { "openai" }));
+    public void PinsChatGptByDefault(string command, string expected) =>
+        Assert.Equal(expected + " --config auth.openai.preferred_method=chatgpt", VtCodeLaunch.WithAuthentication(command, new HashSet<string> { "openai" }));
+
+    [Theory]
+    [InlineData("vtcode acp --api-key-env COMPANY_KEY")]
+    [InlineData("vtcode acp; echo done")]
+    public void RejectsCommandsThatCannotGuaranteeTheSelectedSource(string command) =>
+        Assert.Throws<IOException>(() => VtCodeLaunch.WithAuthentication(command, new HashSet<string> { "openai" }));
 
     [Fact]
-    public void DoesNotGuessAuthenticationWhenProbeFailsOrOpenAiIsUnavailable()
+    public void ApiKeysRequireAnExplicitChoiceAndAreLabeled()
     {
-        Assert.Equal("vtcode acp", VtCodeLaunch.WithAuthentication("vtcode acp", null));
-        Assert.Equal("vtcode acp", VtCodeLaunch.WithAuthentication("vtcode acp", new HashSet<string> { "anthropic" }));
+        using var store = new Store(Directory.CreateTempSubdirectory("auth-policy-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        Assert.Equal("chatgpt", VtCodeLaunch.Method(store, workspace));
+        store.Setting(VtCodeLaunch.AuthenticationKey(workspace), "api_key");
+        Assert.Equal("api_key", VtCodeLaunch.Method(store, workspace));
+        var launch = VtCodeLaunch.Prepare("vtcode acp --api-key-env COMPANY_KEY", new HashSet<string> { "openai" }, VtCodeLaunch.Method(store, workspace));
+        Assert.True(launch.OpenAiPinned); Assert.EndsWith("--config auth.openai.preferred_method=api_key", launch.Command);
+        Assert.Contains("billed separately", VtCodeLaunch.AuthenticationBadge("api_key", true).Values[0].Name);
+        Assert.Contains("unverified", VtCodeLaunch.AuthenticationBadge("chatgpt", false).Values[0].Name);
+    }
+
+    [Fact]
+    public void UnverifiedOpenAiRoutesCannotSendPrompts()
+    {
+        var launch = VtCodeLaunch.Prepare("vtcode acp", null, "chatgpt");
+        Assert.False(launch.OpenAiPinned);
+        Assert.False(VtCodeLaunch.Prepare("node custom-bridge.mjs", new HashSet<string> { "openai" }, "chatgpt").OpenAiPinned);
+        SessionConfig[] openai = [new("provider", "Provider", "select", "openai", [])];
+        Assert.Throws<IOException>(() => VtCodeLaunch.EnsureAuthentication(openai, launch.OpenAiPinned));
+        Assert.Throws<IOException>(() => VtCodeLaunch.EnsureAuthentication([], false));
+        VtCodeLaunch.EnsureAuthentication(openai, true);
+        VtCodeLaunch.EnsureAuthentication([new("provider", "Provider", "select", "anthropic", [])], false);
     }
     [AvaloniaFact]
     public async Task CompletedPromptClearsStaleAuthenticationState()

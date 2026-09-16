@@ -14,7 +14,7 @@ using Avalonia.VisualTree;
 
 namespace CodexManager;
 
-public sealed class RemoteView : UserControl, IDisposable
+public sealed partial class RemoteView : UserControl, IDisposable
 {
     public Task ShowHistoryActions(Control anchor, Message? message)
     {
@@ -72,7 +72,6 @@ public sealed class RemoteView : UserControl, IDisposable
     private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
     private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
     private readonly StackPanel queuedMessages = new();
-    private readonly ChatProgressIndicator chatProgress = new() { Name = "RemoteChatProgress", HorizontalAlignment = HorizontalAlignment.Left };
     private readonly Expander queuePanel = new() { Name = "RemoteQueuePanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch };
     private bool busy, sending, preparing;
     private bool advancingQueue;
@@ -238,10 +237,11 @@ public sealed class RemoteView : UserControl, IDisposable
     public bool HasWorkspace => workspaces.SelectedItem is RemoteItem;
     public void SelectChat(string id, bool userInitiated = true)
     {
+        if (chatRows.Any(c => c?["id"]?.GetValue<string>() == id && c["archived"]?.GetValue<bool>() == true)) return;
         SaveBrowserDraft();
         messageRevisions.Clear(); timer.Interval = TimeSpan.FromMilliseconds(250);
         activateSelectedChat = userInitiated;
-        viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        chatSearch.Close(); viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         if (OperatingSystem.IsBrowser())
         {
             restoringBrowserDraft = true;
@@ -305,6 +305,9 @@ public sealed class RemoteView : UserControl, IDisposable
             finally { copyChat.IsEnabled = true; }
         };
         Grid.SetColumn(copyChat, 3); remoteHeader.Children.Add(copyChat);
+        var searchChat = new IconButton { Icon = "search", Label = "Search in chat (Ctrl+F)" };
+        searchChat.Click += (_, _) => OpenChatSearch();
+        remoteHeader.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto)); Grid.SetColumn(searchChat, remoteHeader.ColumnDefinitions.Count - 1); remoteHeader.Children.Add(searchChat);
         var forkChat = new IconButton { Name = "RemoteForkChat", Icon = "fork", Label = "Fork chat" };
         forkChat.Click += async (_, _) => await ShowHistoryActions(forkChat, null); Grid.SetColumn(forkChat, 1); remoteHeader.Children.Add(forkChat);
         var openTerminal = new IconButton { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
@@ -312,18 +315,18 @@ public sealed class RemoteView : UserControl, IDisposable
         openTerminal.IsEnabled = workspaces.SelectedItem is not null;
         workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; if (workspaces.SelectedItem is RemoteItem owner) switchTerminalWorkspace?.Invoke(owner.Id); ApplyColors(); };
         workspaces.SelectionChanged += (_, _) => FilterChats();
-        var split = new Grid { ColumnDefinitions = new("0,0,*"), RowDefinitions = new("*,Auto") }; Grid.SetRow(split, 1); panel.Children.Add(split);
+        var split = new Grid { ColumnDefinitions = new("0,0,*"), RowDefinitions = new("Auto,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
         output = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
         output.ItemContainerTheme = (Avalonia.Styling.ControlTheme)Application.Current!.Resources["TranscriptItemTheme"]!;
         ScrollViewer.SetVerticalScrollBarVisibility(output, OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
         ScrollViewer.SetAllowAutoHide(output, false);
-        Grid.SetColumn(output, 2); split.Children.Add(output);
-        Grid.SetColumn(chatProgress, 2); Grid.SetRow(chatProgress, 1); split.Children.Add(chatProgress);
+        Grid.SetColumn(chatSearch, 2); split.Children.Add(chatSearch); InitializeChatSearch();
+        Grid.SetColumn(output, 2); Grid.SetRow(output, 1); split.Children.Add(output);
         var latest = new IconButton { Name = "RemoteLatest", Icon = "chevron-down", Label = "Return to latest message", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 8), IsVisible = false };
-        latest.Bind(BackgroundProperty, this.GetResourceObservable("AppSurface")); Grid.SetColumn(latest, 2); split.Children.Add(latest);
-        var navigation = new TranscriptNavigation(output, latest, () => viewingHistory, async newer =>
+        latest.Bind(BackgroundProperty, this.GetResourceObservable("AppSurface")); Grid.SetColumn(latest, 2); Grid.SetRow(latest, 1); split.Children.Add(latest);
+        var navigation = transcriptNavigation = new TranscriptNavigation(output, latest, () => viewingHistory, async newer =>
         {
             if (chatId is null || output.Items.Count == 0) return;
             var visible = output.Items.OfType<Message>().ToArray(); var id = chatId;
@@ -335,8 +338,9 @@ public sealed class RemoteView : UserControl, IDisposable
             var bounded = newer ? merged.TakeLast(Chat.HistoryPageSize).ToArray() : merged.Take(Chat.HistoryPageSize).ToArray();
             viewingHistory = !(newer && messages.Count > 0 && bounded[^1].Sequence >= messages[^1].Sequence);
             TranscriptNavigation.ReplacePage(output, viewingHistory ? bounded : messages);
+            UpdateSendAction();
         });
-        latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
+        latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; UpdateSendAction(); if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
         approvals.Children.CollectionChanged += (_, _) => UpdateSendAction();
         var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
         panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
@@ -501,6 +505,7 @@ public sealed class RemoteView : UserControl, IDisposable
                     foreach (var config in result["config"]!.AsArray())
                     {
                         var option = new SessionConfig(config!["id"]!.GetValue<string>(), config["name"]!.GetValue<string>(), "select", config["current"]!.GetValue<string>(), config["values"]!.AsArray().Select(v => new SessionValue(v!["value"]!.GetValue<string>(), v["name"]!.GetValue<string>())).ToArray());
+                        if (option.Id == VtCodeLaunch.AuthenticationOption) { var badge = new OptionContent(option) { Margin = new Thickness(4, 2) }; ToolTip.SetTip(badge, option.Name); configs.Children.Add(badge); continue; }
                         var button = new Button { Content = new OptionContent(option, Enum.TryParse<AgentProvider>(result["provider"]?.GetValue<string>(), out var optionProvider) ? optionProvider : null), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
                         if (result["provider"]?.GetValue<string>() == "OpenCode" && ModelPicker.IsModel(option))
                         {
@@ -571,7 +576,7 @@ public sealed class RemoteView : UserControl, IDisposable
     }
     private void UpdateSendAction()
     {
-        chatProgress.IsVisible = busy && !preparing && connection is not null && chatId is not null && approvals.Children.Count == 0;
+        TranscriptPanel.SetShowProgress(output, !viewingHistory && busy && !preparing && connection is not null && chatId is not null && approvals.Children.Count == 0);
         var stop = busy && !preparing && !HasDraft;
         send.Icon = preparing ? "connecting" : stop ? "stop" : "send";
         send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";
@@ -731,7 +736,7 @@ public sealed class RemoteView : UserControl, IDisposable
         refreshing = true;
         try
         {
-            chats.ItemsSource = chatRows.Where(c => c!["workspaceId"]!.GetValue<string>() == owner && (c["archived"]?.GetValue<bool>() != true || c["id"]!.GetValue<string>() == selectedId)).Select(c => new RemoteItem(c!["id"]!.GetValue<string>(), c["title"]!.GetValue<string>())).ToArray();
+            chats.ItemsSource = chatRows.Where(c => c!["workspaceId"]!.GetValue<string>() == owner && c["archived"]?.GetValue<bool>() != true).Select(c => new RemoteItem(c!["id"]!.GetValue<string>(), c["title"]!.GetValue<string>())).ToArray();
             chats.SelectedItem = chats.Items.OfType<RemoteItem>().FirstOrDefault(c => c.Id == selectedId) ?? chats.Items.OfType<RemoteItem>().FirstOrDefault();
         }
         finally { refreshing = false; }

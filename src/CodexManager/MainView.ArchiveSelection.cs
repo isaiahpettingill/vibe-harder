@@ -11,6 +11,19 @@ public partial class MainView
     private sealed record ArchivedSelection(Chat Chat, RemoteView? Remote);
     private readonly Dictionary<string, ArchivedSelection> archivedSelection = [];
     private bool archiveBatchRunning;
+    private readonly HashSet<string> expandedArchives = [];
+    private bool WorkspaceExpanded(string key) => showArchived ? expandedArchives.Contains(key) : store.Setting("collapsed:" + key) != "1";
+    private void SetWorkspaceExpanded(string key, bool expanded)
+    {
+        if (showArchived) { if (expanded) expandedArchives.Add(key); else expandedArchives.Remove(key); }
+        else store.Setting("collapsed:" + key, expanded ? "0" : "1");
+    }
+    private void ShowArchiveView(bool archived)
+    {
+        showArchived = archived; archivedSelection.Clear(); expandedArchives.Clear();
+        ArchiveViewButton.Content = AppIcons.Label("chevron-down", archived ? "Archived" : "Chats", trailing: true);
+        SearchBox.Text = ""; BuildWorkspaceTree();
+    }
 
     private Control ArchiveSelectableRow(Control content, Chat chat, string key, RemoteView? remote)
     {

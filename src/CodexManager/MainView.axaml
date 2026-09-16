@@ -25,7 +25,7 @@
     <Grid Name="ChatPane" RowDefinitions="36,*,Auto,Auto">
       <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="10,0"><Grid ColumnDefinitions="*,Auto,Auto"><TextBlock Name="WorkspaceHeading" Text="No workspace selected" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/><local:IconButton Name="ToggleTerminalButton" Grid.Column="2" Icon="terminal" Label="Show terminal (Ctrl+`)" Click="ToggleTerminal" VerticalAlignment="Center"/></Grid></Border>
       <Grid Grid.Row="1" RowDefinitions="Auto,Auto,*">
-        <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="10,6,10,4"><Grid ColumnDefinitions="22,*"><Image Name="ChatProviderIcon" Width="16" Height="16" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Name="ChatHeading" Text="Select a chat" FontSize="14" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid><StackPanel Grid.Column="1" Orientation="Horizontal"><local:IconButton Name="CopyChatButton" Icon="copy" Label="Copy whole chat" Click="CopyChatClick"/><local:IconButton Name="ForkChatButton" Icon="fork" Label="Fork chat" Click="ForkChatClick"/><local:IconButton Name="ReconnectChatButton" Icon="refresh" Label="Reconnect agent without resending messages" Click="ReconnectChatClick"/><local:IconButton Name="ResumeChatButton" Icon="send" Label="Resume interrupted chat" Click="ResumeChatClick" IsVisible="False"/></StackPanel><local:IconButton Grid.Column="2" Name="ArchiveChatButton" Icon="archive" Label="Archive chat" Click="ArchiveChatClick" Margin="8,0"/><local:IconButton Grid.Column="3" Name="DeleteChatButton" Icon="delete" Label="Delete chat" Click="DeleteChatClick"/></Grid>
+        <Grid ColumnDefinitions="*,Auto,Auto,Auto" Margin="10,6,10,4"><Grid ColumnDefinitions="22,*"><Image Name="ChatProviderIcon" Width="16" Height="16" VerticalAlignment="Center"/><TextBlock Grid.Column="1" Name="ChatHeading" Text="Select a chat" FontSize="14" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></Grid><StackPanel Grid.Column="1" Orientation="Horizontal"><local:IconButton Name="SearchChatButton" Icon="search" Label="Search in chat (Ctrl+F)" Click="SearchChatClick"/><local:IconButton Name="CopyChatButton" Icon="copy" Label="Copy whole chat" Click="CopyChatClick"/><local:IconButton Name="ForkChatButton" Icon="fork" Label="Fork chat" Click="ForkChatClick"/><local:IconButton Name="ReconnectChatButton" Icon="refresh" Label="Reconnect agent without resending messages" Click="ReconnectChatClick"/><local:IconButton Name="ResumeChatButton" Icon="send" Label="Resume interrupted chat" Click="ResumeChatClick" IsVisible="False"/></StackPanel><local:IconButton Grid.Column="2" Name="ArchiveChatButton" Icon="archive" Label="Archive chat" Click="ArchiveChatClick" Margin="8,0"/><local:IconButton Grid.Column="3" Name="DeleteChatButton" Icon="delete" Label="Delete chat" Click="DeleteChatClick"/></Grid>
         <Border Grid.Row="1" Name="LoginPanel" IsVisible="False" Margin="14,6" Padding="12" BorderThickness="1" BorderBrush="{DynamicResource AppBorder}" CornerRadius="5">
           <StackPanel Spacing="8">
             <TextBlock Name="LoginHeading" TextWrapping="Wrap"/>
@@ -35,7 +35,8 @@
             <Button Name="PasteLoginButton" Content="Paste into terminal" Click="PasteLoginClick" IsVisible="False" Focusable="False" HorizontalAlignment="Left"/>
           </StackPanel>
         </Border>
-        <Grid Grid.Row="2" Margin="14,0,14,10" RowDefinitions="Auto,*,Auto">
+        <Grid Grid.Row="2" Margin="14,0,14,10" RowDefinitions="Auto,*">
+            <local:ChatSearchBar Name="ChatSearch" Grid.Row="0"/>
 
             <StackPanel Grid.Row="1" Name="Welcome" VerticalAlignment="Center" HorizontalAlignment="Center" MaxWidth="400" Spacing="10" Margin="16,32">
               <TextBlock Name="WelcomeHeading" Text="Open a folder to start" FontSize="16" TextWrapping="Wrap"/>
@@ -50,7 +51,6 @@
                 </Border>
               </DataTemplate></ListBox.ItemTemplate>
             </ListBox>
-            <local:ChatProgressIndicator Name="ChatProgress" Grid.Row="2" HorizontalAlignment="Left"/>
             <local:IconButton Name="HistoryNavigation" Grid.Row="1" Icon="chevron-down" Label="Return to latest message" Click="LatestMessagesClick" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,20,8" IsVisible="False" ZIndex="5" Background="{DynamicResource AppSurface}"/>
         </Grid>
       </Grid>

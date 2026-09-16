@@ -141,6 +141,24 @@ public sealed class Store : IDisposable
             if (!newer) result.Reverse(); return result.ToArray();
         }, token);
     }
+    public async Task<ChatSearchHit[]> SearchMessagesAsync(Chat chat, string query, CancellationToken token)
+    {
+        if (string.IsNullOrWhiteSpace(query)) return [];
+        if (query.Length > 512) throw new IOException("Search text is too long.");
+        var id = chat.Id; var connectionString = db.ConnectionString;
+        await FlushAsync().WaitAsync(token);
+        return await Task.Run(() =>
+        {
+            using var connection = new SqliteConnection(connectionString); connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT id,seq,substr(text,max(1,instr(lower(text),lower($query))-40),180) FROM messages WHERE chat_id=$id AND instr(lower(text),lower($query))>0 ORDER BY seq LIMIT 200";
+            command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$query", query);
+            using var cancellation = token.Register(command.Cancel);
+            using var rows = command.ExecuteReader(); var result = new List<ChatSearchHit>();
+            while (rows.Read()) { token.ThrowIfCancellationRequested(); result.Add(new(rows.GetString(0), rows.GetInt32(1), rows.GetString(2))); }
+            return result.ToArray();
+        }, token);
+    }
     public async Task<(string Plain, string Html)> ExportChatAsync(Chat chat)
     {
         var id = chat.Id; var provider = chat.Provider; var connectionString = db.ConnectionString;

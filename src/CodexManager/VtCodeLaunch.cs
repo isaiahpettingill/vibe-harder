@@ -4,20 +4,35 @@ namespace CodexManager;
 
 public static class VtCodeLaunch
 {
-    public static string WithAuthentication(string command, IReadOnlySet<string>? authenticated)
+    public const string AuthenticationOption = "vibe_openai_authentication";
+    public static string AuthenticationKey(Workspace workspace) => "VTCode:" + (workspace.IsWsl ? "wsl" : "local") + "OpenAiAuthentication";
+    public static string Method(Store store, Workspace workspace) => store.Setting(AuthenticationKey(workspace)) == "api_key" ? "api_key" : "chatgpt";
+    public static SessionConfig AuthenticationBadge(string method, bool verified) => new(AuthenticationOption,
+        "OpenAI authentication — change in Settings > Agents > VT Code, then reconnect",
+        "select", method, [new(method, !verified ? "OpenAI auth unverified" : method == "api_key" ? "API key · billed separately" : "ChatGPT subscription")]);
+    public static string WithAuthentication(string command, IReadOnlySet<string>? authenticated, string method = "chatgpt") => Prepare(command, authenticated, method).Command;
+    public static void EnsureAuthentication(IReadOnlyList<SessionConfig> options, bool openAiPinned)
     {
-        if (authenticated?.Contains("openai") != true) return command;
+        if (!openAiPinned && options.FirstOrDefault(c => c.Id == "provider")?.Current is null or "openai")
+            throw new IOException("OpenAI authentication is unverified. Set the VT Code command to vtcode --provider openai acp in Settings > Agents, then reconnect before sending.");
+    }
+    public static (string Command, bool OpenAiPinned) Prepare(string command, IReadOnlySet<string>? authenticated, string method)
+    {
+        if (method is not "chatgpt" and not "api_key") throw new ArgumentException("Choose ChatGPT subscription or API key.");
         var tokens = Regex.Matches(command, "\"[^\"]*\"|'[^']*'|[^\\s]+")
             .Select(m => (Text: m.Value.Trim('\"', '\''), End: m.Index + m.Length)).ToArray();
-        if (tokens.Length < 2) return command;
-        var executable = tokens[0].Text.Replace('\\', '/').Split('/')[^1];
-        if (!new[] { "vtcode", "vtcode.exe", "vtcode.cmd" }.Contains(executable, StringComparer.OrdinalIgnoreCase) || !tokens.Any(t => t.Text == "acp")) return command;
-        // Shell wrappers and explicit credential overrides remain under the user's control.
-        if (command.IndexOfAny([';', '|', '&', '\r', '\n']) >= 0 || tokens.Any(t => t.Text == "--api-key-env" || t.Text.StartsWith("--api-key-env=", StringComparison.Ordinal))) return command;
-        var provider = tokens.Select((t, i) => t.Text == "--provider" ? tokens.ElementAtOrDefault(i + 1).Text : t.Text.StartsWith("--provider=", StringComparison.Ordinal) ? t.Text[11..] : null).FirstOrDefault(v => v is not null);
-        if (provider is not null && !provider.Equals("openai", StringComparison.OrdinalIgnoreCase)) return command;
-        // VT Code's ACP provider picker does not reload OAuth credentials. Load the
-        // OpenAI auth handle at process startup, before ACP chooses the session route.
-        return command.Insert(tokens[0].End, (provider is null ? " --provider openai" : "") + " --api-key-env OPENAI_API_KEY");
+        var executable = tokens.FirstOrDefault().Text?.Replace('\\', '/').Split('/')[^1];
+        if (!new[] { "vtcode", "vtcode.exe", "vtcode.cmd" }.Contains(executable, StringComparer.OrdinalIgnoreCase)) return (command, false);
+        if (!tokens.Any(t => t.Text == "acp") || command.IndexOfAny([';', '|', '&', '\r', '\n', '`', '$']) >= 0)
+            throw new IOException("Cannot verify VT Code authentication for this command. Use a direct vtcode acp command in Settings > Agents > VT Code.");
+        string? Option(string name) => tokens.Select((t, i) => t.Text == name ? tokens.ElementAtOrDefault(i + 1).Text : t.Text.StartsWith(name + "=", StringComparison.Ordinal) ? t.Text[(name.Length + 1)..] : null).FirstOrDefault(v => v is not null);
+        var provider = Option("--provider"); var key = Option("--api-key-env");
+        var openai = provider?.Equals("openai", StringComparison.OrdinalIgnoreCase) == true || provider is null && authenticated?.Contains("openai") == true;
+        if (openai && method == "chatgpt" && key is not null && key != "OPENAI_API_KEY")
+            throw new IOException("A custom API-key variable overrides ChatGPT authentication in VT Code. Remove --api-key-env or explicitly choose API key in Settings > Agents > VT Code.");
+        if (openai) command = command.Insert(tokens[0].End, (provider is null ? " --provider openai" : "") + (key is null ? " --api-key-env OPENAI_API_KEY" : ""));
+        // Last CLI override wins over workspace settings. Neither mode allows a
+        // silent switch to the other billing source. No credentials are read here.
+        return (command + " --config auth.openai.preferred_method=" + method, openai);
     }
 }

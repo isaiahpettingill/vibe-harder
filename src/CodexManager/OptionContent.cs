@@ -14,13 +14,14 @@ public sealed class OptionContent : StackPanel
         if (ModelPicker.IsModel(option) && provider is AgentProvider.Dirac or AgentProvider.Pi or AgentProvider.Cline)
             Children.Add(new Image { Source = BrandAssets.Provider(provider.Value), Width = 13, Height = 13, VerticalAlignment = VerticalAlignment.Center });
         else Children.Add(AppIcons.Create(icon));
-        Children.Add(new TextBlock { Text = option.Values.FirstOrDefault(v => v.Value == option.Current)?.Name ?? option.Current, MaxWidth = 135, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-        Children.Add(AppIcons.Create("chevron-down", 8));
+        Children.Add(new TextBlock { Text = option.Values.FirstOrDefault(v => v.Value == option.Current)?.Name ?? option.Current, MaxWidth = option.Id == VtCodeLaunch.AuthenticationOption ? 240 : 135, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+        if (option.Id != VtCodeLaunch.AuthenticationOption) Children.Add(AppIcons.Create("chevron-down", 8));
     }
     public static string IconFor(SessionConfig option, AgentProvider? provider = null)
     {
         if (ModelPicker.IsModel(option)) return provider == AgentProvider.Codex ? "openai" : provider == AgentProvider.Claude ? "claude" : "agent";
         var name = (option.Id + " " + option.Name).ToLowerInvariant();
+        if (option.Id == VtCodeLaunch.AuthenticationOption) return "permission";
         if (name.Contains("yolo")) return "yolo";
         if (name.Contains("auto_approve") || name.Contains("approve for me")) return "auto-approve";
         if (name.Contains("provider")) return "provider";

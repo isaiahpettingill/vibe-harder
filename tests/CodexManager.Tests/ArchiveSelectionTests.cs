@@ -25,6 +25,7 @@ public class ArchiveSelectionTests
         try
         {
             window.UpdateLayout();
+            Named<IconButton>("CollapseWorkspace_w").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
             Named<CheckBox>("SelectArchived_archived0").IsChecked = true;
             Named<CheckBox>("SelectArchived_archived1").IsChecked = true;
             Assert.Equal("2 selected", Named<TextBlock>("ArchiveSelectionCount").Text);
@@ -43,10 +44,72 @@ public class ArchiveSelectionTests
         }
         finally { window.Close(); view.DisposeMobile(); }
     }
+    [AvaloniaFact]
+    public void ArchiveBrowsingPreservesTheActiveChatAndUsesIndependentCollapsedGroups()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("archive-browse-").FullName);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var owner = new Workspace("w", "Open", store.DirectoryPath); var closed = new Workspace("closed", "Closed", store.DirectoryPath);
+        store.Save(owner); store.Save(closed); store.Setting("closed:closed", "1");
+        var active = new Chat { Id = "active", WorkspaceId = owner.Id };
+        var older = new Chat { Id = "older", WorkspaceId = owner.Id, Archived = true, Updated = DateTimeOffset.UtcNow.AddDays(-1) };
+        var newer = new Chat { Id = "newer", WorkspaceId = owner.Id, Archived = true };
+        List<Chat> chats = [active, older, newer]; foreach (var chat in chats) store.Save(chat);
+        var view = new MainView(store, [owner, closed], chats);
+        var window = new Window { Content = view, Width = 1000, Height = 700 }; window.Show();
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        void Mode(bool archived) => typeof(MainView).GetMethod("ShowArchiveView", flags)!.Invoke(view, [archived]);
+        object? Current() => typeof(MainView).GetField("current", flags)!.GetValue(view);
+        try
+        {
+            window.UpdateLayout(); Assert.Same(active, Current());
+            Mode(true); window.UpdateLayout();
+            var list = view.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "Chats_w");
+            Assert.False(list.IsVisible); Assert.Equal([newer, older], list.Items.Cast<Chat>());
+            Assert.DoesNotContain(view.GetVisualDescendants().OfType<Button>(), b => b.Name == "Workspace_closed");
+            Assert.Same(active, Current());
+            view.GetVisualDescendants().OfType<IconButton>().Single(b => b.Name == "CollapseWorkspace_w").RaiseEvent(new(Button.ClickEvent));
+            window.UpdateLayout(); Assert.True(list.IsVisible);
+            list.SelectedItem = newer; Assert.Same(active, Current());
+            Mode(false); window.UpdateLayout(); Assert.Same(active, Current());
+            Mode(true); window.UpdateLayout();
+            Assert.False(view.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "Chats_w").IsVisible);
+        }
+        finally { window.Close(); view.DisposeMobile(); }
+    }
+    [Theory]
+    [InlineData("chat")]
+    [InlineData("send")]
+    [InlineData("reconnect")]
+    public async Task RemoteArchivedChatsMustBeUnarchivedBeforeUse(string method)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("archive-gate-").FullName);
+        var owner = new Workspace("w", "Archive", store.DirectoryPath); store.Save(owner);
+        var chat = new Chat { WorkspaceId = owner.Id, Archived = true }; store.Save(chat);
+        using var service = new SessionService(store, [owner], [chat], (_, _) => throw new Exception("Must not start archived agents"));
+        var error = await Assert.ThrowsAsync<IOException>(() => service.Handle(new() { ["method"] = method, ["chatId"] = chat.Id }));
+        Assert.Contains("Unarchive", error.Message);
+        await service.Handle(new() { ["method"] = "archive", ["chatId"] = chat.Id, ["archived"] = false });
+        Assert.False(chat.Archived);
+    }
     private static async Task WaitUntil(Func<bool> ready)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         while (!ready()) await Task.Delay(20, timeout.Token);
+    }
+    [Fact]
+    public async Task RemoteCatalogOmitsClosedWorkspacesAndIncludesChatDates()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("archive-catalog-").FullName);
+        var open = new Workspace("open", "Open", store.DirectoryPath); var closed = new Workspace("closed", "Closed", store.DirectoryPath);
+        store.Save(open); store.Save(closed); store.Setting("closed:closed", "1");
+        var visible = new Chat { WorkspaceId = open.Id, Archived = true }; var hidden = new Chat { WorkspaceId = closed.Id, Archived = true };
+        using var service = new SessionService(store, [open, closed], [visible, hidden], (_, _) => throw new Exception("Catalog must not start agents"));
+        var result = await service.Handle(new() { ["method"] = "list" });
+        Assert.Equal("open", Assert.Single(result!["workspaces"]!.AsArray())!["id"]!.GetValue<string>());
+        var chat = Assert.Single(result["chats"]!.AsArray())!;
+        Assert.Equal(visible.Id, chat["id"]!.GetValue<string>());
+        Assert.Equal(visible.Updated, DateTimeOffset.Parse(chat["updated"]!.GetValue<string>()));
     }
     [Fact]
     public async Task FailedProviderCleanupStillDeletesLocallyAndSuppressesReimport()

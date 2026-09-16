@@ -46,6 +46,7 @@ public sealed class MessageView : UserControl
     { attached = false; details.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
     private void MessageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Refresh();
     public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; Refresh(); } }
+    public void Expand() { if (IsOutput) { expanded = true; if (Message is not null) Message.OutputExpanded = true; Refresh(); } }
     private void Refresh()
     {
         var legacyResume = Message is { Role: "user", Attachments.Count: 0 } && string.IsNullOrWhiteSpace(Message.Text);
