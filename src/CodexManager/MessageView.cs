@@ -74,8 +74,10 @@ public sealed class MessageView : UserControl
         }
         subagentView = null; toggle.IsVisible = true;
         var legacyResume = Message is { Role: "user", Attachments.Count: 0 } && string.IsNullOrWhiteSpace(Message.Text);
+        var sessionNotice = Message?.Role == "system" || legacyResume;
         history.IsVisible = !legacyResume && !this.GetVisualAncestors().Any(v => v is SubagentView or SubagentInspector) && Message?.Role is "user" or "assistant" or "tool";
-        title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
+        title.Foreground = this.TryFindResource(IsOutput || sessionNotice ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
+        title.FontStyle = sessionNotice ? FontStyle.Italic : FontStyle.Normal;
         var text = Message?.Text ?? "";
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];
@@ -87,7 +89,7 @@ public sealed class MessageView : UserControl
         details.MaxHeight = IsOutput ? 420 : double.PositiveInfinity;
         if (details.IsVisible && attached)
         {
-            body ??= new ChatMarkdown { Muted = IsOutput };
+            if (body is null || body.SessionNotice != sessionNotice || body.Muted != IsOutput) body = new ChatMarkdown { Muted = IsOutput, SessionNotice = sessionNotice };
             details.Content = body;
             body.Text = legacyResume ? "Chat auto-resumed after unexpected restart" : Message?.Text ?? "";
         }

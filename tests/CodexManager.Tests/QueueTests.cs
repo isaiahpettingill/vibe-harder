@@ -4,10 +4,30 @@ namespace CodexManager.Tests;
 
 public class QueueTests
 {
+    [AvaloniaFact]
+    public async Task EscapeInterruptsWithAllQueuedMessagesAndAttachments()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("interrupt-queue-").FullName);
+        var workspace = new Workspace("w", "Queue", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --steering");
+        var original = runtime.Send("hang", []);
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (!chat.Messages.Any(m => m.Text == "Working") && DateTime.UtcNow < until) await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.True(runtime.IsPrompting);
+        var attachment = new Attachment("notes.txt", "text/plain", "notes");
+        runtime.Queue(new("First queued", [attachment])); runtime.Queue(new("Second queued", []));
+        using var service = new SessionService(store, [workspace], [chat], (_, _) => runtime);
+        await service.Handle(new() { ["method"] = "queue/interrupt", ["chatId"] = chat.Id });
+        Assert.True(original.IsCompleted); Assert.Empty(chat.QueuedInputs);
+        var sent = Assert.Single(chat.Messages, m => m.Role == "user" && m.Text.StartsWith("First queued\n\nSecond queued"));
+        Assert.Equal(attachment, Assert.Single(sent.Attachments));
+        await runtime.Stop();
+    }
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
-    public async Task EmptyEnterAdvancesOnlyFirstQueuedMessage(bool steering)
+    public async Task EmptyEnterSubmitsWholeQueueAndFallsBackToInterrupt(bool steering)
     {
         var directory = Directory.CreateTempSubdirectory("advance-queue-").FullName;
         using var store = new Store(directory); var workspace = new Workspace("w", "Queue", directory); store.Save(workspace);
@@ -19,7 +39,8 @@ public class QueueTests
         Assert.True(runtime.IsPrompting);
         runtime.Queue(new("hang", [])); runtime.Queue(new("still queued", []));
         await runtime.AdvanceQueued();
-        Assert.Single(chat.QueuedInputs); Assert.Equal("still queued", chat.QueuedInputs[0].Text);
+        Assert.Empty(chat.QueuedInputs);
+        Assert.Contains(chat.Messages, m => m.Role == "user" && m.Text == "hang\n\nstill queued");
         Assert.Equal(steering, !original.IsCompleted);
         await runtime.Stop();
     }

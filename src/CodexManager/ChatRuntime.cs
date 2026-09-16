@@ -133,21 +133,24 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         if (chat.Busy || lifetime.IsCancellationRequested) return;
         RemoveQueued(input); var sending = Send(input.Text, input.Attachments); if (waitForCompletion) await sending;
     }
-    public async Task AdvanceQueued()
+    public async Task AdvanceQueued(bool interrupt = false)
     {
-        if (IsChangingHistory || advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || installation is not null || chat.NeedsLogin || chat.QueuedInputs.FirstOrDefault() is not { } input) return;
+        if (IsChangingHistory || advancingQueue || IsRecovering || IsReconnecting || IsConfiguring || installation is not null || chat.NeedsLogin || chat.QueuedInputs.Count == 0) return;
         advancingQueue = true;
         try
         {
-            if (IsPrompting && SupportsSteering)
+            var queued = chat.QueuedInputs.ToArray();
+            var input = new PendingInput(string.Join("\n\n", queued.Select(q => q.Text).Where(t => !string.IsNullOrWhiteSpace(t))), queued.SelectMany(q => q.Attachments).ToArray());
+            if (IsPrompting && !interrupt && SupportsSteering)
             {
-                if (await Steer(input)) RemoveQueued(input);
+                if (await Steer(input)) foreach (var item in queued) RemoveQueued(item);
                 // An uncertain steering failure must not duplicate an accepted input.
                 return;
             }
             if (IsPrompting) await Stop();
-            if (chat.Busy || lifetime.IsCancellationRequested || !chat.QueuedInputs.Contains(input)) return;
-            RemoveQueued(input); _ = Send(input.Text, input.Attachments);
+            if (chat.Busy || lifetime.IsCancellationRequested || queued.Any(item => !chat.QueuedInputs.Contains(item))) return;
+            foreach (var item in queued) RemoveQueued(item);
+            _ = Send(input.Text, input.Attachments);
         }
         finally { advancingQueue = false; }
     }

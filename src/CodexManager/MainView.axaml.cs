@@ -536,11 +536,15 @@ public partial class MainView : UserControl
         if (current is not { } chat || workspace is not { } owner) return;
         var runtime = Runtime(chat, owner);
         var text = Composer.Text ?? ""; var attachments = chat.Attachments.ToArray();
-        if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0) { await runtime.Stop(); return; }
+        if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0)
+        {
+            if (chat.QueuedInputs.Count > 0) await runtime.AdvanceQueued(interrupt: true); else await runtime.Stop();
+            return;
+        }
         var input = new PendingInput(text, attachments);
         runtime.Queue(input);
         Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat);
-        await runtime.SendQueuedNow(input, waitForCompletion: false);
+        await runtime.AdvanceQueued(interrupt: true);
         UpdateControls();
     }
     private async Task SteerDraft()
@@ -741,7 +745,7 @@ public partial class MainView : UserControl
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             e.Handled = true;
-            if (current is { Busy: false } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
+            if (current is { } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
                 await Runtime(chat, owner).AdvanceQueued();
             else await Send();
         }

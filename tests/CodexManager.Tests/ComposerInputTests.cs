@@ -101,6 +101,11 @@ public class ComposerInputTests
             input.Text = "adjust direction"; Key(input, Avalonia.Input.Key.Enter);
             await Wait(() => requests.Count(r => r == "send") == 2 && input.Text == "");
             Assert.DoesNotContain("steer", requests);
+            var advances = requests.Count(r => r == "queue/advance");
+            Key(input, Avalonia.Input.Key.Enter);
+            await Wait(() => requests.Count(r => r == "queue/advance") == advances + 1);
+            Key(input, Avalonia.Input.Key.Escape);
+            await Wait(() => requests.Contains("queue/interrupt"));
             input.Text = "replacement"; Key(input, Avalonia.Input.Key.Escape);
             await Wait(() => requests.Contains("send-now") && input.Text == "");
             var bytes = Png(); await window.Clipboard!.SetDataAsync(ImageData(bytes)); Key(input, Avalonia.Input.Key.V, KeyModifiers.Control);

@@ -25,6 +25,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
     public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public bool Muted { get; set; }
+    public bool SessionNotice { get; init; }
     private readonly DispatcherTimer renderTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
     private bool attached, pending;
     // The pinned renderer exposes selection only through its document. This
@@ -79,10 +80,11 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (decoratedBlocks.TryGetValue(block, out _)) continue;
             decoratedBlocks.Add(block, new object());
             block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
-            block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "ChatFontSize"));
+            block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(SessionNotice ? "SessionFontSize" : Muted ? "ToolFontSize" : "ChatFontSize"));
+            if (SessionNotice) block.FontStyle = FontStyle.Italic;
             StyleInlineCode(block.Content);
             DecorateLinks(block);
-            block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
+            block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted || SessionNotice ? "AppMuted" : "AppText"));
         }
         foreach (var border in codeBlocks)
         {

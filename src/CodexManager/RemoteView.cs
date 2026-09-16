@@ -402,7 +402,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
             e.Handled = true;
             if (HasDraft) await SendOrStop("send");
-            else if (!busy && !advancingQueue && chatId is { } id && connection is not null)
+            else if (!advancingQueue && chatId is { } id && connection is not null)
             {
                 advancingQueue = true;
                 try { await Call(new() { ["method"] = "queue/advance", ["chatId"] = id }); }
@@ -593,7 +593,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         sending = true; timer.Interval = TimeSpan.FromMilliseconds(250); UpdateSendAction();
         try
         {
-            var result = await Call(new() { ["method"] = stop ? "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
+            var result = await Call(new() { ["method"] = stop ? method == "send-now" ? "queue/interrupt" : "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
             if (result is not null && id == chatId)
             {
                 if (method == "steer" && !stop)

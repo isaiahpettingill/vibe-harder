@@ -191,6 +191,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             return result;
         }
         if (method == "queue/advance") { await active.AdvanceQueued(); return Summary(chat); }
+        if (method == "queue/interrupt") { if (chat.QueuedInputs.Count > 0) await active.AdvanceQueued(interrupt: true); else await active.Stop(); return Summary(chat); }
         if (method is "queue/steer" or "queue/remove" or "queue/edit" or "queue/send")
         {
             var queued = chat.QueuedInputs.FirstOrDefault(q => q.Id == Text("queueId")) ?? throw new IOException("This message is no longer queued.");
@@ -208,7 +209,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (string.IsNullOrWhiteSpace(input.Text) && input.Attachments.Length == 0) throw new IOException("Enter a message.");
             if (chat.Title == "New chat" && input.Text.Length > 0) { chat.Title = input.Text[..Math.Min(80, input.Text.Length)].Replace('\n', ' '); store.Save(chat); Changed?.Invoke(); }
             if (method == "steer") return JsonValue.Create(await active.Steer(input));
-            if (method == "send-now") { active.Queue(input); await active.SendQueuedNow(input, waitForCompletion: false); return Summary(chat); }
+            if (method == "send-now") { active.Queue(input); await active.AdvanceQueued(interrupt: true); return Summary(chat); }
             if (method == "queue" || chat.Busy || active.IsRecovering) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
         }
         else if (method == "stop") await active.Stop();

@@ -17,6 +17,7 @@ public sealed class FontSettings : Window
             Application.Current.Resources[kind + "FontSize"] = Size(store, kind);
         }
         Application.Current!.Resources["ToolFontSize"] = Math.Max(8, Size(store, "Code") - 2);
+        Application.Current.Resources["SessionFontSize"] = Math.Max(8, Size(store, "Chat") - 2);
         Application.Current!.Resources["ContentControlThemeFontFamily"] = Family(store.Setting("font:UI") ?? Default("UI"));
     }
     public static double Size(Store store, string kind) => double.TryParse(store.Setting("fontSize:" + kind), System.Globalization.CultureInfo.InvariantCulture, out var size) && double.IsFinite(size) ? Math.Clamp(size, 8, 36) : 13;
