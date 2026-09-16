@@ -25,6 +25,10 @@ public class RobustnessTests
         var unchanged = (await service.Handle(request))!;
         Assert.Null(unchanged["messages"]![0]!["text"]); Assert.Null(unchanged["messages"]![0]!["attachments"]);
         Assert.True(unchanged.ToJsonString().Length < first.ToJsonString().Length / 10);
+        message.Attachments.Clear();
+        var withoutAttachment = (await service.Handle(request))!;
+        Assert.Empty(withoutAttachment["messages"]![0]!["attachments"]!.AsArray());
+        Assert.NotEqual(revision, withoutAttachment["messages"]![0]!["revision"]!.GetValue<string>());
         message.Text = "edited";
         var edited = (await service.Handle(request))!;
         Assert.Equal("edited", edited["messages"]![0]!["text"]!.GetValue<string>());

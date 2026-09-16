@@ -202,9 +202,29 @@ public sealed class RemoteView : UserControl, IDisposable
     private DateTimeOffset reconnectAfter;
     private int reconnectFailures;
     private bool hostOffline;
+    private System.Collections.IEnumerable? sleepingPage;
+    private (object Item, double Within)? sleepingAnchor;
     public void SetPresentationSleeping(bool sleeping)
     {
         if (lifetime.IsCancellationRequested) return;
+        if (presentationSleeping != sleeping)
+        {
+            if (sleeping)
+            {
+                sleepingAnchor = output.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault()?.CaptureAnchor();
+                sleepingPage = output.ItemsSource; output.ItemsSource = null;
+            }
+            else
+            {
+                output.ItemsSource = sleepingPage ?? messages; sleepingPage = null;
+                var anchor = sleepingAnchor; sleepingAnchor = null;
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (!presentationSleeping && !lifetime.IsCancellationRequested)
+                        output.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault()?.RestoreAnchor(anchor);
+                }, DispatcherPriority.Loaded);
+            }
+        }
         presentationSleeping = sleeping; terminal.SetSleeping(sleeping || connectionSuspended || connectionCollapsed);
         if (!connectionSuspended && !connectionCollapsed) { timer.Start(); if (connection is null) { reconnectAfter = default; _ = Connect(); } }
     }
@@ -618,12 +638,14 @@ public sealed class RemoteView : UserControl, IDisposable
     private void ApplyMessages(JsonArray rows)
     {
         if (presentationSleeping) return;
+        Dictionary<string, Message>? byId = null;
         foreach (var row in rows)
         {
-            var id = row!["id"]!.GetValue<string>(); var message = messages.FirstOrDefault(m => m.Id == id);
+            var id = row!["id"]!.GetValue<string>();
             if (row["revision"] is { } revision) messageRevisions[id] = revision.GetValue<string>();
             if (row["text"] is null) continue;
-            if (message is null) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); }
+            byId ??= messages.ToDictionary(m => m.Id);
+            if (!byId.TryGetValue(id, out var message)) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
             message.Text = row["text"]!.GetValue<string>();
             if (row["attachments"] is { } files)
             {
@@ -689,6 +711,8 @@ public sealed class RemoteView : UserControl, IDisposable
             notifiedPermissions.IntersectWith(activePermissions);
         }
         var requested = requestedWorkspace;
+        var json = result.ToJsonString();
+        if (catalogJson == json && requested is null) return;
         var selected = requested ?? chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         selected ??= chatRows.FirstOrDefault(c => c?["archived"]?.GetValue<bool>() != true)?["workspaceId"]?.GetValue<string>();
         refreshing = true;
@@ -696,7 +720,6 @@ public sealed class RemoteView : UserControl, IDisposable
         workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == selected) ?? workspaces.Items.OfType<RemoteItem>().FirstOrDefault();
         refreshing = false;
         FilterChats();
-        var json = result.ToJsonString();
         if (catalogJson != json) { catalogJson = json; CatalogChanged?.Invoke(result.DeepClone()); }
         if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
     }
@@ -802,7 +825,7 @@ public sealed class RemoteView : UserControl, IDisposable
         timer.Stop(); lifetime.Cancel(); terminal.Dispose(); foreach (var state in workspaceTerminals.Values) state.View.Dispose(); workspaceTerminals.Clear(); var client = connection; connection = null; client?.Dispose();
         foreach (var permission in notifiedPermissions) PermissionNotifications.Dismiss(host.Address + permission);
         notifiedPermissions.Clear(); messageRevisions.Clear(); CatalogChanged = null; WorkspaceNavigation = null; WorkspaceOpened = null;
-        messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null;
+        sleepingPage = null; sleepingAnchor = null; messages.Clear(); chatRows.Clear(); configs.Children.Clear(); approvals.Children.Clear(); Content = null;
     }
     private sealed record RemoteItem(string Id, string Name) { public override string ToString() => Name; }
 }

@@ -1,0 +1,10 @@
+<Project>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <Optimize>true</Optimize>
+    <OptimizationPreference>Speed</OptimizationPreference>
+    <IlcOptimizationPreference>Speed</IlcOptimizationPreference>
+    <!-- NativeAOT already optimizes ahead of time; this applies to JIT builds. -->
+    <TieredPGO>true</TieredPGO>
+    <ServerGarbageCollection>false</ServerGarbageCollection>
+  </PropertyGroup>
+</Project>

@@ -11,8 +11,6 @@
     <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
     <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
     <StripSymbols>true</StripSymbols>
-    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
-    <OptimizationPreference>Size</OptimizationPreference>
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
     <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>

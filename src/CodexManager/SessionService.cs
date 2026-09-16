@@ -6,20 +6,19 @@ namespace CodexManager;
 public sealed class SessionService(Store store, IList<Workspace> workspaces, IList<Chat> chats, Func<Chat, Workspace, ChatRuntime> runtime) : IDisposable
 {
     private readonly RemoteTerminals terminals = new(store, workspaces);
-    private sealed record MessageSnapshot(string Text, Attachment[] Attachments, string Revision);
-    private readonly Dictionary<string, MessageSnapshot> messageSnapshots = [];
+    private sealed record MessageSnapshot(int ContentRevision, string Revision);
+    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Message, MessageSnapshot> messageSnapshots = new();
     private JsonNode MessageRow(Message message, JsonObject? known)
     {
-        var attachments = message.Attachments.ToArray();
-        if (!messageSnapshots.TryGetValue(message.Id, out var snapshot) || snapshot.Text != message.Text || !snapshot.Attachments.SequenceEqual(attachments))
+        if (!messageSnapshots.TryGetValue(message, out var snapshot) || snapshot.ContentRevision != message.Revision)
         {
-            if (messageSnapshots.Count >= 256) messageSnapshots.Clear();
-            snapshot = new(message.Text, attachments, Guid.NewGuid().ToString("N")); messageSnapshots[message.Id] = snapshot;
+            snapshot = new(message.Revision, Guid.NewGuid().ToString("N"));
+            messageSnapshots.Remove(message); messageSnapshots.Add(message, snapshot);
         }
         var row = new JsonObject { ["id"] = message.Id, ["revision"] = snapshot.Revision };
         if (known?[message.Id]?.GetValue<string>() == snapshot.Revision) return row;
         row["sequence"] = message.Sequence; row["role"] = message.Role; row["text"] = message.Text;
-        row["attachments"] = JsonSerializer.SerializeToNode(attachments, StoreJsonContext.Default.AttachmentArray);
+        row["attachments"] = JsonSerializer.SerializeToNode(message.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray);
         return row;
     }
     public void Dispose() => terminals.Dispose();

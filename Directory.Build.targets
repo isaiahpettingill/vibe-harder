@@ -1,0 +1,6 @@
+<Project>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and '$(PublishAot)' == 'true'">
+    <!-- Haswell-class AVX2 baseline. Keep ARM and framework-dependent builds portable. -->
+    <IlcInstructionSet Condition="'$(IlcInstructionSet)' == '' and $([System.String]::Copy('$(RuntimeIdentifier)').EndsWith('-x64'))">x86-64-v3</IlcInstructionSet>
+  </PropertyGroup>
+</Project>

@@ -74,6 +74,7 @@ public sealed record PendingInput(string Text, Attachment[] Attachments)
 
 public sealed class Message : Observable
 {
+    public Message() => Attachments.CollectionChanged += (_, _) => Revision++;
     public int Sequence { get; set; } = -1;
     public int Revision { get; private set; }
     public bool OutputExpanded { get; set; }

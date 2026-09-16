@@ -13,7 +13,6 @@
     <PublishAot Condition="'$(Configuration)' == 'Release'">true</PublishAot>
     <PublishTrimmed Condition="'$(Configuration)' == 'Release'">true</PublishTrimmed>
     <TrimMode>full</TrimMode>
-    <IlcOptimizationPreference>Size</IlcOptimizationPreference>
     <StripSymbols>true</StripSymbols>
     <EmbedAssembliesIntoApk>true</EmbedAssembliesIntoApk>
   </PropertyGroup>
