@@ -10,6 +10,20 @@ namespace CodexManager.Tests;
 
 public class LinkAndModelTests
 {
+    [Theory]
+    [InlineData("/mnt/c/Users/me/Downloads/full-report.html", @"C:\Users\me\Downloads\full-report.html")]
+    [InlineData("file:///mnt/c/Users/me/report%20name.html#L12", @"C:\Users\me\report name.html")]
+    [InlineData("/mnt/d/reports/report.html:42", @"D:\reports\report.html")]
+    [InlineData("/mnt/c", @"C:\")]
+    [InlineData("/home/me/report.html", @"\\wsl.localhost\Debian\home\me\report.html")]
+    [InlineData("reports/report.html", @"\\wsl.localhost\Debian\home\me\project\reports\report.html")]
+    public void WslLinksUseNativeDrivePathsForWindowsMounts(string target, string expected) =>
+        Assert.Equal(expected, FileLinks.Resolve(target, new("w", "WSL", "/home/me/project", "Debian")));
+
+    [Fact]
+    public void RelativeLinksInsideWindowsMountedWorkspacesUseTheDrive() =>
+        Assert.Equal(@"K:\repos\project\report.html", FileLinks.Resolve("report.html", new("w", "WSL", "/mnt/k/repos/project", "Debian")));
+
     [AvaloniaFact]
     public void ModelPickerRefreshesRecentsWhenOpenedWithoutTyping()
     {

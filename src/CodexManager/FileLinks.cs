@@ -18,6 +18,11 @@ public static class FileLinks
         if (workspace.IsWsl && !Regex.IsMatch(path, @"^[A-Za-z]:[/\\]") && !path.StartsWith(@"\\"))
         {
             if (!path.StartsWith('/')) path = workspace.Path.TrimEnd('/') + "/" + path;
+            // DrvFS files already have a Windows path. Routing them through the
+            // WSL network share can fail with access denied even when C:\ is readable.
+            var drive = Regex.Match(path, @"^/mnt/([a-zA-Z])(?:/|$)");
+            if (drive.Success)
+                return drive.Groups[1].Value.ToUpperInvariant() + @":\" + path[drive.Length..].Replace('/', '\\');
             return @"\\wsl.localhost\" + workspace.Distro + path.Replace('/', '\\');
         }
         return Path.IsPathFullyQualified(path) ? Path.GetFullPath(path) : Path.GetFullPath(path, workspace.Path);
