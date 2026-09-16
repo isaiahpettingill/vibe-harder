@@ -185,13 +185,14 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             else throw new IOException("Steering was not accepted. The message remains queued.");
             return Summary(chat);
         }
-        if (method is "send" or "queue" or "steer")
+        if (method is "send" or "queue" or "steer" or "send-now")
         {
             var attachments = request["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];
             var input = new PendingInput(Text("text"), attachments);
             if (string.IsNullOrWhiteSpace(input.Text) && input.Attachments.Length == 0) throw new IOException("Enter a message.");
             if (chat.Title == "New chat" && input.Text.Length > 0) { chat.Title = input.Text[..Math.Min(80, input.Text.Length)].Replace('\n', ' '); store.Save(chat); Changed?.Invoke(); }
             if (method == "steer") return JsonValue.Create(await active.Steer(input));
+            if (method == "send-now") { active.Queue(input); await active.SendQueuedNow(input, waitForCompletion: false); return Summary(chat); }
             if (method == "queue" || chat.Busy || active.IsRecovering) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
         }
         else if (method == "stop") await active.Stop();

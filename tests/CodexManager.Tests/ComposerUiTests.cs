@@ -64,12 +64,15 @@ public class ComposerUiTests
             var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
             Assert.Contains("1 agent running", tray.ToolTipText);
             Assert.Contains(tray.Menu!.Items.OfType<NativeMenuItem>(), item => item.Header?.Contains("Codex · Composer ·") == true);
-            composer.Text = "queued next"; composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            composer.Text = "queued next"; send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(chat.QueuedInputs); Assert.True(window.FindControl<Expander>("QueuePanel")!.IsVisible);
             composer.Text = "steer now";
-            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
             await Wait(() => chat.Messages.Any(m => m.Text == "steer now"));
             Assert.True(chat.Busy);
+            composer.Text = "hang";
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
+            await Wait(() => chat.Messages.Count(m => m.Role == "user" && m.Text == "hang") == 2 && composer.Text == "");
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
             await Wait(() => !chat.Busy); Assert.Single(chat.QueuedInputs); Assert.Contains("no agents running", tray.ToolTipText);
             UiTests.Named<Button>(window, "Rename_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

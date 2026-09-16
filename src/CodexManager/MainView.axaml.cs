@@ -115,8 +115,6 @@ public partial class MainView : UserControl
     private CancellationTokenSource? searchCancellation;
     private Chat? configChat;
     private int configVersion = -1;
-    private DateTimeOffset lastEscape;
-    private Chat? escapeChat;
     private PendingInput[] displayedQueue = [];
     private Chat? queueChat;
     private CommandPalette? palette;
@@ -163,10 +161,7 @@ public partial class MainView : UserControl
             if (palette is not null || TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
             e.Handled = true;
             if (SlashCommands.IsVisible) { SlashCommands.IsVisible = false; return; }
-            var twice = ReferenceEquals(escapeChat, current) && DateTimeOffset.UtcNow - lastEscape < TimeSpan.FromMilliseconds(650);
-            lastEscape = DateTimeOffset.UtcNow; escapeChat = current;
-            if (twice) { lastEscape = default; StopClick(this, new()); }
-            else { Composer.Focus(); await SteerDraft(); }
+            await InterruptDraft();
         }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
         {
@@ -531,11 +526,23 @@ public partial class MainView : UserControl
             QueueItems.Children.Add(row);
         }
     }
+    private async Task InterruptDraft()
+    {
+        if (current is not { } chat || workspace is not { } owner) return;
+        var runtime = Runtime(chat, owner);
+        var text = Composer.Text ?? ""; var attachments = chat.Attachments.ToArray();
+        if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0) { await runtime.Stop(); return; }
+        var input = new PendingInput(text, attachments);
+        runtime.Queue(input);
+        Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat);
+        await runtime.SendQueuedNow(input, waitForCompletion: false);
+        UpdateControls();
+    }
     private async Task SteerDraft()
     {
         if (current is not { } chat || workspace is not { } owner) return;
         var runtime = Runtime(chat, owner);
-        if (!runtime.SupportsSteering) { chat.Status = "ACP steering unavailable — Enter queues; Escape again stops"; UpdateControls(); return; }
+        if (!runtime.SupportsSteering) { await Send(); return; }
         var text = Composer.Text ?? ""; var attachments = chat.Attachments.ToArray();
         if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0)
         {
@@ -724,7 +731,8 @@ public partial class MainView : UserControl
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             e.Handled = true;
-            if (current is { } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
+            if (current?.Busy == true) await SteerDraft();
+            else if (current is { } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
                 await Runtime(chat, owner).AdvanceQueued();
             else await Send();
         }
@@ -736,10 +744,7 @@ public partial class MainView : UserControl
         else if (e.Key == Key.Escape && current?.Busy == true)
         {
             e.Handled = true;
-            var twice = ReferenceEquals(escapeChat, current) && DateTimeOffset.UtcNow - lastEscape < TimeSpan.FromMilliseconds(650);
-            lastEscape = DateTimeOffset.UtcNow; escapeChat = current;
-            if (twice) { lastEscape = default; StopClick(this, new()); }
-            else { Composer.Focus(); await SteerDraft(); }
+            await InterruptDraft();
         }
     }
     private async void AttachFiles(object? sender, RoutedEventArgs e)

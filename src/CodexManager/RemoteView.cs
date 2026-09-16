@@ -376,9 +376,11 @@ public sealed class RemoteView : UserControl, IDisposable
                 if (e.Key is Key.Up or Key.Down) { e.Handled = true; slashCommands.SelectedIndex = Math.Clamp(slashCommands.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, slashCommands.ItemCount - 1); slashCommands.ScrollIntoView(slashCommands.SelectedItem!); return; }
                 if (e.Key == Key.Escape) { e.Handled = true; slashCommands.IsVisible = false; return; }
             }
+            if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && busy)
+            { e.Handled = true; await SendOrStop("send-now"); return; }
             if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
             e.Handled = true;
-            if (HasDraft) await SendOrStop();
+            if (HasDraft) await SendOrStop(busy && canSteer ? "steer" : "send");
             else if (!advancingQueue && chatId is { } id && connection is not null)
             {
                 advancingQueue = true;
@@ -559,7 +561,7 @@ public sealed class RemoteView : UserControl, IDisposable
         send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";
         send.IsEnabled = connection is not null && !sending && !preparing && chatId is not null && (stop || HasDraft);
     }
-    private async Task SendOrStop()
+    private async Task SendOrStop(string method = "send")
     {
         if (sending || preparing || chatId is null) return;
         var id = chatId; var text = composer.Text ?? ""; var sent = attachments.ToArray();
@@ -568,9 +570,14 @@ public sealed class RemoteView : UserControl, IDisposable
         sending = true; timer.Interval = TimeSpan.FromMilliseconds(250); UpdateSendAction();
         try
         {
-            var result = await Call(new() { ["method"] = stop ? "stop" : "send", ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
+            var result = await Call(new() { ["method"] = stop ? "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
             if (result is not null && id == chatId)
             {
+                if (method == "steer" && !stop)
+                {
+                    if (result.GetValue<bool>()) { if (composer.Text == text) composer.Text = ""; foreach (var file in sent) attachments.Remove(file); RefreshAttachments(); }
+                    return;
+                }
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting"))));
                 if (!stop) { if (composer.Text == text) composer.Text = ""; foreach (var file in sent) attachments.Remove(file); RefreshAttachments(); }
             }

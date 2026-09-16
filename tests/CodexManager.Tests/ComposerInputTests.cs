@@ -74,12 +74,13 @@ public class ComposerInputTests
         var directory = Directory.CreateTempSubdirectory("composer-remote-").FullName;
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
         var requests = new List<string>();
+        var active = false;
         await using var server = new RemoteServer(directory, "127.0.0.1", port, request =>
         {
             var method = request["method"]!.GetValue<string>(); requests.Add(method);
             return Task.FromResult<JsonNode?>(method == "list"
                 ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "w", ["name"] = "Test" }), ["chats"] = new JsonArray(new JsonObject { ["id"] = "c", ["workspaceId"] = "w", ["title"] = "Chat", ["archived"] = false }) }
-                : method == "chat" ? new JsonObject { ["busy"] = false, ["status"] = "Ready", ["queued"] = 1, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(), ["commands"] = new JsonArray("/compact", "/goal") } : new JsonObject { ["busy"] = false, ["preparing"] = false });
+                : method == "steer" ? JsonValue.Create(true) : method == "chat" ? new JsonObject { ["canSteer"] = true, ["busy"] = active, ["status"] = "Ready", ["queued"] = 1, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(), ["commands"] = new JsonArray("/compact", "/goal") } : new JsonObject { ["busy"] = false, ["preparing"] = false });
         });
         await Wait(() => server.Fingerprint is not null);
         var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), System.IO.Path.Combine(directory, "key"), "Test", TestContext.Current.CancellationToken);
@@ -95,6 +96,12 @@ public class ComposerInputTests
             input.CaretIndex = input.Text.Length; Key(input, Avalonia.Input.Key.Enter, KeyModifiers.Control); Assert.EndsWith("\n", input.Text);
             input.Text = "hello"; await Task.Delay(50); Key(input, Avalonia.Input.Key.Enter); await Wait(() => requests.Contains("send"));
             await Wait(() => input.Text == ""); Key(input, Avalonia.Input.Key.Enter); await Wait(() => requests.Contains("queue/advance"));
+            active = true;
+            await Wait(() => (bool)typeof(RemoteView).GetField("busy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!);
+            input.Text = "adjust direction"; Key(input, Avalonia.Input.Key.Enter);
+            await Wait(() => requests.Contains("steer") && input.Text == "");
+            input.Text = "replacement"; Key(input, Avalonia.Input.Key.Escape);
+            await Wait(() => requests.Contains("send-now") && input.Text == "");
             var bytes = Png(); await window.Clipboard!.SetDataAsync(ImageData(bytes)); Key(input, Avalonia.Input.Key.V, KeyModifiers.Control);
             await Task.Delay(100);
             var drop = new DataTransfer(); drop.Add(DataTransferItem.CreateFile(PortalFile.Create(bytes)));
