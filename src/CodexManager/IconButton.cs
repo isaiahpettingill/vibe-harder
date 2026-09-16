@@ -44,14 +44,12 @@ public static class AppIcons
     }
     public static PathIcon Create(string name, double size = 13) => new()
     {
-        Data = name is "openai" or "claude" or "steer" or "agent" ? Additional(name == "steer" ? "forward" : name) : Geometry(name switch
+        Data = name is "openai" or "claude" or "steer" or "agent" or "mode" or "permission" or "command" ? Additional(name switch { "steer" => "forward", "mode" => "edit-compact", "permission" => "shield-compact", "command" => "layout-menubar", _ => name }) : Geometry(name switch
         {
-            "mode" => PackIconCodiconsKind.ListSelection,
             "provider" => PackIconCodiconsKind.Server,
             "yolo" => PackIconCodiconsKind.Rocket,
             "auto-approve" => PackIconCodiconsKind.Check,
             "budget" => PackIconCodiconsKind.Dashboard,
-            "command" => PackIconCodiconsKind.ListSelection,
             "settings" => PackIconCodiconsKind.Gear,
             "menu" => PackIconCodiconsKind.Menu,
             "more" => PackIconCodiconsKind.Ellipsis,
@@ -78,7 +76,6 @@ public static class AppIcons
             "model" => PackIconCodiconsKind.SymbolClass,
             "reasoning" => PackIconCodiconsKind.Lightbulb,
             "speed" => PackIconCodiconsKind.SymbolEvent,
-            "permission" => PackIconCodiconsKind.Shield,
             "warning" => PackIconCodiconsKind.Warning,
             _ => PackIconCodiconsKind.Copy
         }),

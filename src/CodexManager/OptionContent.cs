@@ -28,7 +28,8 @@ public sealed class OptionContent : StackPanel
         if (name.Contains("budget") || name.Contains("token")) return "budget";
         if (name.Contains("think") || name.Contains("reason") || name.Contains("effort")) return "reasoning";
         if (name.Contains("approv") || name.Contains("permission") || name.Contains("access")) return "permission";
-        if (name.Contains("mode") || name.Contains("primary_agent")) return "mode";
+        if (name.Contains("mode") || name.Contains("primary_agent"))
+            return option.Values.Any(v => (v.Value + " " + v.Name).Contains("full access", StringComparison.OrdinalIgnoreCase) || v.Value is "full-access" or "bypassPermissions") ? "permission" : "mode";
         return "settings";
     }
 
