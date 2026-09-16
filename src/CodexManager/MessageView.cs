@@ -11,6 +11,10 @@ public sealed class MessageView : UserControl
     public static readonly StyledProperty<Message?> MessageProperty = AvaloniaProperty.Register<MessageView, Message?>(nameof(Message));
     public Message? Message { get => GetValue(MessageProperty); set => SetValue(MessageProperty, value); }
     private ChatMarkdown? body;
+    private SubagentView? subagentView;
+    private readonly Border frame = new() { Name = "MessageFrame" };
+    private string? legacyText;
+    private SubagentInfo? legacySubagent;
     private readonly Button toggle = new() { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
     private readonly TextBlock title = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, FontSize = 11 };
     private readonly ScrollViewer details;
@@ -32,7 +36,9 @@ public sealed class MessageView : UserControl
             else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.ShowHistoryActions(history, message);
         };
         details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
-        Content = new StackPanel { Spacing = 6, Children = { header, details } };
+        frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("AppAccent"));
+        frame.Child = new StackPanel { Spacing = 6, Children = { header, details } };
+        Content = frame;
     }
     private void Change(Message? old)
     {
@@ -45,18 +51,37 @@ public sealed class MessageView : UserControl
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     { attached = false; details.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
     private void MessageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Refresh();
-    public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; Refresh(); } }
+    public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; subagentView?.Collapse(); Refresh(); } }
     public void Expand() { if (IsOutput) { expanded = true; if (Message is not null) Message.OutputExpanded = true; Refresh(); } }
     private void Refresh()
     {
+        var isUser = Message is { Role: "user" } && (!string.IsNullOrWhiteSpace(Message.Text) || Message.Attachments.Count > 0);
+        frame.BorderThickness = isUser ? new Thickness(2, 0, 0, 0) : default;
+        frame.Padding = isUser ? new Thickness(12, 8) : default;
+        if (legacyText != Message?.Text)
+        {
+            legacyText = Message?.Text;
+            legacySubagent = Message is { Role: "tool", Subagent: null } ? SubagentInfo.FromLegacy(Message.Text) : null;
+        }
+        var subagent = Message?.Subagent ?? legacySubagent;
+        if (subagent is not null)
+        {
+            toggle.IsVisible = false; history.IsVisible = false; details.IsVisible = true; details.MaxHeight = 600;
+            subagentView ??= new SubagentView(); subagentView.Update(subagent); details.Content = subagentView;
+            subagentView.ExpansionChanged = value => { if (Message is not null) Message.OutputExpanded = value; };
+            if (Message?.OutputExpanded == true) subagentView.Expand();
+            body = null; return;
+        }
+        subagentView = null; toggle.IsVisible = true;
         var legacyResume = Message is { Role: "user", Attachments.Count: 0 } && string.IsNullOrWhiteSpace(Message.Text);
-        history.IsVisible = !legacyResume && Message?.Role is "user" or "assistant" or "tool";
+        history.IsVisible = !legacyResume && !this.GetVisualAncestors().Any(v => v is SubagentView or SubagentInspector) && Message?.Role is "user" or "assistant" or "tool";
         title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
         var text = Message?.Text ?? "";
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];
         if (preview.Length > 100) preview = preview[..100] + "…";
         title.Text = IsOutput ? (expanded ? "▾ " : "▸ ") + (Message?.Role == "plan" ? "Plan" : Message?.Role == "thought" ? "Thinking" : preview.Length > 0 ? preview : "Tool output") : legacyResume ? "SESSION" : Message?.Label;
+        if (Message?.Role == "assistant" && this.GetVisualAncestors().Any(v => v is SubagentView)) title.Text = "SUBAGENT";
         toggle.IsHitTestVisible = IsOutput; toggle.Focusable = IsOutput;
         details.IsVisible = !IsOutput || expanded;
         details.MaxHeight = IsOutput ? 420 : double.PositiveInfinity;

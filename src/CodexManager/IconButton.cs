@@ -58,6 +58,7 @@ public static class AppIcons
             "folder" => PackIconCodiconsKind.Folder,
             "new-folder" => PackIconCodiconsKind.NewFolder,
             "search" => PackIconCodiconsKind.Search,
+            "fullscreen" => PackIconCodiconsKind.ScreenFull,
             "latest" => PackIconCodiconsKind.ArrowDown,
             "chevron-up" => PackIconCodiconsKind.ChevronUp,
             "chevron-down" => PackIconCodiconsKind.ChevronDown,

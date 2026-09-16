@@ -139,6 +139,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private Point? swipeStart;
     private string queueJson = "";
     private bool canSteer;
+    private string[] remoteRecentModels = [];
     private readonly RemoteHost host;
     public RemoteHost Host => host;
     private RemoteConnection? connection;
@@ -400,8 +401,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
             { e.Handled = true; await SendOrStop("send-now"); return; }
             if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
             e.Handled = true;
-            if (HasDraft) await SendOrStop(busy && canSteer ? "steer" : "send");
-            else if (!advancingQueue && chatId is { } id && connection is not null)
+            if (HasDraft) await SendOrStop("send");
+            else if (!busy && !advancingQueue && chatId is { } id && connection is not null)
             {
                 advancingQueue = true;
                 try { await Call(new() { ["method"] = "queue/advance", ["chatId"] = id }); }
@@ -498,6 +499,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                     : result["commands"]?.AsArray().Select(c => new SlashCommand(c!.GetValue<string>().TrimStart('/'), "", null)).ToArray() ?? [];
                 if (!commands.SequenceEqual(availableCommands)) { availableCommands = commands; UpdateSlashCommands(); }
                 navigation.Update();
+                remoteRecentModels = result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [];
                 var configText = result["config"]!.ToJsonString();
                 if (configText != configJson)
                 {
@@ -511,7 +513,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                         {
                             var selectedChat = id;
                             button.Flyout = ModelPicker.Create(option, result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [],
-                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }));
+                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }), () => remoteRecentModels);
                             configs.Children.Add(button); continue;
                         }
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
@@ -637,6 +639,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private static Message ReadMessage(JsonNode row)
     {
         var message = new Message { Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
+        message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
         foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         return message;
     }
@@ -652,6 +655,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             byId ??= messages.ToDictionary(m => m.Id);
             if (!byId.TryGetValue(id, out var message)) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
             message.Text = row["text"]!.GetValue<string>();
+            message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
             if (row["attachments"] is { } files)
             {
                 var incoming = files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];

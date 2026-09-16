@@ -80,7 +80,7 @@ public class ComposerInputTests
             var method = request["method"]!.GetValue<string>(); requests.Add(method);
             return Task.FromResult<JsonNode?>(method == "list"
                 ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "w", ["name"] = "Test" }), ["chats"] = new JsonArray(new JsonObject { ["id"] = "c", ["workspaceId"] = "w", ["title"] = "Chat", ["archived"] = false }) }
-                : method == "steer" ? JsonValue.Create(true) : method == "chat" ? new JsonObject { ["canSteer"] = true, ["busy"] = active, ["status"] = "Ready", ["queued"] = 1, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(), ["commands"] = new JsonArray("/compact", "/goal") } : new JsonObject { ["busy"] = false, ["preparing"] = false });
+                : method == "steer" ? JsonValue.Create(true) : method == "chat" ? new JsonObject { ["canSteer"] = true, ["busy"] = active, ["status"] = "Ready", ["queued"] = 1, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(), ["commands"] = new JsonArray("/compact", "/goal") } : new JsonObject { ["busy"] = active, ["preparing"] = false });
         });
         await Wait(() => server.Fingerprint is not null);
         var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), System.IO.Path.Combine(directory, "key"), "Test", TestContext.Current.CancellationToken);
@@ -99,7 +99,8 @@ public class ComposerInputTests
             active = true;
             await Wait(() => (bool)typeof(RemoteView).GetField("busy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!);
             input.Text = "adjust direction"; Key(input, Avalonia.Input.Key.Enter);
-            await Wait(() => requests.Contains("steer") && input.Text == "");
+            await Wait(() => requests.Count(r => r == "send") == 2 && input.Text == "");
+            Assert.DoesNotContain("steer", requests);
             input.Text = "replacement"; Key(input, Avalonia.Input.Key.Escape);
             await Wait(() => requests.Contains("send-now") && input.Text == "");
             var bytes = Png(); await window.Clipboard!.SetDataAsync(ImageData(bytes)); Key(input, Avalonia.Input.Key.V, KeyModifiers.Control);

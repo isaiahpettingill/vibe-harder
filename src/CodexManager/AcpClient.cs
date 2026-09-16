@@ -24,6 +24,7 @@ public sealed class AcpClient : IAsyncDisposable
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? ReadTextFile { get; set; }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? WriteTextFile { get; set; }
     public Func<JsonElement, Task>? UpdateAsync { get; set; }
+    public Func<string?, JsonElement, Task>? SessionUpdateAsync { get; set; }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? PermissionRequested { get; set; }
     public AcpClient(ProcessStartInfo start)
     {
@@ -64,6 +65,11 @@ public sealed class AcpClient : IAsyncDisposable
                     else if (method.GetString() == "session/update")
                     {
                         var update = message.GetProperty("params").GetProperty("update").Clone();
+                        if (SessionUpdateAsync is not null)
+                        {
+                            await SessionUpdateAsync(SubagentInfo.Text(message.GetProperty("params"), "sessionId"), update);
+                            continue;
+                        }
                         Update?.Invoke(update);
                         if (UpdateAsync is not null) await UpdateAsync(update);
                     }
@@ -110,7 +116,12 @@ public sealed class AcpClient : IAsyncDisposable
             catch (Exception transportError) when (transportError is OperationCanceledException or IOException or ObjectDisposedException) { }
         }
     }
-    public Task<JsonElement> Initialize(CancellationToken token = default) => Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", RpcJson.Object(("fs", RpcJson.Object(("readTextFile", ReadTextFile is not null), ("writeTextFile", WriteTextFile is not null))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject())))))))), token);
+    public Task<JsonElement> Initialize(CancellationToken token = default)
+    {
+        var capabilities = RpcJson.Object(("fs", RpcJson.Object(("readTextFile", ReadTextFile is not null), ("writeTextFile", WriteTextFile is not null))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject()))))));
+        if (SessionUpdateAsync is not null) capabilities["subagents"] = new JsonObject();
+        return Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", capabilities)), token);
+    }
     public async ValueTask DisposeAsync()
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { await reader; return; }

@@ -57,6 +57,19 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
+   if(m.params.prompt[0]?.text==='subagents') {
+    const child = (sessionId, value) => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId,update:value}});
+    child('fixture-session',{sessionUpdate:'subagent_spawned',subagentSessionId:'child-1',name:'Investigate',task:'Check the implementation'});
+    child('child-1',{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Child answer'}});
+    child('child-1',{sessionUpdate:'tool_call',toolCallId:'read',title:'Read file',status:'in_progress',content:[{type:'content',content:{type:'text',text:'File contents'}}]});
+    child('child-1',{sessionUpdate:'tool_call_update',toolCallId:'read',status:'completed'});
+    child('child-1',{sessionUpdate:'subagent_update',subagentSessionId:'child-2',name:'Review',task:'Review findings',state:'running'});
+    child('child-2',{sessionUpdate:'agent_thought_chunk',content:{type:'text',text:'Nested reasoning'}});
+    child('child-1',{sessionUpdate:'subagent_state_update',subagentSessionId:'child-2',state:'completed'});
+    child('fixture-session',{sessionUpdate:'subagent_update',subagentSessionId:'child-1',state:'completed'});
+    child('unknown-session',{sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Must not leak'}});
+    update('Parent answer');response(m.id,{stopReason:'end_turn'});break;
+   }
    if(m.params.prompt[0]?.text==='plan') {
     const plan = status => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:{sessionUpdate:'plan',entries:[{content:'Answer the user',status,priority:'medium'}]}}});
     plan('pending');plan('in_progress');update('Hello **');plan('in_progress');update('world**');plan('completed');response(m.id,{stopReason:'end_turn'});break;

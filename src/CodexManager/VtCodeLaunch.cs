@@ -5,6 +5,9 @@ namespace CodexManager;
 public static class VtCodeLaunch
 {
     public const string AuthenticationOption = "vibe_openai_authentication";
+    public static string? FailureHelp(string error) => error.Contains("Stream must be set to true", StringComparison.OrdinalIgnoreCase)
+        ? "VT Code’s ACP adapter sent a non-streaming request to a streaming-only endpoint. This is an adapter compatibility error, not a login failure. Update VT Code on the computer running this chat and reconnect. If it persists, the adapter needs a streaming fix. Your selected authentication method has not been changed. [VT Code releases](https://github.com/vinhnx/VTCode/releases)"
+        : null;
     public static string AuthenticationKey(Workspace workspace) => "VTCode:" + (workspace.IsWsl ? "wsl" : "local") + "OpenAiAuthentication";
     public static string Method(Store store, Workspace workspace) => store.Setting(AuthenticationKey(workspace)) == "api_key" ? "api_key" : "chatgpt";
     public static SessionConfig AuthenticationBadge(string method, bool verified) => new(AuthenticationOption,

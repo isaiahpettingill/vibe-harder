@@ -27,6 +27,7 @@ public partial class MainView
         };
         AddHandler(KeyDownEvent, (_, e) =>
         {
+            if (subagentInspector is not null) return;
             if (e.Key == Key.F && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
             { e.Handled = true; if (remoteView is { } remote) remote.OpenChatSearch(); else if (current is not null) ChatSearch.Open(); }
             else if (e.Key == Key.Escape && ChatSearch.IsVisible) { e.Handled = true; ChatSearch.Close(); }

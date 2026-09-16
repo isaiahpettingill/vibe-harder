@@ -32,6 +32,7 @@ public sealed class Store : IDisposable
             CREATE INDEX IF NOT EXISTS messages_chat ON messages(chat_id,seq);
             CREATE TABLE IF NOT EXISTS settings(key TEXT PRIMARY KEY,value TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS attachments(owner_id TEXT PRIMARY KEY,json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS message_details(message_id TEXT PRIMARY KEY REFERENCES messages(id) ON DELETE CASCADE,json TEXT NOT NULL);
             """);
         using var columns = db.CreateCommand(); columns.CommandText = "SELECT name FROM pragma_table_info('chats') WHERE name='archived'";
         if (columns.ExecuteScalar() is null) Execute("ALTER TABLE chats ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
@@ -105,9 +106,9 @@ public sealed class Store : IDisposable
     }
     public void LoadMessages(Chat chat)
     {
-        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT id,role,text,tool_id,seq FROM messages WHERE chat_id=$id ORDER BY seq"; cmd.Parameters.AddWithValue("$id", chat.Id);
+        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,d.json FROM messages m LEFT JOIN message_details d ON d.message_id=m.id WHERE chat_id=$id ORDER BY seq"; cmd.Parameters.AddWithValue("$id", chat.Id);
         using var r = cmd.ExecuteReader();
-        while (r.Read()) chat.Messages.Add(new() { Provider = chat.Provider, Id = r.GetString(0), Role = r.GetString(1), Text = r.GetString(2), ToolId = r.IsDBNull(3) ? null : r.GetString(3), Sequence = r.GetInt32(4) });
+        while (r.Read()) chat.Messages.Add(new() { Provider = chat.Provider, Id = r.GetString(0), Role = r.GetString(1), Text = r.GetString(2), ToolId = r.IsDBNull(3) ? null : r.GetString(3), Sequence = r.GetInt32(4), Subagent = r.IsDBNull(5) ? null : JsonSerializer.Deserialize(r.GetString(5), StoreJsonContext.Default.SubagentInfo) });
         r.Close();
         chat.HistoryLoaded = true; chat.NextSequence = chat.Messages.Count == 0 ? 0 : chat.Messages.Max(m => m.Sequence) + 1;
         foreach (var m in chat.Messages)
@@ -126,7 +127,7 @@ public sealed class Store : IDisposable
         {
             using var connection = new SqliteConnection(connectionString); connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
+            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value,d.json FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id LEFT JOIN message_details d ON d.message_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
             command.Parameters.AddWithValue("$tool", (object?)toolId ?? DBNull.Value);
             command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$before", (object?)before ?? DBNull.Value); command.Parameters.AddWithValue("$limit", limit);
             using var rows = command.ExecuteReader(); var result = new List<Message>();
@@ -136,6 +137,7 @@ public sealed class Store : IDisposable
                 var message = new Message { Id = rows.GetString(0), Role = rows.GetString(1), Text = rows.GetString(2), ToolId = rows.IsDBNull(3) ? null : rows.GetString(3), Sequence = rows.GetInt32(4), Provider = provider };
                 if (!rows.IsDBNull(5)) foreach (var attachment in JsonSerializer.Deserialize(rows.GetString(5), StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(attachment);
                 message.ProviderMessageId = rows.IsDBNull(6) ? null : rows.GetString(6);
+                message.Subagent = rows.IsDBNull(7) ? null : JsonSerializer.Deserialize(rows.GetString(7), StoreJsonContext.Default.SubagentInfo);
                 result.Add(message);
             }
             if (!newer) result.Reverse(); return result.ToArray();
@@ -234,6 +236,13 @@ public sealed class Store : IDisposable
         (string, object?)[] args = [("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence)];
         if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, sql, args), "message:" + m.Id);
         else Execute(sql, args);
+        if (m.Subagent is { } subagent)
+        {
+            const string detailSql = "INSERT INTO message_details VALUES($id,$json) ON CONFLICT(message_id) DO UPDATE SET json=$json";
+            var json = JsonSerializer.Serialize(subagent, StoreJsonContext.Default.SubagentInfo);
+            if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, detailSql, ("$id", m.Id), ("$json", json)), "subagent:" + m.Id);
+            else Execute(detailSql, ("$id", m.Id), ("$json", json));
+        }
         if (savedMessages.Count >= 2048) savedMessages.Clear();
         savedMessages[m.Id] = (new(m), m.Revision);
         SaveAttachments(m.Id, m.Attachments);

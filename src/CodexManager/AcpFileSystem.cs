@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 
 namespace CodexManager;
 
-public sealed class AcpFileSystem(Workspace workspace, Func<string?> sessionId)
+public sealed class AcpFileSystem(Workspace workspace, Func<string?> sessionId, Func<string, bool>? knownChild = null)
 {
     private const int MaxBytes = 16 * 1024 * 1024;
     private readonly SemaphoreSlim access = new(1);
@@ -14,7 +14,7 @@ public sealed class AcpFileSystem(Workspace workspace, Func<string?> sessionId)
     private string PathFor(JsonElement request)
     {
         var requestedSession = request.GetProperty("sessionId").GetString();
-        if (string.IsNullOrWhiteSpace(requestedSession) || sessionId() is { } expected && requestedSession != expected) throw new ArgumentException("Unknown session.");
+        if (string.IsNullOrWhiteSpace(requestedSession) || sessionId() is { } expected && requestedSession != expected && knownChild?.Invoke(requestedSession) != true) throw new ArgumentException("Unknown session.");
         var path = request.GetProperty("path").GetString();
         if (string.IsNullOrWhiteSpace(path) || path.Contains('\0')) throw new ArgumentException("An absolute file path is required.");
         if (!workspace.IsWsl)

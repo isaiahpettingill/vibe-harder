@@ -10,6 +10,22 @@ namespace CodexManager.Tests;
 
 public class LinkAndModelTests
 {
+    [AvaloniaFact]
+    public void ModelPickerRefreshesRecentsWhenOpenedWithoutTyping()
+    {
+        string[] recent = ["old"];
+        var option = new SessionConfig("model", "Model", "select", "old", [new("old", "Old"), new("new", "New")]);
+        var picker = ModelPicker.Create(option, recent, _ => Task.CompletedTask, () => recent);
+        var anchor = new Button { Content = "Models", Flyout = picker };
+        var window = new Window { Content = anchor }; window.Show(); window.UpdateLayout();
+        try
+        {
+            recent = ["new", "old"]; picker.ShowAt(anchor);
+            var list = Assert.IsType<StackPanel>(picker.Content).Children.OfType<ListBox>().Single();
+            Assert.Equal("new", Assert.IsType<SessionValue>(list.Items[0]).Value);
+        }
+        finally { picker.Hide(); window.Close(); }
+    }
     [Fact]
     public void RecentModelsIgnoreMalformedSettingsAndRepairOnSelection()
     {
@@ -97,7 +113,7 @@ public class LinkAndModelTests
             search.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter }); Assert.Equal("model-999", selected);
             search.Text = " "; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent)); Assert.Equal(5, list.ItemCount);
             var fresh = ModelPicker.Create(option, [], _ => Task.CompletedTask);
-            Assert.Empty(Assert.IsType<StackPanel>(fresh.Content).Children.OfType<ListBox>().Single().Items);
+            Assert.Equal("model-0", Assert.IsType<SessionValue>(Assert.Single(Assert.IsType<StackPanel>(fresh.Content).Children.OfType<ListBox>().Single().Items)).Value);
         }
         finally { window.Close(); }
     }

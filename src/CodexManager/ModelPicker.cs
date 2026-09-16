@@ -21,14 +21,14 @@ public static class ModelPicker
     public static void Remember(Store store, AgentProvider provider, string value) => store.Setting("recentModels:" + provider,
         new JsonArray(new[] { value }.Concat(Recent(store, provider)).Distinct().Take(12).Select(v => (JsonNode)JsonValue.Create(v)!).ToArray()).ToJsonString());
 
-    public static Flyout Create(SessionConfig option, IReadOnlyList<string> recent, Func<string, Task> choose)
+    public static Flyout Create(SessionConfig option, IReadOnlyList<string> recent, Func<string, Task> choose, Func<IReadOnlyList<string>>? refreshRecent = null)
     {
         var search = new TextBox { Name = "ModelSearch", PlaceholderText = "Search models…" };
         var list = new ListBox { Name = "ModelResults", MaxHeight = 320, ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()) };
         var empty = new TextBlock { Text = "Search to find a model.", IsVisible = false };
         var panel = new StackPanel { Width = 300, Spacing = 8, Children = { search, list, empty } };
         var flyout = new Flyout { Content = panel };
-        var recentIds = recent.Distinct().ToList();
+        var recentIds = recent.Append(option.Current).Distinct().ToList();
         void Filter()
         {
             var query = search.Text?.Trim() ?? "";
@@ -44,6 +44,7 @@ public static class ModelPicker
         {
             if (list.SelectedItem is not SessionValue value) return;
             flyout.Hide(); await choose(value.Value);
+            recentIds.Remove(value.Value); recentIds.Insert(0, value.Value);
         }
         search.TextChanged += (_, _) => Filter();
         search.KeyDown += async (_, e) =>
@@ -54,7 +55,7 @@ public static class ModelPicker
         };
         list.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Select(); } };
         list.Tapped += async (_, _) => await Select();
-        flyout.Opened += (_, _) => { search.Text = ""; Filter(); search.Focus(); };
+        flyout.Opened += (_, _) => { if (refreshRecent is not null) recentIds = refreshRecent().Append(option.Current).Distinct().ToList(); search.Text = ""; Filter(); search.Focus(); };
         Filter(); return flyout;
     }
 }

@@ -18,6 +18,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var row = new JsonObject { ["id"] = message.Id, ["revision"] = snapshot.Revision };
         if (known?[message.Id]?.GetValue<string>() == snapshot.Revision) return row;
         row["sequence"] = message.Sequence; row["role"] = message.Role; row["text"] = message.Text;
+        row["subagent"] = message.Subagent is null ? null : JsonSerializer.SerializeToNode(message.Subagent, StoreJsonContext.Default.SubagentInfo);
         row["attachments"] = JsonSerializer.SerializeToNode(message.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray);
         return row;
     }

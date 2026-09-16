@@ -159,7 +159,7 @@ public partial class MainView : UserControl
         }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, async (_, e) =>
         {
-            if (e.Handled || palette is not null || TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
+            if (e.Handled || subagentInspector is not null || palette is not null || TerminalDrawer.IsVisible || remoteView is not null || e.Key != Key.Escape || current?.Busy != true || e.KeyModifiers != KeyModifiers.None) return;
             e.Handled = true;
             if (SlashCommands.IsVisible) { SlashCommands.IsVisible = false; return; }
             await InterruptDraft();
@@ -585,7 +585,7 @@ public partial class MainView : UserControl
                     ToolTip.SetTip(picker, option.Name);
                     if (configured.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
                     {
-                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value));
+                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value), () => ModelPicker.Recent(store, configured.Provider));
                         ConfigOptionsPanel.Children.Add(picker); continue;
                     }
                     var menu = new MenuFlyout();
@@ -741,8 +741,7 @@ public partial class MainView : UserControl
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             e.Handled = true;
-            if (current?.Busy == true) await SteerDraft();
-            else if (current is { } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
+            if (current is { Busy: false } chat && workspace is { } owner && string.IsNullOrWhiteSpace(Composer.Text) && chat.Attachments.Count == 0)
                 await Runtime(chat, owner).AdvanceQueued();
             else await Send();
         }

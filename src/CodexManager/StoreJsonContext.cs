@@ -8,4 +8,5 @@ internal sealed record ChatSnapshot(string? SessionId, string Title, DateTimeOff
 [JsonSerializable(typeof(PendingInput))]
 [JsonSerializable(typeof(PendingInput[]))]
 [JsonSerializable(typeof(ChatSnapshot))]
+[JsonSerializable(typeof(SubagentInfo))]
 internal partial class StoreJsonContext : JsonSerializerContext;

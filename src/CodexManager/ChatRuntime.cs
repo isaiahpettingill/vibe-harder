@@ -268,7 +268,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         chat.Commands = []; Changed?.Invoke();
         authenticatedProviders = await ProviderAuthentication.Read(workspace, chat.Provider);
         lifetime.Token.ThrowIfCancellationRequested();
-        var files = new AcpFileSystem(workspace, () => chat.SessionId);
+        DisconnectSubagents();
+        var files = new AcpFileSystem(workspace, () => chat.SessionId, subagentRoots.ContainsKey);
         var launchCommand = command;
         if (chat.Provider == AgentProvider.VTCode)
         {
@@ -289,9 +290,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         {
             if (!connected || !ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
             connected = false;
+            DisconnectSubagents();
             if (!chat.Busy && !chat.NeedsLogin && (IsActiveView?.Invoke() == true || DateTimeOffset.UtcNow < remoteViewUntil)) _ = Reconnect(true);
         });
-        client.UpdateAsync = async update => await Dispatcher.UIThread.InvokeAsync(() => Update(update), DispatcherPriority.Background);
+        client.SessionUpdateAsync = async (session, update) => await Dispatcher.UIThread.InvokeAsync(() => RouteUpdate(session, update), DispatcherPriority.Background);
         client.PermissionRequested = async (request, token) =>
         {
             using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, turn?.Token ?? lifetime.Token);
@@ -473,7 +475,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.InterruptedInput = new(text, attachments);
             chat.Status = "Connection error";
             ShowInstallation();
-            if (!IsRecovering && installation is null) Add("system", recoverConnection ? "**Connection interrupted.** Waiting to reconnect and restore this session.\n\n" + error.Message : "**Could not complete the turn.**\n\n" + error.Message + $"\n\nCheck the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment.");
+            var help = chat.Provider == AgentProvider.VTCode ? VtCodeLaunch.FailureHelp(error.Message) : null;
+            if (!IsRecovering && installation is null) Add("system", recoverConnection ? "**Connection interrupted.** Waiting to reconnect and restore this session.\n\n" + error.Message : "**Could not complete the turn.**\n\n" + error.Message + "\n\n" + (help ?? $"Check the {AgentProviders.Get(chat.Provider).Name} adapter command and authentication in this workspace’s environment."));
             // Keep failed input available to retry, including attachments.
             if (!IsRecovering) RestoreInput(text, attachments);
         }
@@ -600,6 +603,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (message is null && id is not null) message = (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token, toolId: id)).FirstOrDefault();
             if (lifetime.IsCancellationRequested) return;
             if (message is null) { Add("tool", "", id); message = chat.Messages.Last(); }
+            message.Subagent = SubagentInfo.FromTool(update, message.Subagent);
             if (update.TryGetProperty("messageId", out var toolMessageId) && toolMessageId.ValueKind == JsonValueKind.String) message.ProviderMessageId = toolMessageId.GetString();
             if (id is not null && activeToolInputs.TryGetValue(id, out var previousInput)) message.ToolInput = previousInput;
             var title = update.TryGetProperty("title", out var t) ? t.GetString() : message.Text.Split('\n')[0];
@@ -629,6 +633,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     public ValueTask DisposeAsync() => new(disposal ??= DisposeCore());
     private async Task DisposeCore()
     {
+        DisconnectSubagents();
         idleTimer?.Stop(); lifetime.Cancel();
         var previous = client; client = null; connected = false;
         var tasks = new[] { previous?.DisposeAsync().AsTask(), idleShutdown, activeTask, steeringTask, reconnectTask, recoveryTask, WaitForHistoryShutdown() }.OfType<Task>();

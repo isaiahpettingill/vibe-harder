@@ -86,6 +86,8 @@ public sealed class Message : Observable
     public string? ToolId { get; init; }
     public string? ProviderMessageId { get; set; }
     public string ToolInput { get; set; } = "";
+    private SubagentInfo? subagent;
+    public SubagentInfo? Subagent { get => subagent; set { if (!Equals(subagent, value)) { subagent = value; Revision++; Changed(); } } }
     private string text = "";
     public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }
     public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", "plan" => "PLAN", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };

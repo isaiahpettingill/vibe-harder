@@ -4,6 +4,14 @@ namespace CodexManager.Tests;
 
 public class VtCodeLaunchTests
 {
+    [Fact]
+    public void StreamingFailureExplainsAdapterProblemWithoutChangingAuthentication()
+    {
+        var help = VtCodeLaunch.FailureHelp("Provider error: Stream must be set to true");
+        Assert.Contains("adapter compatibility error", help);
+        Assert.Contains("authentication method has not been changed", help);
+        Assert.Null(VtCodeLaunch.FailureHelp("Different failure"));
+    }
     [Theory]
     [InlineData("vtcode acp", "vtcode --provider openai --api-key-env OPENAI_API_KEY acp")]
     [InlineData("vtcode acp --provider=openai", "vtcode --api-key-env OPENAI_API_KEY acp --provider=openai")]

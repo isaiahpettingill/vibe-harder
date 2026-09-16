@@ -28,6 +28,10 @@ public class ComposerUiTests
         async Task Wait(Func<bool> check) { var until = DateTime.UtcNow.AddSeconds(10); while (!check() && DateTime.UtcNow < until) await Task.Delay(20); Assert.True(check()); }
         try
         {
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.F, KeyModifiers = KeyModifiers.Control });
+            Assert.True(window.FindControl<ChatSearchBar>("ChatSearch")!.IsVisible);
+            Assert.True(window.GetVisualDescendants().OfType<TextBox>().Single(t => t.Name == "ChatSearchQuery").IsFocused);
+            window.FindControl<ChatSearchBar>("ChatSearch")!.Close();
             composer.Text = "hang"; window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
             var send = window.FindControl<Button>("SendButton")!;
@@ -66,15 +70,18 @@ public class ComposerUiTests
             Assert.Contains(tray.Menu!.Items.OfType<NativeMenuItem>(), item => item.Header?.Contains("Codex · Composer ·") == true);
             composer.Text = "queued next"; send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(chat.QueuedInputs); Assert.True(window.FindControl<Expander>("QueuePanel")!.IsVisible);
-            composer.Text = "steer now";
+            composer.Text = "enter queued";
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
-            await Wait(() => chat.Messages.Any(m => m.Text == "steer now"));
+            await Wait(() => chat.QueuedInputs.Count == 2);
+            Assert.DoesNotContain(chat.Messages, m => m.Text == "enter queued");
+            composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.Equal(2, chat.QueuedInputs.Count);
             Assert.True(chat.Busy);
             composer.Text = "hang";
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
             await Wait(() => chat.Messages.Count(m => m.Role == "user" && m.Text == "hang") == 2 && composer.Text == "");
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
-            await Wait(() => !chat.Busy); Assert.Single(chat.QueuedInputs); Assert.Contains("no agents running", tray.ToolTipText);
+            await Wait(() => !chat.Busy); Assert.Equal(2, chat.QueuedInputs.Count); Assert.Contains("no agents running", tray.ToolTipText);
             UiTests.Named<Button>(window, "Rename_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var dialog = window.OwnedWindows.Single();
             var input = dialog.GetVisualDescendants().OfType<TextBox>().Single(); input.Text = "Renamed";
