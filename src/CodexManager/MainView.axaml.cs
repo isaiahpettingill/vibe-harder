@@ -1048,9 +1048,9 @@ public partial class MainView : UserControl
     {
         if (Clipboard is not null && !string.IsNullOrEmpty(LoginUrl.Text)) await Clipboard.SetTextAsync(LoginUrl.Text);
     }
-    private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize)
+    private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize, Workspace owner)
     {
-        var control = new ThemedTerminalControl { Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font") };
+        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font") };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         return control;
@@ -1066,7 +1066,7 @@ public partial class MainView : UserControl
         var key = $"{owner.Id}:{provider}";
         if (loginSessions.ContainsKey(key)) { UpdateControls(); loginSessions[key].Control.Focus(); return; }
         var session = new TerminalSession();
-        var control = CreateTerminalControl(session, 12);
+        var control = CreateTerminalControl(session, 12, owner);
         session.OutputChanged += () => { if (!closing) UpdateControls(); };
         loginSessions[key] = (control, session);
         session.Completed += () =>
@@ -1111,7 +1111,7 @@ public partial class MainView : UserControl
         durableId = command is null ? durableId ?? "desktop:" + Guid.NewGuid().ToString("N") : null;
         var session = new TerminalSession();
         if (completed is not null) session.Completed += completed;
-        var control = CreateTerminalControl(session, 13);
+        var control = CreateTerminalControl(session, 13, owner);
         var tab = new TabItem { Content = control, MinHeight = 26, Padding = new(6, 2) };
         var close = new IconButton { Icon = "remove", IconSize = 10, Label = "Close terminal", Padding = new Thickness(3, 0), MinHeight = 18, Height = 18 };
         var reconnect = new IconButton { Name = "ReconnectTerminal", Icon = "refresh", IconSize = 10, Label = "Reconnect terminal", Padding = new Thickness(3, 0), MinHeight = 18, Height = 18, IsVisible = durableId is not null, IsEnabled = false };
@@ -1131,7 +1131,7 @@ public partial class MainView : UserControl
                 if (closing || index < 0) { replacement.Dispose(); return; }
                 session.Dispose(); session = replacement;
                 if (completed is not null) session.Completed += completed;
-                control = CreateTerminalControl(session, 13); tab.Content = control;
+                control = CreateTerminalControl(session, 13, owner); tab.Content = control;
                 list[index] = (tab, session); control.Focus();
             }
             catch (Exception error) { replacement.Dispose(); StatusText.Text = "Could not reconnect terminal: " + error.Message; }

@@ -11,6 +11,23 @@ namespace CodexManager.Tests;
 
 public class TerminalLinkTests
 {
+    [AvaloniaFact]
+    public void LocalFilePathsAreUnderlinedButRemotePathsAreNot()
+    {
+        var model = new TerminalControlModel();
+        var terminal = new ThemedTerminalControl { Model = model, FileWorkspace = new Workspace("w", "Test", "/home/me", "Debian") };
+        var window = new Window { Content = terminal, Width = 900, Height = 300 }; window.Show();
+        try
+        {
+            model.Feed("/home/me/main.cs:12:3\r\n");
+            Assert.Equal(@"\\wsl.localhost\Debian\home\me\main.cs", terminal.LinkAt(Cell(terminal, 5, 0))?.LocalPath);
+            Assert.Single(terminal.LinkUnderlines());
+            var remote = new ThemedTerminalControl { Model = model }; window.Content = remote;
+            Assert.Empty(remote.LinkUnderlines());
+        }
+        finally { window.Close(); }
+    }
+
     private static Point Cell(ThemedTerminalControl terminal, int col, int row)
     {
         // Use the library's actual render metrics to verify our independent hit testing.

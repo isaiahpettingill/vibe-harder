@@ -10,6 +10,7 @@ namespace CodexManager;
 
 public sealed partial class ThemedTerminalControl
 {
+    public Workspace? FileWorkspace { get; init; }
     private static readonly Regex UrlPattern = new(@"\b(?:https?://|mailto:|www\.)[^\s<>""'\x00-\x1f]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Cursor LinkCursor = new(StandardCursorType.Hand);
     private Uri? pressedLink;
@@ -109,6 +110,12 @@ public sealed partial class ThemedTerminalControl
                 links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, uri));
             }
         }
+        foreach (var file in TerminalFileLinks.Find(text.ToString(), FileWorkspace))
+        {
+            var start = cells[file.Start]; var end = cells[file.Start + file.Length - 1];
+            if (!links.Any(link => link.Contains(start.Row, start.Column)))
+                links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, file.Uri));
+        }
         return (links, lastRow);
     }
     public IReadOnlyList<Rect> LinkUnderlines()
@@ -177,7 +184,14 @@ public sealed partial class ThemedTerminalControl
         try
         {
             if (TopLevel.GetTopLevel(this) is not { } top) return;
-            if (!await top.Launcher.LaunchUriAsync(uri)) throw new IOException("No application could open this link.");
+            if (uri.IsFile)
+            {
+                if (FileWorkspace is null) return;
+                var file = await top.StorageProvider.TryGetFileFromPathAsync(uri);
+                if (file is null) throw new IOException("This file could not be found.");
+                if (!await top.Launcher.LaunchFileAsync(file)) throw new IOException("No default application is configured for this file.");
+            }
+            else if (!await top.Launcher.LaunchUriAsync(uri)) throw new IOException("No application could open this link.");
         }
         catch (Exception error)
         {
