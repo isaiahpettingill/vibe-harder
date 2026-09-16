@@ -753,7 +753,9 @@ public partial class MainView : UserControl
         if (sender is Control button) button.IsEnabled = false;
         try
         {
-            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Reference files or images", AllowMultiple = true });
+            IReadOnlyList<IStorageFile> files;
+            using (MobileAppSecurity.BeginFilePicker())
+                files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Reference files or images", AllowMultiple = true });
             try { if (!closing) await AddFiles(files, target); }
             finally { foreach (var file in files) file.Dispose(); }
         }

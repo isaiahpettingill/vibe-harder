@@ -7,6 +7,19 @@ namespace CodexManager.Tests;
 
 public class MobileAppSecurityTests
 {
+    [AvaloniaFact]
+    public void FilePickerExemptsOnlyOnePauseAndAlwaysCleansUp()
+    {
+        using (MobileAppSecurity.BeginFilePicker())
+        {
+            Assert.True(MobileAppSecurity.ConsumeFilePickerPause());
+            Assert.False(MobileAppSecurity.ConsumeFilePickerPause());
+        }
+        Assert.False(MobileAppSecurity.ConsumeFilePickerPause());
+        using (MobileAppSecurity.BeginFilePicker()) { }
+        Assert.False(MobileAppSecurity.ConsumeFilePickerPause());
+    }
+
     private sealed class Security : IMobileAppSecurity
     {
         public bool Enabled { get; set; }

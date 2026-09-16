@@ -348,7 +348,9 @@ public sealed class RemoteView : UserControl, IDisposable
             try
             {
                 var provider = TopLevel.GetTopLevel(this)!.StorageProvider;
-                var selected = await provider.OpenFilePickerAsync(new() { Title = "Attach files", AllowMultiple = true, FileTypeFilter = [FilePickerFileTypes.All] });
+                IReadOnlyList<IStorageFile> selected;
+                using (MobileAppSecurity.BeginFilePicker())
+                    selected = await provider.OpenFilePickerAsync(new() { Title = "Attach files", AllowMultiple = true, FileTypeFilter = [FilePickerFileTypes.All] });
                 try { if (!lifetime.IsCancellationRequested && chatId == selectedChat) await AddFiles(selected, selectedChat); }
                 finally { foreach (var file in selected) file.Dispose(); }
             }

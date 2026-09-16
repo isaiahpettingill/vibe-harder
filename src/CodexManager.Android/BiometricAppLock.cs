@@ -77,7 +77,8 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
     public void Pause()
     {
         resumed = false;
-        if (Enabled) { Locked = true; UpdateCover(); }
+        var pickingFile = MobileAppSecurity.ConsumeFilePickerPause();
+        if (Enabled && !pickingFile) { Locked = true; UpdateCover(); }
     }
 
     public void Stop()
