@@ -777,7 +777,7 @@ public sealed class RemoteView : UserControl, IDisposable
         }
         menu.ShowAt(anchor);
     }
-    public void ShowNewChat(Control anchor, string workspaceId)
+    public void ShowNewChat(Control anchor, string workspaceId, Action? activate = null)
     {
         var menu = new MenuFlyout();
         foreach (var provider in enabledProviders)
@@ -785,6 +785,7 @@ public sealed class RemoteView : UserControl, IDisposable
             var item = new MenuItem { Header = provider.Name };
             item.Click += async (_, _) =>
             {
+                activate?.Invoke();
                 var result = await Call(new() { ["method"] = "create", ["workspaceId"] = workspaceId, ["provider"] = provider.Provider.ToString() });
                 if (result is not null) { SelectChat(result["id"]!.GetValue<string>()); await RefreshList(); WorkspaceNavigation?.Invoke(); }
             };
