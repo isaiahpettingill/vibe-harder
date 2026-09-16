@@ -25,10 +25,17 @@ public sealed class WorkspaceDialog : Window
     private string? displayedPath;
     private int navigation;
     private readonly Workspace? initial;
+    private readonly NewFolderButton newFolder;
 
     public WorkspaceDialog(Workspace? initialWorkspace = null, Store? connectionStore = null)
     {
         initial = initialWorkspace;
+        newFolder = new NewFolderButton(async folderName =>
+        {
+            var revision = navigation;
+            var destination = await Hosts.CreateDirectory(Distro, displayedPath ?? "", folderName);
+            if (revision == navigation) await Navigate(destination);
+        }) { IsEnabled = false };
         Title = "Open workspace"; Width = 640; Height = 680; MinWidth = 500; MinHeight = 550; WindowStartupLocation = WindowStartupLocation.CenterOwner;
         folders.ItemTemplate = new FuncDataTemplate<string>((value, _) => new TextBlock { Text = "▸  " + value?.TrimEnd('/', '\\').Split('/', '\\').Last(), Margin = new Thickness(4, 5) });
         var browse = new Button { Content = "Browse…" }; browse.Click += async (_, _) => await Browse();
@@ -60,7 +67,7 @@ public sealed class WorkspaceDialog : Window
         var grid = new Grid { Margin = new Thickness(16), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto,Auto,*,Auto,Auto,Auto"), RowSpacing = 8 };
         void Row(Control control, int index) { Grid.SetRow(control, index); grid.Children.Add(control); }
         Row(new TextBlock { Text = "Choose where Codex works", FontSize = 23 }, 0); Row(host, 1); Row(path, 2);
-        Row(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { previous, up, home, browse } }, 3);
+        Row(new WrapPanel { Orientation = Orientation.Horizontal, ItemSpacing = 8, LineSpacing = 4, Children = { previous, up, home, browse, newFolder } }, 3);
         var filterRow = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), ColumnSpacing = 12 }; filterRow.Children.Add(filter); Grid.SetColumn(hidden, 1); filterRow.Children.Add(hidden); Row(filterRow, 4);
         Row(folders, 5); Row(name, 6); Row(error, 7); Row(open, 8); Content = grid;
         var localControls = grid.Children.Where(c => Grid.GetRow(c) >= 2).ToArray();
@@ -68,7 +75,7 @@ public sealed class WorkspaceDialog : Window
         Store? ownedStore = null;
         host.SelectionChanged += async (_, _) =>
         {
-            ++navigation; back.Clear(); displayedPath = null;
+            ++navigation; back.Clear(); displayedPath = null; newFolder.IsEnabled = false; newFolder.Flyout?.Hide();
             var remote = Equals(host.SelectedItem, RemoteOption);
             foreach (var control in localControls) control.IsVisible = !remote;
             if (settings is not null) { grid.Children.Remove(settings); settings.Dispose(); settings = null; }
@@ -118,7 +125,7 @@ public sealed class WorkspaceDialog : Window
     }
     private async Task Navigate(string destination, bool remember = true)
     {
-        var generation = ++navigation; var distro = Distro; folders.IsEnabled = false; error.Text = "Loading folders…";
+        var generation = ++navigation; var distro = Distro; folders.IsEnabled = false; newFolder.IsEnabled = false; error.Text = "Loading folders…";
         try
         {
             var result = await Hosts.Directories(distro, destination);
@@ -128,7 +135,7 @@ public sealed class WorkspaceDialog : Window
             displayedPath = destination; path.Text = destination; directories = result; filter.Text = ""; Filter(); error.Text = result.Length == 0 ? "This folder has no subfolders. You can open it as a workspace." : "Select a folder to open it. Double-click to browse inside.";
         }
         catch (Exception ex) { if (generation == navigation) error.Text = ex.Message; }
-        finally { if (generation == navigation) folders.IsEnabled = true; }
+        finally { if (generation == navigation) { folders.IsEnabled = true; newFolder.IsEnabled = displayedPath is not null; } }
     }
     private void Filter()
     {

@@ -56,6 +56,8 @@ public static class AppIcons
             "refresh" => PackIconCodiconsKind.Refresh,
             "queue" => PackIconCodiconsKind.ListOrdered,
             "folder" => PackIconCodiconsKind.Folder,
+            "new-folder" => PackIconCodiconsKind.NewFolder,
+            "search" => PackIconCodiconsKind.Search,
             "latest" => PackIconCodiconsKind.ArrowDown,
             "chevron-up" => PackIconCodiconsKind.ChevronUp,
             "chevron-down" => PackIconCodiconsKind.ChevronDown,

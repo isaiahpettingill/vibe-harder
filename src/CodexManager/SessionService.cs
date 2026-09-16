@@ -55,6 +55,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         var method = Text("method");
         if (method.StartsWith("terminal/", StringComparison.Ordinal)) return await terminals.Handle(request);
         if (method == "locations") return new JsonObject { ["distros"] = new JsonArray((await Hosts.Distros()).Select(d => (JsonNode)JsonValue.Create(d)!).ToArray()) };
+        if (method == "directory/create")
+            return new JsonObject { ["path"] = await Hosts.CreateDirectory(string.IsNullOrWhiteSpace(Text("distro")) ? null : Text("distro"), Text("path"), Text("name")) };
         if (method == "directories")
         {
             var distro = string.IsNullOrWhiteSpace(Text("distro")) ? null : Text("distro");

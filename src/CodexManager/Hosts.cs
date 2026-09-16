@@ -99,4 +99,25 @@ public static class Hosts
         var output = await Capture(Info("wsl.exe", "-d", distro, "--exec", "find", "-L", path, "-mindepth", "1", "-maxdepth", "1", "-type", "d", "-print0"));
         return output.Split('\0', StringSplitOptions.RemoveEmptyEntries).Order().ToArray();
     }
+    public static async Task<string> CreateDirectory(string? distro, string parent, string name)
+    {
+        if (string.IsNullOrWhiteSpace(name) || name is "." or ".." || name.Length > 255 || name.Any(char.IsControl) || name.IndexOfAny(['/', '\\']) >= 0)
+            throw new ArgumentException("Enter a folder name without path separators.");
+        if (distro is not null)
+        {
+            await Validate(new Workspace("new-folder", "", parent, distro));
+            var destination = parent.TrimEnd('/') + "/" + name;
+            await Capture(Info("wsl.exe", "-d", distro, "--exec", "mkdir", "--", destination));
+            return destination;
+        }
+        return await Task.Run(() =>
+        {
+            if (!Path.IsPathFullyQualified(parent) || !Directory.Exists(parent)) throw new DirectoryNotFoundException("Choose an existing parent folder first.");
+            if (name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || OperatingSystem.IsWindows() && (name.EndsWith('.') || name.EndsWith(' ')))
+                throw new ArgumentException("This folder name contains invalid characters.");
+            var destination = Path.Combine(parent, name);
+            if (Directory.Exists(destination) || File.Exists(destination)) throw new IOException("A folder or file with this name already exists.");
+            return Directory.CreateDirectory(destination).FullName;
+        });
+    }
 }
