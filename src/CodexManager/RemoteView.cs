@@ -343,20 +343,14 @@ public sealed class RemoteView : UserControl, IDisposable
         var attach = new IconButton { Name = "RemoteAttach", Icon = "add", Label = "Attach images or files" };
         attach.Click += async (_, _) =>
         {
+            var selectedChat = chatId;
             attach.IsEnabled = false; attachmentError.Text = "";
             try
             {
                 var provider = TopLevel.GetTopLevel(this)!.StorageProvider;
                 var selected = await provider.OpenFilePickerAsync(new() { Title = "Attach files", AllowMultiple = true, FileTypeFilter = [FilePickerFileTypes.All] });
-                foreach (var file in selected)
-                {
-                    using (file)
-                    {
-                        try { attachments.Add(await AttachmentFiles.Read(file, lifetime.Token)); }
-                        catch (Exception error) { attachmentError.Text = file.Name + ": " + error.Message; }
-                    }
-                }
-                RefreshAttachments();
+                try { if (!lifetime.IsCancellationRequested && chatId == selectedChat) await AddFiles(selected, selectedChat); }
+                finally { foreach (var file in selected) file.Dispose(); }
             }
             catch (Exception error) { attachmentError.Text = "Could not attach files: " + error.Message; }
             finally { attach.IsEnabled = true; }

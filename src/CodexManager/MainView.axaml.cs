@@ -749,8 +749,17 @@ public partial class MainView : UserControl
     }
     private async void AttachFiles(object? sender, RoutedEventArgs e)
     {
-        var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Reference files or images", AllowMultiple = true });
-        await AddFiles(files);
+        if (current is not { } target) return;
+        if (sender is Control button) button.IsEnabled = false;
+        try
+        {
+            var files = await StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions { Title = "Reference files or images", AllowMultiple = true });
+            try { if (!closing) await AddFiles(files, target); }
+            finally { foreach (var file in files) file.Dispose(); }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (!closing) StatusText.Text = "Could not attach files: " + error.Message; }
+        finally { if (sender is Control control) control.IsEnabled = true; }
     }
     private async void DropFiles(object? sender, DragEventArgs e)
     {
@@ -771,7 +780,9 @@ public partial class MainView : UserControl
             try
             {
                 if (file is not IStorageFile storageFile) throw new IOException("Drop individual files, or use Open workspace for a folder.");
-                target.Attachments.Add(await AttachmentFiles.Read(storageFile));
+                var attachment = await AttachmentFiles.Read(storageFile, discoveryLifetime.Token);
+                if (closing || !chats.Contains(target)) return;
+                target.Attachments.Add(attachment);
             }
             catch (Exception ex) { StatusText.Text = file.Name + ": " + ex.Message; }
         }
