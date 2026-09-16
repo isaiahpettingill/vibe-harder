@@ -1,5 +1,7 @@
 Unicode True
 !include "MUI2.nsh"
+!include "LogicLib.nsh"
+Var CreateDesktopShortcut
 Name "Vibe Harder"
 OutFile "${OUTPUT}"
 InstallDir "$LOCALAPPDATA\Programs\CodexManager"
@@ -19,6 +21,18 @@ UninstallIcon "${PUBLISH}\Assets\app.ico"
 
 Section "Vibe Harder"
   SetShellVarContext current
+  ; Preserve a removed desktop shortcut on upgrades, including older installs.
+  StrCpy $CreateDesktopShortcut 1
+  ReadRegStr $0 HKCU "Software\CodexManager" "InstallDir"
+  ${If} $0 != ""
+  ${OrIf} ${FileExists} "$INSTDIR\VibeHarder.exe"
+  ${OrIf} ${FileExists} "$INSTDIR\CodexManager.exe"
+    StrCpy $CreateDesktopShortcut 0
+  ${EndIf}
+  ${If} ${FileExists} "$DESKTOP\Vibe Harder.lnk"
+  ${OrIf} ${FileExists} "$DESKTOP\Codex Manager.lnk"
+    StrCpy $CreateDesktopShortcut 1
+  ${EndIf}
   SetOutPath "$INSTDIR"
   RMDir /r "$INSTDIR\runtime"
   RMDir /r "$INSTDIR\node_modules"
@@ -31,7 +45,9 @@ Section "Vibe Harder"
   Delete "$INSTDIR\CodexManager.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
   CreateShortcut "$SMPROGRAMS\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe"
-  CreateShortcut "$DESKTOP\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe"
+  ${If} $CreateDesktopShortcut == 1
+    CreateShortcut "$DESKTOP\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe"
+  ${EndIf}
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CodexManager"
   StrCmp $0 "" +2
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CodexManager" '"$INSTDIR\VibeHarder.exe" --startup'
