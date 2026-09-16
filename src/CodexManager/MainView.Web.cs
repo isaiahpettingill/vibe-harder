@@ -1,4 +1,7 @@
 using Avalonia.Threading;
+using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 
 namespace CodexManager;
 
@@ -34,5 +37,28 @@ public static class WebAccessStatus
     public static string Text { get; private set; } = "Web access is off.";
     public static event Action? Changed;
     public static void Set(string text) => Dispatcher.UIThread.Post(() => { Text = text; Changed?.Invoke(); });
-    public static string Address(Store store) => new UriBuilder("https", Environment.MachineName.ToLowerInvariant(), int.TryParse(store.Setting("webPort"), out var port) ? port : 2223).Uri.AbsoluteUri;
+    public static string Address(Store store) => Addresses(store)[0];
+    public static IReadOnlyList<string> Addresses(Store store)
+    {
+        var port = int.TryParse(store.Setting("webPort"), out var configured) ? configured : 2223;
+        if (IPAddress.TryParse(store.Setting("remoteListenAddress"), out var bind) && !bind.Equals(IPAddress.Any) && !bind.Equals(IPAddress.IPv6Any))
+            return [new UriBuilder("https", bind.ToString(), port).Uri.AbsoluteUri];
+        var addresses = new List<(string Address, int Priority)>();
+        try
+        {
+            foreach (var network in NetworkInterface.GetAllNetworkInterfaces().Where(n => n.OperationalStatus == OperationalStatus.Up && n.NetworkInterfaceType != NetworkInterfaceType.Loopback))
+            {
+                var properties = network.GetIPProperties();
+                foreach (var entry in properties.UnicastAddresses.Where(a => a.Address.AddressFamily == AddressFamily.InterNetwork && !IPAddress.IsLoopback(a.Address)))
+                {
+                    var bytes = entry.Address.GetAddressBytes();
+                    if (bytes[0] == 169 && bytes[1] == 254) continue;
+                    var tailscale = (network.Name + " " + network.Description).Contains("tailscale", StringComparison.OrdinalIgnoreCase);
+                    addresses.Add((entry.Address.ToString(), tailscale ? 0 : properties.GatewayAddresses.Count > 0 ? 1 : 2));
+                }
+            }
+        }
+        catch (NetworkInformationException) { }
+        return addresses.OrderBy(a => a.Priority).Select(a => new UriBuilder("https", a.Address, port).Uri.AbsoluteUri).Distinct().DefaultIfEmpty(new UriBuilder("https", "127.0.0.1", port).Uri.AbsoluteUri).ToArray();
+    }
 }

@@ -20,8 +20,13 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         var status = new TextBlock { Name = "ConnectionStatus", TextWrapping = TextWrapping.Wrap };
         panel.Children.Add(new TextBlock { Text = "Connect to your computer", FontSize = 20 });
         panel.Children.Add(new TextBlock { Text = "On the host, open the Connections tab in Settings and click Pair a new device. " + (OperatingSystem.IsBrowser() ? "Then connect here to receive its pairing number." : "Enter its address here to receive its pairing number."), TextWrapping = TextWrapping.Wrap });
-        var address = new TextBox { Name = "ConnectionAddress", Text = store.Setting("lastRemoteAddress") ?? "", PlaceholderText = "my-desktop or my-desktop.tailnet.ts.net", MinHeight = 44 };
-        if (OperatingSystem.IsBrowser()) { address.Text = BrowserPlatform.Origin; address.IsReadOnly = true; }
+        var address = new TextBox { Name = "ConnectionAddress", Text = store.Setting("lastRemoteAddress") ?? "", PlaceholderText = "my-desktop:2222 or my-desktop.tailnet.ts.net:2222", MinHeight = 44 };
+        if (OperatingSystem.IsBrowser())
+        {
+            var origin = new Uri(BrowserPlatform.Origin);
+            address.Text = $"https://{origin.Host}:{origin.Port}";
+        }
+        Avalonia.Input.TextInput.TextInputOptions.SetContentType(address, Avalonia.Input.TextInput.TextInputContentType.Url);
         var request = new Button { Name = "RequestPairingCode", Content = "Connect", MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch, Classes = { "accent" } };
         var code = new TextBox { Name = "PairingNumber", PlaceholderText = "Six-digit number from your desktop", MaxLength = 6, MinHeight = 44 };
         Avalonia.Input.TextInput.TextInputOptions.SetContentType(code, Avalonia.Input.TextInput.TextInputContentType.Digits);
@@ -35,6 +40,12 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             pairing?.Dispose(); pairing = null;
             try
             {
+                if (OperatingSystem.IsBrowser())
+                {
+                    var endpoint = RemotePairingSession.ParseAddress(address.Text ?? "");
+                    var target = new UriBuilder("https", endpoint.Host, endpoint.Port).Uri;
+                    if (target != new Uri(BrowserPlatform.Origin)) { BrowserPlatform.Navigate(target.AbsoluteUri); return; }
+                }
                 status.Text = "Connecting…";
                 pairing = await RemotePairingSession.Start(address.Text ?? "", OperatingSystem.IsBrowser() ? "Web browser" : OperatingSystem.IsAndroid() ? "Android device" : Environment.MachineName, lifetime.Token);
                 lifetime.Token.ThrowIfCancellationRequested();
@@ -154,6 +165,8 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             webStatusChanged = () => webStatus.Text = WebAccessStatus.Text;
             WebAccessStatus.Changed += webStatusChanged;
             var webUrl = new TextBox { Name = "WebAddress", Text = WebAccessStatus.Address(store), IsReadOnly = true };
+            var webAddresses = new ComboBox { Name = "WebAddresses", ItemsSource = WebAccessStatus.Addresses(store), SelectedIndex = 0, HorizontalAlignment = HorizontalAlignment.Stretch };
+            webAddresses.SelectionChanged += (_, _) => { if (webAddresses.SelectedItem is string address) webUrl.Text = address; };
             var openWeb = new Button { Content = "Open web UI" };
             openWeb.Click += async (_, _) => { try { if (TopLevel.GetTopLevel(this) is { } top) await top.Launcher.LaunchUriAsync(new Uri(webUrl.Text!)); } catch (Exception error) { status.Text = error.Message; } };
             async Task ApplyWeb()
@@ -163,7 +176,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
                 {
                     store.Setting("webEnabled", webEnabled.IsChecked == true ? "1" : "0");
                     store.Setting("webPort", ((int)webPort.Value!).ToString());
-                    await store.FlushAsync(); webUrl.Text = WebAccessStatus.Address(store); await (configureWeb ?? configureServer)();
+                    await store.FlushAsync(); webAddresses.ItemsSource = WebAccessStatus.Addresses(store); webAddresses.SelectedIndex = 0; await (configureWeb ?? configureServer)();
                 }
                 catch (Exception error) { status.Text = error.Message; }
                 finally { webEnabled.IsEnabled = webApply.IsEnabled = webPort.IsEnabled = true; }
@@ -171,7 +184,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             webEnabled.IsCheckedChanged += async (_, _) => await ApplyWeb(); webApply.Click += async (_, _) => await ApplyWeb();
             panel.Children.Add(new Separator()); panel.Children.Add(webEnabled);
             panel.Children.Add(new TextBlock { Text = "Downloads the matching web UI from GitHub once, then serves it from this computer. Open the address on your phone over your LAN or Tailscale and accept the certificate warning before pairing.", TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(webStatus); panel.Children.Add(webUrl); panel.Children.Add(openWeb);
+            panel.Children.Add(webStatus); panel.Children.Add(webAddresses); panel.Children.Add(webUrl); panel.Children.Add(openWeb);
 #if !MOBILE_CLIENT
             var qr = new Image { Name = "WebAddressQr", Width = 160, Height = 160, HorizontalAlignment = HorizontalAlignment.Left };
             void RefreshQr()

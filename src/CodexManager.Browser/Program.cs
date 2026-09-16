@@ -9,6 +9,7 @@ internal static partial class Program
     private static async Task Main()
     {
         BrowserPlatform.Origin = Origin();
+        BrowserPlatform.Navigate = Navigate;
         BrowserPlatform.Read = Read;
         BrowserPlatform.Write = Write;
         BrowserPlatform.Download = Download;
@@ -16,6 +17,7 @@ internal static partial class Program
         await AppBuilder.Configure<App>().UseBrowser().StartBrowserAppAsync("out");
     }
     [JSImport("origin", "web")] private static partial string Origin();
+    [JSImport("navigate", "web")] private static partial void Navigate(string url);
     [JSImport("read", "web")] private static partial string? Read(string key);
     [JSImport("write", "web")] private static partial void Write(string key, string value);
     [JSImport("download", "web")] private static partial void Download(string name, byte[] content);

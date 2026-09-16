@@ -17,6 +17,21 @@ namespace CodexManager.Tests;
 
 public class WebAccessTests
 {
+    [Fact]
+    public void AdvertisedWebAddressesUseIpsAndConfiguredPort()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("web-address-").FullName);
+        store.Setting("webPort", "2443");
+        foreach (var address in WebAccessStatus.Addresses(store))
+        {
+            var uri = new Uri(address);
+            Assert.Equal(2443, uri.Port);
+            Assert.True(IPAddress.TryParse(uri.Host, out _));
+        }
+        store.Setting("remoteListenAddress", "10.20.30.40");
+        Assert.Equal("https://10.20.30.40:2443/", Assert.Single(WebAccessStatus.Addresses(store)));
+    }
+
     [AvaloniaFact]
     public async Task WebSettingIsOptInAndDoesNotReconfigureNativeConnections()
     {

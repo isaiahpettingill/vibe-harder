@@ -4,6 +4,11 @@ try {
     const runtime = await dotnet.create();
     runtime.setModuleImports('web', {
         origin: () => location.origin,
+        navigate: url => {
+            const target = new URL(url);
+            if (target.protocol !== 'https:' || target.username || target.password) throw new Error('Enter an HTTPS host address');
+            location.assign(target.href);
+        },
         read: key => localStorage.getItem('vibeharder:' + key),
         write: (key, value) => localStorage.setItem('vibeharder:' + key, value),
         downloadUrl: url => {
