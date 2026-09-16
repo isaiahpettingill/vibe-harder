@@ -22,13 +22,23 @@ This is a source-level review with focused regression tests and a Windows x64 Na
 - Release builds explicitly enable Optimize and JIT TieredPGO while retaining workstation GC. AOT, trimming, stripped symbols, compiled bindings, and bounded transcript virtualization were already enabled.
 - Release x64 NativeAOT builds now use IlcInstructionSet=x86-64-v3 (Haswell-class AVX2). ARM and non-AOT builds do not get this baseline. Verified evaluated MSBuild properties and an actual Windows x64 AOT publish.
 
-## Remaining profiling candidates
+## Follow-up: visual trees and remaining candidates
 
-1. Loading/connecting/sidebar indicators use separate dispatcher timers. Some only test their own visibility, so an invisible ancestor can leave timers ticking. Consolidate or move suitable animations to the compositor, with effective-visibility tests.
-2. ChatMarkdown refresh walks descendants immediately and again after layout for streamed text. Measure batching rendered markdown to a frame cadence; preserve copy/selection and final-token delivery.
-3. Terminal link detection builds text/cell mappings for visible logical lines when drawing or hit-testing. A revision/scroll-aware cache may reduce allocation under heavy output; profile first to avoid stale links.
-4. Workspace sidebar controls are rebuilt when catalog status changes, and the outer grouped layout is not fully virtualized. Large workspace/chat counts warrant incremental row updates and a flattened virtualized model.
-5. Native AOT still reports existing markdown trimming warnings and a JsonArray generic-add warning in ChatRuntime. Native smoke testing remains useful after dependency upgrades.
+| Area | Implemented change | Verification |
+| --- | --- | --- |
+| Indicators | One shared clock replaces per-indicator timers. Hidden ancestors, effective viewport exclusion, and detachment unregister indicators; the clock stops when empty. Spinner geometry is shared. Connecting dots pulse in size, without an opacity layer. | Ancestor hide/show and detach tests; sleep/wake preserves active sessions. |
+| Streaming markdown | Coalesce updates into 33 ms batches, decorate once after layout using one descendant traversal, and cache the reflected document field. Stop pending timers on detach and flush the latest text on attachment/copy. Existing weak decoration caches retain no detached trees. | A 100-update burst remains deferred until the batch and displays the final update. Detached updates render on reattachment; rich selection, code copy, syntax highlighting, and renderer collection tests pass. |
+| Terminal links | Bound the parsed-line cache to 256 entries, invalidate on output/model changes, column resize, and scroll offset, and reuse it for painting and hit-testing. | Overwriting and deleting a URL invalidates cached links; soft wraps, scrollback, model replacement, local file links, and remote restrictions remain covered. |
+| Sidebar | Retain remote workspace/header/menu/list trees across status-only updates. Preserve item sources when membership/order is unchanged, index remote chats once per catalog, and release stale models/groups. Remove nested list scrollers so row virtualization uses the outer sidebar viewport. | 1,000 chats realize fewer than 30 row containers, including after scrolling. Status changes preserve control/model identity. Existing selection, order persistence, and mouse/touch drag tests pass. Lightweight group headers remain retained. |
+| Composition | Preblend workspace tints into opaque theme-aware brushes held through weak cache entries. Replace translucent drag feedback and muted text/icons with opaque colors; use an opaque sidebar dismiss surface and flyouts. Disable popup/context-menu shadow hints. No application box shadows or blur effects were present. | Theme changes update existing tint brushes; desktop hover and mobile action visibility tests pass. |
+| Clipping | Remove the transcript panel's redundant clip. Hide Android scrollbars instead of rendering them with zero opacity. | Verify the transcript remains inside a clipping ScrollContentPresenter. Keep the terminal underline viewport clip and the necessary terminal selection tint. |
+| AOT | Use the JsonNode overload when adding recovered Dirac context, avoiding the generic serialization path and its IL2026/IL3050 warnings. | Windows x64 Speed/Haswell NativeAOT publish and native TLS host smoke checks pass. |
+
+These are control reuse and bounded data caches, not full-page bitmap caches that would increase retained GPU/RAM usage. Hover-only actions still use opacity 0/1 to preserve layout and keyboard focus. The terminal's translucent text-selection overlay is necessary because the upstream renderer paints selection after glyphs.
+
+The upstream Markdown.Avalonia and SyntaxHigh trimming/AOT warnings remain visible. Their reflection metadata is explicitly rooted in TrimmerRoots.xml; suppressing these warnings or removing the roots would not establish compatibility. The native smoke test covers pairing, persistence, restart, and workspace/chat RPC; native markdown interaction was not rechecked on a desktop window in this follow-up.
+
+Validation: 32 focused visual/memory/terminal/sidebar/sleep tests passed; mobile and browser shared UI Release builds; Windows x64 NativeAOT publish; published-host smoke test. Full Android packaging and WASM native linking were not rerun. No before/after CPU, GPU, or working-set result is claimed.
 
 ## References
 

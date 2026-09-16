@@ -436,7 +436,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.Messages.Add(user); store.SaveMessage(chat, user);
             chat.Status = "Working…"; Changed?.Invoke();
             var content = new JsonArray();
-            if (!string.IsNullOrWhiteSpace(restoredContext)) content.Add(RpcJson.Object(("type", "text"), ("text", "Saved conversation from this same chat, restored after the agent reconnected. Treat this as prior conversation, not a new request. Continue with the new user message below.\n\n<saved_conversation>\n" + restoredContext + "</saved_conversation>")));
+            if (!string.IsNullOrWhiteSpace(restoredContext)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", "Saved conversation from this same chat, restored after the agent reconnected. Treat this as prior conversation, not a new request. Continue with the new user message below.\n\n<saved_conversation>\n" + restoredContext + "</saved_conversation>")));
             if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");

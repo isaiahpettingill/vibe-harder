@@ -53,7 +53,7 @@ public partial class MainView : UserControl
         if (closing)
         {
             foreach (var view in remoteViews.Values) { view.Dispose(); RootPanes.Children.Remove(view); }
-            remoteViews.Clear(); remoteCatalogs.Clear();
+            remoteViews.Clear(); remoteCatalogs.Clear(); remoteWorkspaceVisuals.Clear(); remoteActivity.Clear();
         }
         else RefreshRemoteSidebar();
     }
@@ -313,8 +313,10 @@ public partial class MainView : UserControl
         {
             var view = remoteViews[host]; if (ReferenceEquals(remoteView, view)) { remoteView = null; MobileTerminalButton.IsEnabled = false; }
             view.Dispose(); RootPanes.Children.Remove(view); remoteViews.Remove(host); remoteCatalogs.Remove(host);
+            var scope = "remote:" + host.Address + ":" + host.Port + ":";
+            foreach (var key in remoteActivity.Keys.Where(k => k.StartsWith(scope, StringComparison.Ordinal)).ToArray()) remoteActivity.Remove(key);
         }
-        WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear();
+        WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear(); remoteWorkspaceVisuals.Clear();
         if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
         foreach (var owner in SidebarOrder.Apply(store, "workspaces", workspaces, w => w.Id))
         {
@@ -335,7 +337,7 @@ public partial class MainView : UserControl
                 finally { workspaceClosures.Remove(operation); }
             };
             header.Children.Add(title); header.Children.Add(create); header.Children.Add(close);
-            var list = new ListBox { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
+            var list = new SidebarChatList { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
             list.IsVisible = store.Setting("collapsed:" + owner.Id) != "1";
             var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; store.Setting("collapsed:" + owner.Id, list.IsVisible ? "0" : "1"); };
@@ -408,7 +410,8 @@ public partial class MainView : UserControl
         foreach (var (id, list) in workspaceLists)
         {
             var selected = list.SelectedItem ?? (remoteView is null && current?.WorkspaceId == id ? current : null);
-            list.ItemsSource = SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id).Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).ToArray();
+            var rows = SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id).Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).ToArray();
+            if (list.ItemsSource is not IEnumerable<Chat> previous || !previous.SequenceEqual(rows)) list.ItemsSource = rows;
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
         }
         refreshingChats = false;

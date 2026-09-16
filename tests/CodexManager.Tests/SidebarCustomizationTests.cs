@@ -39,13 +39,13 @@ public class SidebarCustomizationTests
             if (pointerType == PointerType.Mouse) window.MouseDown(start, MouseButton.Left);
             else first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0, properties, KeyModifiers.None));
             await Task.Delay(600, TestContext.Current.CancellationToken);
-            Assert.Equal(.65, first.Opacity);
+            Assert.Contains("dragging", first.Classes);
             var end = second.TranslatePoint(new Point(20, 50), window)!.Value;
             if (pointerType == PointerType.Mouse) { window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left); }
             else first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
             Assert.Equal(0, clicked);
             Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s));
-            Assert.Equal(1, first.Opacity);
+            Assert.DoesNotContain("dragging", first.Classes);
         }
         finally { window.Close(); view.DisposeMobile(); }
     }
@@ -67,7 +67,7 @@ public class SidebarCustomizationTests
             var start = first.TranslatePoint(new Point(40, 10), window)!.Value;
             window.MouseDown(start, MouseButton.Left); window.MouseUp(start, MouseButton.Left);
             await Task.Delay(600, TestContext.Current.CancellationToken);
-            Assert.Equal(1, first.Opacity);
+            Assert.DoesNotContain("dragging", first.Classes);
             first = Row("chat0"); var second = Row("chat1");
             start = first.TranslatePoint(new Point(40, 10), window)!.Value;
             var end = second.TranslatePoint(new Point(40, second.Bounds.Height - 2), window)!.Value;
@@ -121,7 +121,8 @@ public class SidebarCustomizationTests
             window.MouseMove(new Point(290, 145)); Assert.Equal(0, grip.Opacity); Assert.Equal(0, action.Opacity);
             window.MouseMove(heading.TranslatePoint(new Point(10, 10), window)!.Value);
             Assert.Equal(1, grip.Opacity); Assert.Equal(1, action.Opacity);
-            root.Classes.Add("touchSidebar"); Assert.False(grip.IsVisible); Assert.Equal(.3, action.Opacity);
+            root.Classes.Add("touchSidebar"); Assert.False(grip.IsVisible); Assert.Equal(1, action.Opacity);
+            Assert.Same(root.FindResource("AppMuted"), action.Foreground);
         }
         finally { window.Close(); }
     }

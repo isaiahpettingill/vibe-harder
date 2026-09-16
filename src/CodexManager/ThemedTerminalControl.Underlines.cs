@@ -16,6 +16,7 @@ public sealed partial class ThemedTerminalControl
     private int underlinePending;
     private void UnhookUnderlines()
     {
+        Interlocked.Increment(ref linkRevision); linkCache.Clear();
         if (underlineModel is { } old && old.UpdateUI == underlineRefresh) old.UpdateUI = originalUnderlineRefresh;
         underlineModel = null; underlineRefresh = originalUnderlineRefresh = null;
     }
@@ -27,6 +28,7 @@ public sealed partial class ThemedTerminalControl
         var original = originalUnderlineRefresh = model.UpdateUI;
         underlineRefresh = () =>
         {
+            Interlocked.Increment(ref linkRevision);
             original?.Invoke();
             if (Interlocked.Exchange(ref underlinePending, 1) != 0) return;
             Dispatcher.UIThread.Post(() =>

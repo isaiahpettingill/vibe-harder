@@ -11,6 +11,8 @@ namespace CodexManager;
 public partial class MainView
 {
     private readonly Dictionary<RemoteHost, JsonNode> remoteCatalogs = [];
+    private readonly Dictionary<string, (StackPanel Group, ListBox List, IconButton Collapse, string Signature)> remoteWorkspaceVisuals = [];
+    private bool applyingRemoteSidebar;
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null)
     {
@@ -38,16 +40,22 @@ public partial class MainView
         {
             if (!remoteViews.TryGetValue(remoteHost, out var view) || !remoteSections.TryGetValue(remoteHost.Address + ":" + remoteHost.Port, out var section)) continue;
             if (store.Setting(RemoteCollapsedKey(remoteHost)) == "1") continue;
-            var host = view.Host; section.Children.Clear(); section.Children.Add(view.CreateConnectionStatus());
+            var host = view.Host;
+            var desired = new List<Control> { section.Children.FirstOrDefault() ?? view.CreateConnectionStatus() };
+            var retained = new HashSet<string>();
             var connectionScope = "remote:" + host.Address + ":" + host.Port + ":";
+            var records = catalog["chats"]!.AsArray().OfType<JsonNode>().ToArray();
+            var byWorkspace = records.Where(c => c["archived"]!.GetValue<bool>() == showArchived).ToLookup(c => c["workspaceId"]!.GetValue<string>());
+            var chatKeys = records.Select(c => connectionScope + c["id"]!.GetValue<string>()).ToHashSet();
+            foreach (var stale in remoteActivity.Keys.Where(k => k.StartsWith(connectionScope, StringComparison.Ordinal) && !chatKeys.Contains(k)).ToArray()) remoteActivity.Remove(stale);
             foreach (var workspace in SidebarOrder.Apply(store, "workspaces:" + connectionScope, catalog["workspaces"]!.AsArray().OfType<JsonNode>(), w => w["id"]!.GetValue<string>()))
             {
                 var ownerId = workspace!["id"]!.GetValue<string>(); var key = "remote:" + host.Address + ":" + ownerId;
                 if (store.Setting("closed:" + key) == "1") continue;
                 var rows = new List<Chat>();
-                foreach (var record in catalog["chats"]!.AsArray().Where(c => c!["workspaceId"]!.GetValue<string>() == ownerId && c["archived"]!.GetValue<bool>() == showArchived))
+                foreach (var record in byWorkspace[ownerId])
                 {
-                    var id = record!["id"]!.GetValue<string>(); var activityKey = host.Address + ":" + id;
+                    var id = record["id"]!.GetValue<string>(); var activityKey = connectionScope + id;
                     if (!remoteActivity.TryGetValue(activityKey, out var chat)) remoteActivity[activityKey] = chat = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(record["provider"]!.GetValue<string>()) };
                     chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
@@ -55,10 +63,26 @@ public partial class MainView
                 }
                 var scope = "remote:" + host.Address + ":" + host.Port + ":";
                 rows = SidebarOrder.Apply(store, "chats:" + scope + ownerId, rows, c => c.Id).ToList();
-                var list = new ListBox { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = store.Setting("collapsed:" + key) != "1" };
+                var visualKey = connectionScope + ownerId;
+                retained.Add(visualKey);
+                var signature = workspace["name"] + "\0" + workspace["distro"] + "\0" + showArchived + "\0" + store.Setting("workspaceColor:" + scope + ownerId);
+                if (remoteWorkspaceVisuals.TryGetValue(visualKey, out var cached) && cached.Signature == signature)
+                {
+                    applyingRemoteSidebar = true;
+                    try
+                    {
+                        if (cached.List.ItemsSource is not IEnumerable<Chat> previous || !previous.SequenceEqual(rows)) cached.List.ItemsSource = rows;
+                        cached.List.IsVisible = store.Setting("collapsed:" + key) != "1";
+                        cached.Collapse.Icon = cached.List.IsVisible ? "chevron-down" : "chevron-right";
+                        cached.List.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
+                    }
+                    finally { applyingRemoteSidebar = false; }
+                    desired.Add(cached.Group); continue;
+                }
+                var list = new SidebarChatList { Name = "Chats_remote_" + ownerId, ItemsSource = rows, Background = Brushes.Transparent, Margin = new(8, 0, 0, 0), IsVisible = store.Setting("collapsed:" + key) != "1" };
                 list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, anchor => view.RenameChat(anchor, chat.Id, chat.Title), () => view.ArchiveChat(chat.Id, !chat.Archived), "chats:" + scope + ownerId, scope + chat.Id, view));
                 list.SelectedItem = ReferenceEquals(remoteView, view) ? rows.FirstOrDefault(c => c.Id == view.SelectedChatId) : null;
-                list.SelectionChanged += (_, _) => { if (list.SelectedItem is Chat chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
+                list.SelectionChanged += (_, _) => { if (!applyingRemoteSidebar && list.SelectedItem is Chat chat) { OpenRemoteHost(host); chat.HasUnreadCompletion = false; view.SelectChat(chat.Id); RefreshRemoteSidebar(); } };
                 var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
                 var collapse = new IconButton { Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = "Collapse or expand workspace" };
                 collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; store.Setting("collapsed:" + key, list.IsVisible ? "0" : "1"); }; header.Children.Add(collapse);
@@ -71,8 +95,15 @@ public partial class MainView
                 EnableHoldReorder(group, "workspaces:" + connectionScope, ownerId, RefreshRemoteSidebar, heading); heading.Children.Add(header);
                 group.Children.Add(heading); group.Children.Add(list); group.Children.Add(WorkspaceDivider());
                 ColorMenu(title, "workspaceColor:" + scope + ownerId, "Workspace background color", () => { RefreshRemoteSidebar(); view.ApplyColors(); });
-                section.Children.Add(group);
+                remoteWorkspaceVisuals[visualKey] = (group, list, collapse, signature);
+                desired.Add(group);
             }
+            if (!section.Children.SequenceEqual(desired))
+            {
+                section.Children.Clear();
+                foreach (var child in desired) section.Children.Add(child);
+            }
+            foreach (var key in remoteWorkspaceVisuals.Keys.Where(k => k.StartsWith(connectionScope, StringComparison.Ordinal) && !retained.Contains(k)).ToArray()) remoteWorkspaceVisuals.Remove(key);
         }
     }
     private void ShowMobilePalette()

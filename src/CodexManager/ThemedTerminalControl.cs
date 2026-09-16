@@ -34,7 +34,7 @@ public sealed partial class ThemedTerminalControl : TerminalControl
         AttachedToVisualTree += (_, _) =>
         {
             AppTheme.Changed += RefreshPalette; RefreshPalette();
-            if (OperatingSystem.IsAndroid()) foreach (var bar in Children.OfType<Avalonia.Controls.Primitives.ScrollBar>()) { bar.Opacity = 0; bar.IsHitTestVisible = false; bar.Width = bar.MinWidth = bar.MaxWidth = 0; }
+            if (OperatingSystem.IsAndroid()) foreach (var bar in Children.OfType<Avalonia.Controls.Primitives.ScrollBar>()) { bar.IsVisible = false; bar.IsHitTestVisible = false; bar.Width = bar.MinWidth = bar.MaxWidth = 0; }
         };
         DetachedFromVisualTree += (_, _) => AppTheme.Changed -= RefreshPalette;
         SizeChanged += (_, _) => Avalonia.Threading.Dispatcher.UIThread.Post(() => Model?.EnsureCaretIsVisible());

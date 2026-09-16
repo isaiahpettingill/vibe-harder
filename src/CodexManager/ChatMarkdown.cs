@@ -10,6 +10,7 @@ using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
+using Avalonia.Threading;
 using AvaloniaEdit;
 using ColorDocument.Avalonia;
 using ColorTextBlock.Avalonia;
@@ -24,16 +25,20 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
     public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
     public bool Muted { get; set; }
+    private readonly DispatcherTimer renderTimer = new() { Interval = TimeSpan.FromMilliseconds(33) };
+    private bool attached, pending;
     // The pinned renderer exposes selection only through its document. This
     // assembly is explicitly rooted for AOT along with its reflection templates.
-    private DocumentElement? Document => typeof(MarkdownScrollViewer).GetField("_document", BindingFlags.Instance | BindingFlags.NonPublic)?.GetValue(this) as DocumentElement;
+    private static readonly FieldInfo? DocumentField = typeof(MarkdownScrollViewer).GetField("_document", BindingFlags.Instance | BindingFlags.NonPublic);
+    private DocumentElement? Document => DocumentField?.GetValue(this) as DocumentElement;
     static ChatMarkdown() => TextProperty.Changed.AddClassHandler<ChatMarkdown>((view, _) => view.Refresh());
     public ChatMarkdown()
     {
         SelectionEnabled = true; Focusable = true;
-        AttachedToVisualTree += (_, _) => ScheduleDecoration();
+        renderTimer.Tick += (_, _) => FlushRender();
+        AttachedToVisualTree += (_, _) => { attached = true; FlushRender(); ScheduleDecoration(); };
         AttachedToVisualTree += (_, _) => AppTheme.Changed += RefreshSyntax;
-        DetachedFromVisualTree += (_, _) => { AppTheme.Changed -= RefreshSyntax; LayoutUpdated -= DecorateAfterLayout; };
+        DetachedFromVisualTree += (_, _) => { attached = false; renderTimer.Stop(); AppTheme.Changed -= RefreshSyntax; LayoutUpdated -= DecorateAfterLayout; };
         AddHandler(KeyDownEvent, async (_, e) =>
         {
             if (e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
@@ -45,9 +50,14 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     }
     private void Refresh()
     {
-        Markdown = Text;
-        Decorate();
-        ScheduleDecoration();
+        pending = true;
+        if (attached && !renderTimer.IsEnabled) renderTimer.Start();
+    }
+    private void FlushRender()
+    {
+        renderTimer.Stop();
+        if (!attached || !pending) return;
+        pending = false; Markdown = Text; ScheduleDecoration();
     }
     private void ScheduleDecoration()
     {
@@ -61,8 +71,11 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     }
     private void Decorate()
     {
-        foreach (var block in this.GetVisualDescendants().OfType<CTextBlock>())
+        var codeBlocks = new List<Border>();
+        foreach (var control in this.GetVisualDescendants())
         {
+            if (control is Border border && border.Classes.Contains("CodeBlock")) codeBlocks.Add(border);
+            if (control is not CTextBlock block) continue;
             if (decoratedBlocks.TryGetValue(block, out _)) continue;
             decoratedBlocks.Add(block, new object());
             block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
@@ -71,7 +84,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             DecorateLinks(block);
             block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
         }
-        foreach (var border in this.GetVisualDescendants().OfType<Border>().Where(b => b.Classes.Contains("CodeBlock")).ToArray())
+        foreach (var border in codeBlocks)
         {
             // Plain fences use an upstream horizontal scroller whose overlay
             // covers the only line. Wrap the text within the available width.
@@ -233,6 +246,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     }
     public async Task Copy(bool selection = false)
     {
+        if (!selection) FlushRender();
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || Document is not { } document) return;
         var selected = selection ? document.GetSelectedText() : "";
         if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));

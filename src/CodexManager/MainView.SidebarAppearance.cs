@@ -13,7 +13,7 @@ public partial class MainView
     private bool sidebarHolding;
     private Control WorkspaceDivider()
     {
-        var line = new Border { Height = 1, Margin = new Thickness(8, 7, 8, 7), Opacity = .5, IsHitTestVisible = false };
+        var line = new Border { Height = 1, Margin = new Thickness(8, 7, 8, 7), IsHitTestVisible = false };
         line.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppBorder"));
         return line;
     }
@@ -42,7 +42,7 @@ public partial class MainView
                 inputRoot = null;
             }
             sidebarHolding = false; sidebarDragging = false; destination = null;
-            target.Opacity = 1; RootPanes.Children.Remove(sidebarDropIndicator);
+            target.Classes.Remove("dragging"); RootPanes.Children.Remove(sidebarDropIndicator);
             if (previous?.Captured == surface) previous.Capture(null);
             if (rebuild && !closing)
             {
@@ -55,7 +55,7 @@ public partial class MainView
             if (pointer is null || dragging || closing) return;
             hold?.Dispose(); hold = null; sidebarHolding = false;
             dragging = true; sidebarDragging = true;
-            pointer.Capture(surface); target.Opacity = .65;
+            pointer.Capture(surface); target.Classes.Add("dragging");
         }
         void FindDestination(Point position)
         {
@@ -148,15 +148,31 @@ public partial class MainView
 
 public static class SidebarColors
 {
-    private static readonly Dictionary<(Color Color, bool Background), IBrush> brushes = [];
+    private static readonly Dictionary<(Color Color, bool Background), WeakReference<SolidColorBrush>> brushes = [];
+    private static Color Opaque(Color color, bool background)
+    {
+        var canvas = Color.Parse(AppTheme.Current?.Background ?? "#14141C");
+        var alpha = color.A / 255d * (background ? .18 : 1);
+        byte Blend(byte value, byte basis) => (byte)Math.Round(value * alpha + basis * (1 - alpha));
+        return Color.FromRgb(Blend(color.R, canvas.R), Blend(color.G, canvas.G), Blend(color.B, canvas.B));
+    }
+    public static void RefreshTheme()
+    {
+        lock (brushes)
+            foreach (var (key, weak) in brushes.ToArray())
+                if (weak.TryGetTarget(out var brush)) brush.Color = Opaque(key.Color, key.Background);
+                else brushes.Remove(key);
+    }
     public static IBrush? Brush(Store store, string key, bool background = false)
     {
         if (!Color.TryParse(store.Setting(key), out var color)) return null;
         lock (brushes)
         {
-            if (brushes.TryGetValue((color, background), out var brush)) return brush;
-            if (brushes.Count >= 256) brushes.Clear();
-            return brushes[(color, background)] = new SolidColorBrush(color, background ? .18 : 1).ToImmutable();
+            if (brushes.TryGetValue((color, background), out var weak) && weak.TryGetTarget(out var cached)) return cached;
+            if (brushes.Count % 64 == 0) RefreshTheme();
+            var brush = new SolidColorBrush(Opaque(color, background));
+            brushes[(color, background)] = new(brush);
+            return brush;
         }
     }
     public static void Show(Control anchor, Store store, string key, string label, Action refresh)

@@ -12,6 +12,24 @@ namespace CodexManager.Tests;
 public class TerminalLinkTests
 {
     [AvaloniaFact]
+    public void CachedLinksAreInvalidatedByTerminalOutput()
+    {
+        var model = new TerminalControlModel();
+        var terminal = new ThemedTerminalControl { Model = model };
+        var window = new Window { Content = terminal, Width = 900, Height = 300 }; window.Show();
+        try
+        {
+            model.Feed("https://example.com/old");
+            for (var i = 0; i < 10; i++) Assert.Equal("https://example.com/old", terminal.LinkAt(Cell(terminal, 5, 0))?.AbsoluteUri);
+            model.Feed("\r\u001b[2Khttps://example.org/new");
+            Assert.Equal("https://example.org/new", terminal.LinkAt(Cell(terminal, 5, 0))?.AbsoluteUri);
+            model.Feed("\r\u001b[2Kno link");
+            Assert.Null(terminal.LinkAt(Cell(terminal, 5, 0))); Assert.Empty(terminal.LinkUnderlines());
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void LocalFilePathsAreUnderlinedButRemotePathsAreNot()
     {
         var model = new TerminalControlModel();

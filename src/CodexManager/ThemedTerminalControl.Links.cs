@@ -18,6 +18,8 @@ public sealed partial class ThemedTerminalControl
     private int linkPointer;
     private (FontFamily Font, double Size)? measuredLinkFont;
     private Size linkCellSize;
+    private readonly Dictionary<int, (List<LinkSpan> Links, int LastRow)> linkCache = [];
+    private int linkRevision, cachedLinkRevision = -1, cachedLinkColumns, cachedLinkScroll;
 
     // Match the pinned terminal renderer's cell metrics, including its fallback font.
     private Size LinkCellSize()
@@ -62,6 +64,20 @@ public sealed partial class ThemedTerminalControl
     }
     private (List<LinkSpan> Links, int LastRow) ReadLinks(int targetRow)
     {
+        if (!underlinesAttached) return ParseLinks(targetRow);
+        var revision = Volatile.Read(ref linkRevision);
+        if (cachedLinkRevision != revision || cachedLinkColumns != Model!.Terminal.Cols || cachedLinkScroll != Model.ScrollOffset)
+        {
+            linkCache.Clear(); cachedLinkRevision = revision; cachedLinkColumns = Model!.Terminal.Cols; cachedLinkScroll = Model.ScrollOffset;
+        }
+        if (linkCache.TryGetValue(targetRow, out var cached)) return cached;
+        var parsed = ParseLinks(targetRow);
+        if (linkCache.Count >= 256) linkCache.Clear();
+        linkCache[targetRow] = parsed;
+        return parsed;
+    }
+    private (List<LinkSpan> Links, int LastRow) ParseLinks(int targetRow)
+    {
         List<LinkSpan> links = [];
         var model = Model!;
         var buffer = model.Terminal.Buffer;
@@ -92,7 +108,8 @@ public sealed partial class ThemedTerminalControl
                 if (text.Length > maxCells) return (links, lastRow);
             }
         }
-        foreach (Match match in UrlPattern.Matches(text.ToString()))
+        var lineText = text.ToString();
+        foreach (Match match in UrlPattern.Matches(lineText))
         {
             var target = match.Value.TrimEnd('.', ',', ';', ':', '!', '?');
             while (target.Length > 0 && target[^1] is ')' or ']' or '}')
@@ -110,7 +127,7 @@ public sealed partial class ThemedTerminalControl
                 links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, uri));
             }
         }
-        foreach (var file in TerminalFileLinks.Find(text.ToString(), FileWorkspace))
+        foreach (var file in TerminalFileLinks.Find(lineText, FileWorkspace))
         {
             var start = cells[file.Start]; var end = cells[file.Start + file.Length - 1];
             if (!links.Any(link => link.Contains(start.Row, start.Column)))

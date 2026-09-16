@@ -28,7 +28,7 @@ public sealed class SlashCommandOverlay : Popup
             Children =
             {
                 new TextBlock { Text = "/" + command.Name + (command.Hint is { Length: > 0 } hint ? "  " + hint : ""), TextTrimming = TextTrimming.CharacterEllipsis },
-                new TextBlock { Text = command.Description, IsVisible = command.Description.Length > 0, FontSize = 11, Opacity = .7, TextTrimming = TextTrimming.CharacterEllipsis }
+                new TextBlock { Text = command.Description, IsVisible = command.Description.Length > 0, FontSize = 11, Classes = { "muted" }, TextTrimming = TextTrimming.CharacterEllipsis }
             }
         });
         var border = new Border { Padding = new Thickness(6), CornerRadius = new CornerRadius(6), BorderThickness = new Thickness(1), Child = new StackPanel { Spacing = 4, Children = { new TextBlock { Text = "Commands", FontSize = 11, Margin = new Thickness(6, 2) }, commands } } };

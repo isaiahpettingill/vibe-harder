@@ -57,7 +57,7 @@ public sealed class CommandPalette : UserControl
             Margin = new Thickness(2, 4),
             Children = {
                 new TextBlock { Text = command?.Title },
-                new TextBlock { Text = command?.Detail, FontSize = 11, Opacity = .6, TextTrimming = TextTrimming.CharacterEllipsis }
+                new TextBlock { Text = command?.Detail, FontSize = 11, Classes = { "muted" }, TextTrimming = TextTrimming.CharacterEllipsis }
             }
         });
         query.TextChanged += (_, _) => Filter();

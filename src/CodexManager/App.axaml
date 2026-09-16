@@ -27,6 +27,8 @@
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
+    <Style Selector="Popup"><Setter Property="WindowManagerAddShadowHint" Value="False"/></Style>
+    <Style Selector="ContextMenu"><Setter Property="WindowManagerAddShadowHint" Value="False"/></Style>
     <Style Selector="TemplatedControl"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
     <Style Selector="TextBox, ComboBox, NumericUpDown, MenuFlyoutPresenter, ContextMenu"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
     <Style Selector="TextBlock"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
@@ -58,7 +60,10 @@
     <Style Selector="Grid.chatRow:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="Grid.workspaceHeading Button.rowAction"><Setter Property="Opacity" Value="0"/></Style>
     <Style Selector="Grid.workspaceHeading:pointerover Button.rowAction, Grid.workspaceHeading:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
-    <Style Selector="UserControl.touchSidebar Button.rowAction"><Setter Property="Opacity" Value="0.3"/></Style>
+    <Style Selector="UserControl.touchSidebar Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
+    <Style Selector="UserControl.touchSidebar Button.rowAction"><Setter Property="Foreground" Value="{DynamicResource AppMuted}"/></Style>
+    <Style Selector="Grid.dragging, StackPanel.dragging"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
+    <Style Selector="FlyoutPresenter, ToolTip"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
     <Style Selector="UserControl.touchSidebar Button.dragHandle"><Setter Property="IsVisible" Value="False"/></Style>
   </Application.Styles>
 </Application>

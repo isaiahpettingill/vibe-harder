@@ -28,6 +28,7 @@ public static class AppTheme
     {
         var app = Application.Current!;
         Current = palette;
+        SidebarColors.RefreshTheme();
         app.RequestedThemeVariant = palette.Light ? ThemeVariant.Light : ThemeVariant.Dark;
         void Brush(string key, string color)
         {

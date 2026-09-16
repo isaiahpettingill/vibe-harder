@@ -72,11 +72,14 @@ public class PresentationSleepTests
             var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
             var list = UiTests.Named<ListBox>(window, "MessageList");
             await Wait(() => chat.HistoryLoaded);
-            window.GetVisualDescendants().OfType<IconButton>().Single(b => ToolTip.GetTip(b)?.ToString() == "Earlier messages").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Wait(() => list.Items.OfType<Message>().LastOrDefault()?.Sequence == 35);
+            // Set up an older page through the same action as scroll pagination.
+            // This test covers preserving that page across sleep, independently of layout timing.
+            await (Task)typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window.View, [false])!;
+            await Wait(() => list.Items.OfType<Message>().FirstOrDefault()?.Sequence == 0);
+            var pageEnd = list.Items.OfType<Message>().Last().Sequence;
             await window.SetPresentationSleeping(true); await window.SetPresentationSleeping(false);
-            Assert.Equal(35, list.Items.OfType<Message>().Last().Sequence);
-            window.GetVisualDescendants().OfType<IconButton>().Single(b => ToolTip.GetTip(b)?.ToString() == "Return to latest messages").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(pageEnd, list.Items.OfType<Message>().Last().Sequence);
+            UiTests.Named<IconButton>(window, "HistoryNavigation").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => list.Items.OfType<Message>().LastOrDefault()?.Sequence == 99);
         }
         finally { window.RequestExit(); await Task.Delay(200); }
@@ -101,7 +104,8 @@ public class PresentationSleepTests
             Assert.Empty(window.GetVisualDescendants().OfType<MessageView>());
             await Task.Delay(150); Assert.True(chat.Busy);
             Assert.Equal(stoppedAngle, ((Avalonia.Media.RotateTransform)spinner.RenderTransform!).Angle);
-            window.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Escape });
+            // Escape now interrupts a running chat. Use a navigation key to test waking alone.
+            window.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Left });
             await Wait(() => !window.IsPresentationSleeping && chat.Messages.Count == Chat.HistoryPageSize);
             window.UpdateLayout();
             Assert.False(window.IsPresentationSleeping); Assert.True(chat.Busy);

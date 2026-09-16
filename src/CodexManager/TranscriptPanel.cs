@@ -10,7 +10,6 @@ namespace CodexManager;
 // virtual stack, measuring a tall markdown row cannot move the bottom away.
 public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
 {
-    public TranscriptPanel() => ClipToBounds = true;
     private readonly Dictionary<int, Control> realized = [];
     private readonly Dictionary<object, double> heights = new(ReferenceEqualityComparer.Instance);
     private Vector offset;
