@@ -14,7 +14,8 @@ public partial class MainView
     private RenderTargetBitmap? sleepingFrame;
     private bool uiSleeping;
     private int? sleepingPageEnd;
-    private Vector sleepingScrollOffset;
+    private int sleepingPageCount;
+    private (object Item, double Within)? sleepingAnchor;
     public bool IsPresentationSleeping => uiSleeping;
     private void InitializePresentationSleep()
     {
@@ -66,7 +67,8 @@ public partial class MainView
         {
             SaveAll(); pageLoad?.Cancel();
             sleepingPageEnd = viewingHistory ? MessageList.Items.OfType<Message>().LastOrDefault()?.Sequence : null;
-            sleepingScrollOffset = TranscriptScroll.Offset;
+            sleepingPageCount = MessageList.ItemCount;
+            sleepingAnchor = (MessageList.ItemsPanelRoot as TranscriptPanel)?.CaptureAnchor();
             if (IsVisible && RootPanes.Bounds.Width > 0 && RootPanes.Bounds.Height > 0)
             {
                 try
@@ -94,11 +96,12 @@ public partial class MainView
             {
                 if (sleepingPageEnd is { } end)
                 {
-                    var page = await store.ReadPageAsync(selected, before: end + 1, token: discoveryLifetime.Token);
+                    var page = await store.ReadPageAsync(selected, before: end + 1, limit: sleepingPageCount, token: discoveryLifetime.Token);
                     if (!uiSleeping && ReferenceEquals(current, selected))
                     {
                         MessageList.ItemsSource = page;
-                        Dispatcher.UIThread.Post(() => { if (!uiSleeping && ReferenceEquals(current, selected) && viewingHistory) TranscriptScroll.Offset = sleepingScrollOffset; }, DispatcherPriority.Background);
+                        var anchor = sleepingAnchor;
+                        Dispatcher.UIThread.Post(() => { if (!uiSleeping && ReferenceEquals(current, selected) && viewingHistory) (MessageList.ItemsPanelRoot as TranscriptPanel)?.RestoreAnchor(anchor); }, DispatcherPriority.Background);
                     }
                 }
                 else await RestoreVisibleHistory(selected, discoveryLifetime.Token);
@@ -106,6 +109,7 @@ public partial class MainView
             catch (OperationCanceledException) { }
             catch (Exception error) { StatusText.Text = "Could not reload history: " + error.Message; }
         }
+        sleepingAnchor = null;
         if (!closing) UpdateControls();
     }
     private async Task RestoreVisibleHistory(Chat chat, CancellationToken token)

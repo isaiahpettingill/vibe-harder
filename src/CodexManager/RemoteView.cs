@@ -336,9 +336,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
             var page = result["messages"]!.AsArray().Select(row => ReadMessage(row!)).ToArray();
             if (page.Length == 0) return;
             var merged = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.First()).OrderBy(m => m.Sequence);
-            var bounded = newer ? merged.TakeLast(Chat.HistoryPageSize).ToArray() : merged.Take(Chat.HistoryPageSize).ToArray();
-            viewingHistory = !(newer && messages.Count > 0 && bounded[^1].Sequence >= messages[^1].Sequence);
-            TranscriptNavigation.ReplacePage(output, viewingHistory ? bounded : messages);
+            viewingHistory = true;
+            TranscriptNavigation.ReplacePage(output, merged.ToArray());
             UpdateSendAction();
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; UpdateSendAction(); if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
@@ -519,13 +518,13 @@ public sealed partial class RemoteView : UserControl, IDisposable
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
                     }
                 }
-                var scroll = output.Scroll;
-                var follow = scroll is null || scroll.Offset.Y + scroll.Viewport.Height >= scroll.Extent.Height - 80;
+                var firstPage = messages.Count == 0;
+                var follow = firstPage || output.ItemsPanelRoot is not TranscriptPanel panel || panel.IsFollowingEnd;
                 ApplyMessages(result["messages"]!.AsArray());
                 if (DateTimeOffset.UtcNow >= nextCatalogRefresh) { nextCatalogRefresh = DateTimeOffset.UtcNow.AddSeconds(2); await RefreshList(); }
                 if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() =>
                 {
-                    if (!lifetime.IsCancellationRequested && !presentationSleeping && !viewingHistory && id == chatId && messages.Count > 0) output.ScrollIntoView(messages[^1]);
+                    if (!lifetime.IsCancellationRequested && !presentationSleeping && !viewingHistory && id == chatId && messages.Count > 0 && (firstPage || output.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true })) output.ScrollIntoView(messages[^1]);
                 });
                 if (lifetime.IsCancellationRequested || id != chatId) return;
                 var permissionText = result["permissions"]!.ToJsonString();

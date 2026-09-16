@@ -1,5 +1,6 @@
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Input;
 using Avalonia.VisualTree;
 
 namespace CodexManager;
@@ -15,6 +16,10 @@ public sealed class TranscriptNavigation
     {
         this.list = list; this.latest = latest; this.history = history; this.browse = browse;
         list.AddHandler(ScrollViewer.ScrollChangedEvent, Changed, RoutingStrategies.Bubble);
+        list.AddHandler(InputElement.PointerWheelChangedEvent, async (_, e) =>
+        {
+            if (e.Delta.Y > 0 && list.Scroll is { Offset.Y: < 64 }) await Load(false);
+        }, RoutingStrategies.Tunnel);
     }
     public void Update()
     {
@@ -25,10 +30,15 @@ public sealed class TranscriptNavigation
     {
         if (!ReferenceEquals(e.Source, list.Scroll)) return;
         Update();
-        if (paging || list.Scroll is not { } scroll || e.OffsetDelta.Y == 0 || e.ExtentDelta.Y != 0) return;
+        if (paging || list.Scroll is not { } scroll || e.OffsetDelta.Y == 0) return;
         var older = e.OffsetDelta.Y < 0 && scroll.Offset.Y < 64;
         var newer = history() && e.OffsetDelta.Y > 0 && scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y < 64;
         if (!older && !newer) return;
+        await Load(newer);
+    }
+    private async Task Load(bool newer)
+    {
+        if (paging) return;
         paging = true;
         try { await browse(newer); }
         catch (Exception error) { AppDiagnostics.Record("History navigation", error); }
@@ -38,7 +48,7 @@ public sealed class TranscriptNavigation
     {
         var panel = list.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault();
         var anchor = panel?.CaptureAnchor();
-        list.ItemsSource = page; list.UpdateLayout();
+        list.ItemsSource = page;
         list.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault()?.RestoreAnchor(anchor);
     }
 }

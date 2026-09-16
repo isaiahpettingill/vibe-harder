@@ -457,7 +457,7 @@ public partial class MainView : UserControl
         store.Setting("lastProvider", chat.Provider.ToString());
         MessageList.ItemsSource = runtimes.TryGetValue(chat.Id, out var loadingRuntime) && loadingRuntime.IsLoadingHistory ? chat.Messages.ToArray() : chat.Messages; AttachmentList.ItemsSource = chat.Attachments;
         UpdateControls(); Composer.Focus();
-        Dispatcher.UIThread.Post(() => ScrollTranscriptToEnd(), DispatcherPriority.Background);
+        ScrollTranscriptToEnd(force: true);
         viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
         if (!chat.HistoryLoaded && runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory != true)
         {
@@ -712,10 +712,15 @@ public partial class MainView : UserControl
                     }
                     else if (!ReferenceEquals(MessageList.ItemsSource, chat.Messages))
                     {
+                        var follow = MessageList.ItemCount == 0 || MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true };
                         MessageList.ItemsSource = chat.Messages;
-                        ScrollTranscriptToEnd();
+                        if (follow)
+                        {
+                            if (MessageList.ItemsPanelRoot is TranscriptPanel panel) panel.FollowEnd();
+                            ScrollTranscriptToEnd();
+                        }
                     }
-                    else if (TranscriptScroll.Offset.Y + TranscriptScroll.Viewport.Height >= TranscriptScroll.Extent.Height - 150)
+                    else if (MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true })
                         ScrollTranscriptToEnd();
                 }
             };
@@ -1213,9 +1218,8 @@ public partial class MainView : UserControl
             var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: 50, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
             var merged = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.First()).OrderBy(m => m.Sequence);
-            var bounded = newer ? merged.TakeLast(Chat.HistoryPageSize).ToArray() : merged.Take(Chat.HistoryPageSize).ToArray();
-            viewingHistory = !(newer && chat.Messages.Count > 0 && bounded[^1].Sequence >= chat.Messages[^1].Sequence);
-            TranscriptNavigation.ReplacePage(MessageList, viewingHistory ? bounded : chat.Messages); UpdateHistoryNavigation(); UpdateComposerAction();
+            viewingHistory = true;
+            TranscriptNavigation.ReplacePage(MessageList, merged.ToArray()); UpdateHistoryNavigation(); UpdateComposerAction();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; }
@@ -1227,19 +1231,23 @@ public partial class MainView : UserControl
         try { if (current is { HistoryLoaded: false } chat) await RestoreVisibleHistory(chat, discoveryLifetime.Token); }
         catch (OperationCanceledException) { }
         catch (Exception error) { StatusText.Text = "Could not reload history: " + error.Message; }
-        ScrollTranscriptToEnd();
+        ScrollTranscriptToEnd(force: true);
     }
     private bool transcriptScrollPending;
-    private void ScrollTranscriptToEnd()
+    private void ScrollTranscriptToEnd(bool force = false)
     {
-        if (uiSleeping || transcriptScrollPending) return;
+        if (uiSleeping || !force && transcriptScrollPending) return;
+        var initialize = force && MessageList.ItemsPanelRoot is not TranscriptPanel;
+        if (force && MessageList.ItemsPanelRoot is TranscriptPanel followingPanel) followingPanel.FollowEnd();
         transcriptScrollPending = true;
         var chat = current;
         Dispatcher.UIThread.Post(() =>
         {
             transcriptScrollPending = false;
             if (closing || viewingHistory || !ReferenceEquals(current, chat) ||
-                (chat is not null && runtimes.TryGetValue(chat.Id, out var runtime) && runtime.IsLoadingHistory)) return;
+                (!force && chat is not null && runtimes.TryGetValue(chat.Id, out var runtime) && runtime.IsLoadingHistory)) return;
+            if (!initialize && MessageList.ItemsPanelRoot is not TranscriptPanel { IsFollowingEnd: true }) return;
+            if (initialize && MessageList.ItemsPanelRoot is TranscriptPanel panel) panel.FollowEnd();
             MessageList.ScrollIntoView(MessageList.ItemCount - 1);
         }, DispatcherPriority.Background);
     }

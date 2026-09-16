@@ -77,7 +77,17 @@ public class PresentationSleepTests
             await (Task)typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window.View, [false])!;
             await Wait(() => list.Items.OfType<Message>().FirstOrDefault()?.Sequence == 0);
             var pageEnd = list.Items.OfType<Message>().Last().Sequence;
+            var pageCount = list.ItemCount;
+            window.UpdateLayout();
+            var panel = (TranscriptPanel)list.ItemsPanelRoot!;
+            panel.Offset = new(0, 100); window.UpdateLayout();
+            var anchor = panel.CaptureAnchor();
             await window.SetPresentationSleeping(true); await window.SetPresentationSleeping(false);
+            await Task.Delay(50); window.UpdateLayout();
+            Assert.Equal(pageCount, list.ItemCount);
+            var restored = ((TranscriptPanel)list.ItemsPanelRoot!).CaptureAnchor();
+            Assert.Equal((((Message)anchor!.Value.Item).Sequence, anchor.Value.Within), (((Message)restored!.Value.Item).Sequence, restored.Value.Within));
+            Assert.Equal(anchor.Value.Within, restored.Value.Within, 2);
             Assert.Equal(pageEnd, list.Items.OfType<Message>().Last().Sequence);
             UiTests.Named<IconButton>(window, "HistoryNavigation").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => list.Items.OfType<Message>().LastOrDefault()?.Sequence == 99);

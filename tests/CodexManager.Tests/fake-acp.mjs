@@ -6,7 +6,8 @@ if (startupLog) appendFileSync(startupLog, 'started\n');
 if (process.argv.includes('--startup-failure') && recoveryFile && !existsSync(recoveryFile)) { writeFileSync(recoveryFile,'startup\n'); process.exit(3); }
 const emit = value => process.stdout.write(JSON.stringify(value)+'\n');
 const response = (id,result) => emit({jsonrpc:'2.0',id,result});
-const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}}});
+let activeSession = 'fixture-session';
+const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}}});
 let turn;
 let permissionTurn;
 const configOptions=[{id:'model',name:'Model',type:'select',currentValue:'small',options:[{value:'small',name:'Small'},{value:'large',name:'Large'}]},{id:'reasoning',name:'Thinking',type:'select',currentValue:'low',options:[{value:'low',name:'Low'},{value:'high',name:'High'}]},{id:'fast',name:'Fast mode',type:'boolean',currentValue:false}];
@@ -41,6 +42,7 @@ createInterface({input:process.stdin}).on('line',line=>{
    if (!m.params.cursor) { response(m.id,{sessions:[{sessionId:'wrong-folder',cwd:m.params.cwd+'/child',title:'Excluded'}],nextCursor:'page2'}); break; }
    response(m.id,{sessions:[{sessionId:'imported-session',cwd:m.params.cwd,title:'Imported conversation',updatedAt:'2026-09-10T12:00:00Z'},{sessionId:'imported-session',cwd:m.params.cwd,title:'Duplicate'}]});break;
   case 'session/load':
+   activeSession = m.params.sessionId;
    if(process.argv.includes('--load-many')) {
     for(let i=0;i<450;i++) {
      emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:m.params.sessionId,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Question '+i}}}});
