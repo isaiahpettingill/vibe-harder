@@ -27,6 +27,12 @@ public static class Hosts
         return "export PATH=" + Quote(string.Join(':', paths)) + ":\"$PATH\"; " + command;
     }
     public static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
+    public static string WslShellCommand(string command) =>
+        // Login bash does not load zsh/nvm/fnm PATH setup. Read only PATH from
+        // the user's interactive shell; startup banners must never reach ACP stdout.
+        "vibe_agent_path=$(timeout 10s \"${SHELL:-/bin/bash}\" -ilc 'command printenv PATH >&3' 3>&1 >/dev/null 2>/dev/null </dev/null); " +
+        "if [ -n \"$vibe_agent_path\" ]; then export PATH=\"$vibe_agent_path\"; fi; " +
+        "export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH\"; exec " + command;
     public static string WindowsArgument(string value)
     {
         if (value.Length > 0 && !value.Any(c => char.IsWhiteSpace(c) || c == '"')) return value;
@@ -45,7 +51,7 @@ public static class Hosts
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WSL workspaces require Windows.");
             if (environment is not null) command = "env " + string.Join(" ", environment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
-            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", "export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH\"; exec " + command);
+            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", WslShellCommand(command));
         }
         else if (OperatingSystem.IsWindows())
         {
