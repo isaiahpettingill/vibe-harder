@@ -13,6 +13,22 @@ namespace CodexManager.Tests;
 
 public class SidebarCustomizationTests
 {
+    [Theory]
+    [InlineData("chats:workspace")]
+    [InlineData("chats:remote:host:2222:workspace")]
+    public void NewChatsAppearAboveManualOrderAndStayThereAfterRestart(string scope)
+    {
+        var directory = Directory.CreateTempSubdirectory("new-chat-order-").FullName;
+        using (var store = new Store(directory))
+        {
+            SidebarOrder.Apply(store, scope, new[] { "a", "b" }, id => id);
+            SidebarOrder.Move(store, scope, "b", "a", false);
+            Assert.Equal(new[] { "new", "b", "a" }, SidebarOrder.Apply(store, scope, new[] { "a", "b", "new" }, id => id));
+            Assert.Equal(new[] { "newer", "new", "b", "a" }, SidebarOrder.Apply(store, scope, new[] { "newer", "a", "b", "new" }, id => id));
+        }
+        using var reopened = new Store(directory);
+        Assert.Equal(new[] { "newer", "new", "b", "a" }, SidebarOrder.Apply(reopened, scope, new[] { "a", "b", "new", "newer" }, id => id));
+    }
     [AvaloniaTheory]
     [InlineData(PointerType.Touch)]
     [InlineData(PointerType.Mouse)]

@@ -76,8 +76,7 @@ public sealed class MessageView : UserControl
         var legacyResume = Message is { Role: "user", Attachments.Count: 0 } && string.IsNullOrWhiteSpace(Message.Text);
         var sessionNotice = Message?.Role == "system" || legacyResume;
         history.IsVisible = !legacyResume && !this.GetVisualAncestors().Any(v => v is SubagentView or SubagentInspector) && Message?.Role is "user" or "assistant" or "tool";
-        title.Foreground = this.TryFindResource(IsOutput || sessionNotice ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
-        title.FontStyle = sessionNotice ? FontStyle.Italic : FontStyle.Normal;
+        title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
         var text = Message?.Text ?? "";
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];

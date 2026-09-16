@@ -9,8 +9,10 @@ public static class SidebarOrder
         var values = items.ToArray();
         var saved = Read(store, scope);
         var ranks = saved.Select((value, index) => (value, index)).ToDictionary(x => x.value, x => x.index);
-        var ordered = values.OrderBy(value => ranks.GetValueOrDefault(id(value), int.MaxValue)).ToArray();
-        var next = saved.Concat(values.Select(id)).Distinct().ToArray();
+        var newChatsFirst = scope.StartsWith("chats:", StringComparison.Ordinal);
+        var ordered = values.OrderBy(value => ranks.GetValueOrDefault(id(value), newChatsFirst ? -1 : int.MaxValue)).ToArray();
+        var added = values.Select(id).Where(value => !ranks.ContainsKey(value));
+        var next = (newChatsFirst ? added.Concat(saved) : saved.Concat(added)).Distinct().ToArray();
         if (!next.SequenceEqual(saved)) Write(store, scope, next);
         return ordered;
     }
