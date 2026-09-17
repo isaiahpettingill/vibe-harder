@@ -60,6 +60,12 @@ public class RemoteTranscriptScrollingTests
             count = polls; await Wait(() => polls >= count + 3); window.UpdateLayout();
             Assert.Equal(anchor, panel.CaptureAnchor()); Assert.False(panel.IsFollowingEnd);
             Assert.Equal(0, historyLoads);
+            var composer = view.GetVisualDescendants().OfType<TextBox>().Single(x => x.Name == "RemoteComposer");
+            composer.Text = "Queue this while working";
+            await (Task)typeof(RemoteView).GetMethod("SendOrStop", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(view, ["send"])!;
+            window.UpdateLayout();
+            Assert.True(panel.IsFollowingEnd);
+            Assert.InRange(Math.Abs(panel.Extent.Height - panel.Viewport.Height - panel.Offset.Y), 0, 1);
         }
         finally { window.Close(); }
     }

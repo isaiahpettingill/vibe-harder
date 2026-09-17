@@ -679,7 +679,10 @@ public partial class MainView : UserControl
         if (chat.Busy)
         {
             if (!runtime.IsPrompting) return;
-            runtime.Queue(new(text, attachments)); Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls(); return;
+            runtime.Queue(new(text, attachments)); Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
+            viewingHistory = false; pageLoad?.Cancel(); MessageList.ItemsSource = chat.Messages;
+            ScrollTranscriptToEnd(force: true);
+            return;
         }
         viewingHistory = false; pageLoad?.Cancel(); MessageList.ItemsSource = chat.Messages;
         Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear();

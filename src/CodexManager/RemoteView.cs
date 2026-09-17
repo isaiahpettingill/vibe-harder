@@ -589,7 +589,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var id = chatId; var text = composer.Text ?? ""; var sent = attachments.ToArray();
         var stop = busy && !preparing && !HasDraft;
         if (!stop && !HasDraft) return;
-        if (!stop && !busy)
+        if (!stop)
         {
             viewingHistory = false; output.ItemsSource = messages;
             (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
