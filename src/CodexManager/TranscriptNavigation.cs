@@ -30,7 +30,10 @@ public sealed class TranscriptNavigation
     {
         if (!ReferenceEquals(e.Source, list.Scroll)) return;
         Update();
-        if (paging || list.Scroll is not { } scroll || e.OffsetDelta.Y == 0) return;
+        // Measuring markdown and resizing the composer also change the offset.
+        // Those adjustments must never turn a live transcript into a history page.
+        if (paging || list.Scroll is not { } scroll || e.OffsetDelta.Y == 0 || e.ExtentDelta != default || e.ViewportDelta != default) return;
+        if (list.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true }) return;
         var older = e.OffsetDelta.Y < 0 && scroll.Offset.Y < 64;
         var newer = history() && e.OffsetDelta.Y > 0 && scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y < 64;
         if (!older && !newer) return;

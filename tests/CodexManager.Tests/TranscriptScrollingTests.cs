@@ -10,6 +10,42 @@ namespace CodexManager.Tests;
 public class TranscriptScrollingTests
 {
     [AvaloniaFact]
+    public async Task ShrinkingContentAtTheBottomDoesNotRequestOlderHistory()
+    {
+        var list = Create(Enumerable.Range(0, 8).Select(i => new Message { Sequence = i, Text = "Message " + i }));
+        var loads = 0;
+        _ = new TranscriptNavigation(list, new IconButton(), () => false, _ => { loads++; return Task.CompletedTask; });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            var panel = (TranscriptPanel)list.ItemsPanelRoot!; panel.FollowEnd(); window.UpdateLayout(); await Task.Delay(30);
+            foreach (var block in list.GetVisualDescendants().OfType<TextBlock>()) block.Height = 1;
+            window.UpdateLayout(); await Task.Delay(30);
+            Assert.Equal(0, loads);
+            Assert.True(panel.IsFollowingEnd);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public void BringingAnAlreadyVisibleMessageIntoViewDoesNotChangeTheReadingPosition()
+    {
+        var list = Create(Enumerable.Range(0, 100).Select(i => new Message { Sequence = i, Text = "Message " + i }));
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            window.UpdateLayout(); var panel = (TranscriptPanel)list.ItemsPanelRoot!;
+            panel.Offset = new(0, 500); window.UpdateLayout();
+            var row = list.GetVisualDescendants().OfType<ListBoxItem>().First(c => c.Bounds.Top > 0 && c.Bounds.Bottom < panel.Viewport.Height);
+            var offset = panel.Offset;
+            panel.BringIntoView(row, new Rect(row.Bounds.Size)); window.UpdateLayout();
+            Assert.Equal(offset, panel.Offset);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task BrowsingHistoryRetainsAllLoadedPages()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vibe-scroll-history", Guid.NewGuid().ToString("N"));

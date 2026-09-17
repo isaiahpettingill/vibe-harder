@@ -267,6 +267,12 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
     {
         var index = IndexFromContainer(target);
         if (index < 0) return false;
-        ScrollIntoView(index); return true;
+        var top = Top(index) + targetRect.Top;
+        var end = top + targetRect.Height;
+        // Focus/selection can request an already-visible row after layout. Moving
+        // it to the top would disturb reading and disable the bottom anchor.
+        if (top >= offset.Y && end <= offset.Y + Viewport.Height || top <= offset.Y && end >= offset.Y + Viewport.Height) return false;
+        Offset = new Vector(0, top < offset.Y ? top : end - Viewport.Height);
+        return true;
     }
 }

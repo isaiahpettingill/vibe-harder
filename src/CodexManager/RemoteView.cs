@@ -321,7 +321,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var split = new Grid { ColumnDefinitions = new("0,0,*"), RowDefinitions = new("Auto,*") }; Grid.SetRow(split, 1); panel.Children.Add(split);
         chats.SelectionChanged += (_, _) => { if (!refreshing && chats.SelectedItem is RemoteItem selected && chatId != selected.Id) SelectChat(selected.Id); };
         chats.IsVisible = false; split.Children.Add(chats); var divider = new GridSplitter { Width = 5, HorizontalAlignment = HorizontalAlignment.Stretch, IsVisible = false }; Grid.SetColumn(divider, 1); split.Children.Add(divider);
-        output = new ListBox { ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
+        output = new ListBox { AutoScrollToSelectedItem = false, ItemsSource = messages, ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()), Background = Avalonia.Media.Brushes.Transparent, ItemTemplate = new FuncDataTemplate<Message>((message, _) => { var view = new MessageView { Margin = new Thickness(8) }; view.DataContextChanged += (_, _) => view.Message = view.DataContext as Message; return view; }, true) };
         output.ItemContainerTheme = (Avalonia.Styling.ControlTheme)Application.Current!.Resources["TranscriptItemTheme"]!;
         ScrollViewer.SetVerticalScrollBarVisibility(output, OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
         ScrollViewer.SetAllowAutoHide(output, false);
@@ -522,13 +522,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
                     }
                 }
                 var firstPage = messages.Count == 0;
-                var follow = firstPage || output.ItemsPanelRoot is not TranscriptPanel panel || panel.IsFollowingEnd;
+                if (firstPage && !viewingHistory) (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
                 ApplyMessages(result["messages"]!.AsArray());
+                if (firstPage && !viewingHistory && output.ItemsPanelRoot is null && messages.Count > 0) output.ScrollIntoView(messages[^1]);
                 if (DateTimeOffset.UtcNow >= nextCatalogRefresh) { nextCatalogRefresh = DateTimeOffset.UtcNow.AddSeconds(2); await RefreshList(); }
-                if (follow && !viewingHistory && messages.Count > 0) Dispatcher.UIThread.Post(() =>
-                {
-                    if (!lifetime.IsCancellationRequested && !presentationSleeping && !viewingHistory && id == chatId && messages.Count > 0 && (firstPage || output.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true })) output.ScrollIntoView(messages[^1]);
-                });
                 if (lifetime.IsCancellationRequested || id != chatId) return;
                 var permissionText = result["permissions"]!.ToJsonString();
                 if (permissionsJson != permissionText)

@@ -43,7 +43,7 @@
               <TextBlock Name="WelcomeHint" Text="Your chats and terminals stay with the project." TextWrapping="Wrap" Classes="muted"/>
               <Button Name="WelcomeOpenButton" Content="Open workspace" Click="OpenWorkspaceClick"/>
             </StackPanel>
-            <ListBox Grid.Row="1" Name="MessageList" ItemContainerTheme="{StaticResource TranscriptItemTheme}" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
+            <ListBox Grid.Row="1" Name="MessageList" AutoScrollToSelectedItem="False" ItemContainerTheme="{StaticResource TranscriptItemTheme}" Background="Transparent" BorderThickness="0" Padding="0" ScrollViewer.HorizontalScrollBarVisibility="Disabled" ScrollViewer.VerticalScrollBarVisibility="Visible" ScrollViewer.AllowAutoHide="False">
               <ListBox.ItemsPanel><ItemsPanelTemplate><local:TranscriptPanel/></ItemsPanelTemplate></ListBox.ItemsPanel>
               <ListBox.ItemTemplate><DataTemplate x:DataType="local:Message">
                 <Border BorderBrush="{DynamicResource AppBorder}" BorderThickness="0,0,0,1" Padding="0,10,0,12">
