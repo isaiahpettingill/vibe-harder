@@ -93,6 +93,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (border.Child is ScrollViewer { Content: TextBlock plain } plainScroll)
             {
                 plainScroll.Content = null;
+                plain = new SelectableTextBlock { Text = plain.Text };
                 plain.TextWrapping = TextWrapping.Wrap;
                 plain.Bind(TextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
                 plain.Bind(TextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
@@ -178,6 +179,8 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         CHyperlink? pressed = null;
         Point start = default;
         IDisposable? hold = null;
+        Point selectionStart = default;
+        bool selecting = false;
         CHyperlink? At(Point point)
         {
             var index = block.CalcuatePointerFrom(point.X, point.Y).Index;
@@ -190,6 +193,11 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (!e.GetCurrentPoint(block).Properties.IsLeftButtonPressed) return;
             start = e.GetPosition(block); pressed = At(start);
             if (pressed is null) return;
+            if (Document is { } document && e.Pointer.Type == PointerType.Mouse)
+            {
+                selecting = true; selectionStart = e.GetPosition(document.Control);
+                document.Select(selectionStart, selectionStart); Focus(); e.Pointer.Capture(block);
+            }
             if (e.Pointer.Type == PointerType.Touch)
                 hold = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
                 {
@@ -198,13 +206,25 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
                 }, TimeSpan.FromMilliseconds(500));
             e.Handled = true;
         }, RoutingStrategies.Tunnel);
-        block.AddHandler(PointerMovedEvent, (_, e) => { var delta = e.GetPosition(block) - start; if (delta.X * delta.X + delta.Y * delta.Y > 100) Cancel(); }, RoutingStrategies.Tunnel, true);
+        block.AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            var delta = e.GetPosition(block) - start;
+            if (delta.X * delta.X + delta.Y * delta.Y > 100) Cancel();
+            if (selecting && Document is { } document) document.Select(selectionStart, e.GetPosition(document.Control));
+        }, RoutingStrategies.Tunnel, true);
         block.AddHandler(PointerReleasedEvent, async (_, e) =>
         {
             var link = pressed; Cancel();
+            if (selecting)
+            {
+                selecting = false;
+                if (Document is { } document) document.Select(selectionStart, e.GetPosition(document.Control));
+                e.Pointer.Capture(null); e.Handled = true;
+                if (!string.IsNullOrWhiteSpace(Document?.GetSelectedText())) link = null;
+            }
             if (link?.CommandParameter is { } target && ReferenceEquals(link, At(e.GetPosition(block)))) { e.Handled = true; await OpenLink(target); }
         }, RoutingStrategies.Tunnel, true);
-        block.PointerCaptureLost += (_, _) => Cancel();
+        block.PointerCaptureLost += (_, _) => { selecting = false; Cancel(); };
         block.DetachedFromVisualTree += (_, _) => Cancel();
         void ShowCopyMenu(CHyperlink[] selected)
         {
@@ -253,6 +273,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         var selected = selection ? document.GetSelectedText() : "";
         if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));
         var editorSelection = this.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault(e => e.SelectionLength > 0);
+        var plainSelection = this.GetVisualDescendants().OfType<SelectableTextBlock>().FirstOrDefault(b => !string.IsNullOrEmpty(b.SelectedText));
+        if (selection && plainSelection is not null)
+        { selected = plainSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
         if (selection && editorSelection is not null)
         { selected = editorSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
         if (selection && string.IsNullOrEmpty(selected)) return;

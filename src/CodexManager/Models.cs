@@ -79,7 +79,7 @@ public sealed class Message : Observable
     public int Revision { get; private set; }
     public bool OutputExpanded { get; set; }
     public bool ActionGroupExpanded { get; set; }
-    public AgentProvider Provider { get; init; }
+    public AgentProvider? Provider { get; init; }
     public ObservableCollection<Attachment> Attachments { get; } = [];
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
     public string Role { get; init; } = "assistant";
@@ -90,7 +90,7 @@ public sealed class Message : Observable
     public SubagentInfo? Subagent { get => subagent; set { if (!Equals(subagent, value)) { subagent = value; Revision++; Changed(); } } }
     private string text = "";
     public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }
-    public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", "plan" => "PLAN", _ => AgentProviders.Get(Provider).Name.ToUpperInvariant() };
+    public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", "plan" => "PLAN", _ => Provider is { } provider && Enum.IsDefined(provider) ? AgentProviders.Get(provider).Name.ToUpperInvariant() : "AGENT" };
 }
 
 public sealed record Attachment(string Name, string MimeType, string Data, string? SourcePath = null, string? Reference = null, bool Binary = false)

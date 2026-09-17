@@ -151,6 +151,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private readonly ComboBox workspaces = new();
     private readonly ObservableCollection<Message> messages = [];
     private string? chatId;
+    private AgentProvider? messageProvider;
     private string? requestedWorkspace;
     public void SelectWorkspaceId(string id)
     {
@@ -242,7 +243,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         SaveBrowserDraft();
         messageRevisions.Clear(); timer.Interval = TimeSpan.FromMilliseconds(250);
         activateSelectedChat = userInitiated;
-        chatSearch.Close(); viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        chatSearch.Close(); viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; messageProvider = null; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         if (OperatingSystem.IsBrowser())
         {
             restoringBrowserDraft = true;
@@ -488,6 +489,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 foreach (var message in messages) if (messageRevisions.TryGetValue(message.Id, out var revision)) known[message.Id] = revision;
                 var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["activate"] = activateSelectedChat, ["knownMessages"] = known }); if (presentationSleeping || result is null || id != chatId) return;
                 activateSelectedChat = false;
+                messageProvider = Enum.TryParse<AgentProvider>(result["provider"]?.GetValue<string>(), out var provider) && Enum.IsDefined(provider) ? provider : null;
                 status.Text = result["status"]?.GetValue<string>() + " · " + result["queued"] + " queued";
                 status.IsVisible = false;
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting")))); UpdateSendAction();
@@ -635,9 +637,9 @@ public sealed partial class RemoteView : UserControl, IDisposable
             Grid.SetColumn(remove, 1); row.Children.Add(remove); Grid.SetColumn(edit, 2); row.Children.Add(edit); Grid.SetColumn(steer, 3); row.Children.Add(steer); Grid.SetColumn(sendNow, 4); row.Children.Add(sendNow); queuedMessages.Children.Add(row);
         }
     }
-    private static Message ReadMessage(JsonNode row)
+    private Message ReadMessage(JsonNode row)
     {
-        var message = new Message { Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
+        var message = new Message { Provider = messageProvider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
         message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
         foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         return message;
@@ -652,7 +654,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (row["revision"] is { } revision) messageRevisions[id] = revision.GetValue<string>();
             if (row["text"] is null) continue;
             byId ??= messages.ToDictionary(m => m.Id);
-            if (!byId.TryGetValue(id, out var message)) { message = new Message { Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
+            if (!byId.TryGetValue(id, out var message)) { message = new Message { Provider = messageProvider, Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
             message.Text = row["text"]!.GetValue<string>();
             message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
             if (row["attachments"] is { } files)

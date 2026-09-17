@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
@@ -13,6 +14,27 @@ namespace CodexManager.Tests;
 
 public class ChatPresentationTests
 {
+    [AvaloniaFact]
+    public async Task LinksAndInlineCodeSupportDragSelection()
+    {
+        var view = new ChatMarkdown { Text = "[Report details](https://example.com) and `inline code`" };
+        var window = new Window { Content = view, Width = 600, Height = 200 }; window.Show();
+        try
+        {
+            await Task.Delay(150); window.UpdateLayout();
+            var block = view.GetVisualDescendants().OfType<CTextBlock>().Single();
+            var start = block.TranslatePoint(new Point(2, block.Bounds.Height / 2), window)!.Value;
+            var end = block.TranslatePoint(new Point(block.Bounds.Width - 2, block.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(start, MouseButton.Left); window.MouseMove(end); window.MouseUp(end, MouseButton.Left);
+            Assert.Contains("Report details", block.GetSelectedText());
+            Assert.Contains("inline code", block.GetSelectedText());
+            await view.Copy(true);
+            using var data = await window.Clipboard!.TryGetDataAsync();
+            Assert.Contains("inline code", await data!.TryGetTextAsync());
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task PlainCodeBlocksWrapWithoutCoveringTextAndKeepCodeCopy()
     {
@@ -30,6 +52,11 @@ public class ChatPresentationTests
             var copy = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => b.Name == "CopyCode");
             copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(50);
             using var data = await window.Clipboard!.TryGetDataAsync(); Assert.Equal(code, (await data!.TryGetTextAsync())!.Trim());
+            var selectable = Assert.IsType<SelectableTextBlock>(block);
+            selectable.SelectionStart = 0; selectable.SelectionEnd = 9;
+            await view.Copy(true);
+            using var selection = await window.Clipboard.TryGetDataAsync();
+            Assert.Equal("adb shell", await selection!.TryGetTextAsync());
         }
         finally { window.Close(); }
     }
