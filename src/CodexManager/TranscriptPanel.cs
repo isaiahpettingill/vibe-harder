@@ -172,6 +172,17 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
                 if (measured >= needed) break;
             }
         }
+        // A tall last row can fill the entire realization budget on its own.
+        // Keep preceding rows warm even then, so reversing direction does not
+        // recreate all of the nearby markdown controls at once.
+        var bufferedRows = 0;
+        for (var i = start - 1; i >= 0 && bufferedRows < 4; i--)
+        {
+            if (GroupStart(i) != i) continue;
+            var control = Realize(i); control.Measure(new(viewport.Width, double.PositiveInfinity));
+            SetHeight(i, Math.Max(1, control.DesiredSize.Height));
+            bufferedRows++; start = i;
+        }
         foreach (var index in realized.Keys.Where(i => i < start || i > end).ToArray()) Release(index);
         Extent = new(viewport.Width, Math.Max(viewport.Height, Top(Items.Count) + progressHeight));
         offset = new(0, bottom ? Extent.Height - viewport.Height : Math.Clamp(Top(anchor) + within, 0, Extent.Height - viewport.Height));

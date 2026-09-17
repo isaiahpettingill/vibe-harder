@@ -10,6 +10,32 @@ namespace CodexManager.Tests;
 public class TranscriptScrollingTests
 {
     [AvaloniaFact]
+    public void TallLastMessageKeepsPrecedingRowsWarmWithoutRealizingAllHistory()
+    {
+        var messages = Enumerable.Range(0, 100).Select(i => new Message { Sequence = i, Text = "Message " + i }).ToArray();
+        var list = Create(messages);
+        list.ItemTemplate = new FuncDataTemplate<Message>((message, _) => new TextBlock { Text = message!.Text, Height = message.Sequence == 99 ? 900 : 100 });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            window.UpdateLayout(); var panel = (TranscriptPanel)list.ItemsPanelRoot!;
+            panel.FollowEnd(); window.UpdateLayout();
+            var previous = list.ContainerFromIndex(98);
+            Assert.NotNull(previous);
+            Assert.NotNull(list.ContainerFromIndex(97));
+            Assert.NotNull(list.ContainerFromIndex(96));
+            Assert.NotNull(list.ContainerFromIndex(95));
+            Assert.Null(list.ContainerFromIndex(94));
+            Assert.Null(list.ContainerFromIndex(0));
+            Assert.Equal(5, list.GetVisualDescendants().OfType<ListBoxItem>().Count());
+            panel.Offset = new(0, panel.Offset.Y - 550); window.UpdateLayout();
+            Assert.Same(previous, list.ContainerFromIndex(98));
+            Assert.False(panel.IsFollowingEnd);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task ShrinkingContentAtTheBottomDoesNotRequestOlderHistory()
     {
         var list = Create(Enumerable.Range(0, 8).Select(i => new Message { Sequence = i, Text = "Message " + i }));
