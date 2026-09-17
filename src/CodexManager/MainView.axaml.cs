@@ -1377,7 +1377,7 @@ public partial class MainView : UserControl
         var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += TrayQuitClick; menu.Items.Add(quit);
         tray.Menu = menu;
     }
-    public void ShowFromTray() { if (closing) return; desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
+    public void ShowFromTray() { if (closing) return; foregroundRequested = true; desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
     private Window? quitConfirmation;
     private async void TrayQuitClick(object? sender, EventArgs e)
     {

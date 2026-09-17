@@ -19,6 +19,8 @@ public partial class MainView
     private bool sidebarOpen = true;
     private double sidebarWidth = 250;
     private bool started;
+    private bool desktopStarted;
+    private bool foregroundRequested;
     private ConnectionSettingsView? connectionSettings;
     private TopLevel? inputTopLevel;
     private double keyboardInset;
@@ -66,14 +68,21 @@ public partial class MainView
         window.AddHandler(PointerPressedEvent, (_, _) => WakePresentation(), RoutingStrategies.Tunnel, handledEventsToo: true);
         window.PropertyChanged += (_, e) => { if (e.Property == Window.IsVisibleProperty || e.Property == Window.WindowStateProperty) SchedulePresentationSleep(); };
         ConfigureTray();
-        window.Opened += async (_, _) =>
-        {
-            StartUpdateChecks();
-            await ConfigureRemoteServer();
-            await ConfigureWebServer();
-            await OfferInterruptedChats();
-            if (Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable) window.Hide();
-        };
+        window.Opened += async (_, _) => await StartDesktop(window,
+            Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable);
+    }
+
+    private async Task StartDesktop(Window window, bool startInTray)
+    {
+        // Opened fires again when a hidden window is shown. Startup belongs to
+        // the process, not each tray activation, and must never hide it later.
+        if (desktopStarted) return;
+        desktopStarted = true;
+        if (startInTray && !foregroundRequested) window.Hide();
+        StartUpdateChecks();
+        await ConfigureRemoteServer();
+        await ConfigureWebServer();
+        await OfferInterruptedChats();
     }
 
     private void InitializeLayout()
