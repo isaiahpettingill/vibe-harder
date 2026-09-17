@@ -78,7 +78,7 @@ public partial class MainView
 
     private void InitializeLayout()
     {
-        Classes.Set("touchSidebar", OperatingSystem.IsAndroid());
+        Classes.Set("touchSidebar", remoteOnly || OperatingSystem.IsAndroid());
         sidebarWidth = RootPanes.ColumnDefinitions[0].Width.Value;
         sidebarOpen = store.Setting("sidebarCollapsed") != "1";
         SidebarToggle.Click += (_, _) => { sidebarOpen = !sidebarOpen; if (!compact) store.Setting("sidebarCollapsed", sidebarOpen ? "0" : "1"); ApplyLayout(); };
@@ -86,7 +86,7 @@ public partial class MainView
         SizeChanged += (_, _) =>
         {
             var narrow = Bounds.Width < 720;
-            Classes.Set("touchSidebar", OperatingSystem.IsAndroid() || OperatingSystem.IsBrowser() && narrow);
+            Classes.Set("touchSidebar", remoteOnly || OperatingSystem.IsAndroid() || narrow);
             if (narrow != compact) { compact = narrow; sidebarOpen = !narrow && store.Setting("sidebarCollapsed") != "1"; }
             ApplyLayout();
             if (remoteOnly && inputTopLevel is not null) ApplyMobileInsets();
@@ -143,8 +143,8 @@ public partial class MainView
         SidebarSplitter.IsVisible = sidebarOpen && !compact;
         SidebarDismiss.IsVisible = sidebarOpen && compact;
         Grid.SetColumnSpan(Sidebar, compact ? 3 : 1);
-        Sidebar.Width = compact ? Math.Min(300, Math.Max(0, Bounds.Width - 48)) : double.NaN;
-        Sidebar.HorizontalAlignment = compact ? HorizontalAlignment.Left : HorizontalAlignment.Stretch;
+        Sidebar.Width = double.NaN;
+        Sidebar.HorizontalAlignment = HorizontalAlignment.Stretch;
         SidebarToggle.Label = sidebarOpen ? "Collapse sidebar" : "Open sidebar";
         TerminalDrawer.MaxWidth = Math.Max(220, Bounds.Width - (compact ? 48 : 350));
     }

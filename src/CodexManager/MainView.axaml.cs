@@ -73,7 +73,7 @@ public partial class MainView : UserControl
             if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
             RefreshRemoteSidebar(); return;
         }
-        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store); remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
+        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store) { ShowTerminalButton = !remoteOnly }; remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         view.SetConnectionCollapsed(store.Setting(RemoteCollapsedKey(host)) == "1");
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
@@ -437,6 +437,7 @@ public partial class MainView : UserControl
         if (refreshingChats || sender is not ListBox { SelectedItem: Chat chat, Tag: Workspace owner } || chat.IsDeleting || chat.Archived || showArchived) return;
         if (!recoveringPresentation) ClearRecoveryNotice();
         var connectAgent = !restoringSelection;
+        if (connectAgent) CollapseSidebar();
         if (!ReferenceEquals(current, chat)) { recoveryAttempts = 0; ChatSearch.Close(); }
         CloseRemoteView();
         if (workspace?.Id != owner.Id)
@@ -680,7 +681,9 @@ public partial class MainView : UserControl
             if (!runtime.IsPrompting) return;
             runtime.Queue(new(text, attachments)); Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls(); return;
         }
+        viewingHistory = false; pageLoad?.Cancel(); MessageList.ItemsSource = chat.Messages;
         Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear();
+        ScrollTranscriptToEnd(force: true);
         await runtime.Send(text, attachments);
         if (ReferenceEquals(chat, current)) Composer.Text = chat.Draft;
         UpdateControls();

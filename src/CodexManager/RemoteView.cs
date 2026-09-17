@@ -237,6 +237,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
     public event Action<string>? WorkspaceOpened;
     public string? SelectedChatId => chatId;
     public bool HasWorkspace => workspaces.SelectedItem is RemoteItem;
+    private readonly IconButton openTerminal = new() { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
+    public bool ShowTerminalButton { get => openTerminal.IsVisible; set => openTerminal.IsVisible = value; }
     public void SelectChat(string id, bool userInitiated = true)
     {
         if (chatRows.Any(c => c?["id"]?.GetValue<string>() == id && c["archived"]?.GetValue<bool>() == true)) return;
@@ -312,7 +314,6 @@ public sealed partial class RemoteView : UserControl, IDisposable
         remoteHeader.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto)); Grid.SetColumn(searchChat, remoteHeader.ColumnDefinitions.Count - 1); remoteHeader.Children.Add(searchChat);
         var forkChat = new IconButton { Name = "RemoteForkChat", Icon = "fork", Label = "Fork chat" };
         forkChat.Click += async (_, _) => await ShowHistoryActions(forkChat, null); Grid.SetColumn(forkChat, 1); remoteHeader.Children.Add(forkChat);
-        var openTerminal = new IconButton { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
         openTerminal.Click += async (_, _) => await ShowTerminal(); Grid.SetColumn(openTerminal, 2); remoteHeader.Children.Add(openTerminal); panel.Children.Add(remoteHeader);
         openTerminal.IsEnabled = workspaces.SelectedItem is not null;
         workspaces.SelectionChanged += (_, _) => { openTerminal.IsEnabled = workspaces.SelectedItem is not null; if (workspaces.SelectedItem is RemoteItem owner) switchTerminalWorkspace?.Invoke(owner.Id); ApplyColors(); };
@@ -591,19 +592,27 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var id = chatId; var text = composer.Text ?? ""; var sent = attachments.ToArray();
         var stop = busy && !preparing && !HasDraft;
         if (!stop && !HasDraft) return;
+        if (!stop && !busy)
+        {
+            viewingHistory = false; output.ItemsSource = messages;
+            (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
+        }
         sending = true; timer.Interval = TimeSpan.FromMilliseconds(250); UpdateSendAction();
         try
         {
             var result = await Call(new() { ["method"] = stop ? method == "send-now" ? "queue/interrupt" : "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
             if (result is not null && id == chatId)
             {
+                var follow = !viewingHistory && output.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true };
                 if (method == "steer" && !stop)
                 {
                     if (result.GetValue<bool>()) { if (composer.Text == text) composer.Text = ""; foreach (var file in sent) attachments.Remove(file); RefreshAttachments(); }
+                    if (follow) (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
                     return;
                 }
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting"))));
                 if (!stop) { if (composer.Text == text) composer.Text = ""; foreach (var file in sent) attachments.Remove(file); RefreshAttachments(); }
+                if (follow) (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
             }
         }
         finally { sending = false; UpdateSendAction(); }

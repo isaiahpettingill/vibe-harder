@@ -5,6 +5,7 @@ using Avalonia.Controls.Templates;
 using Avalonia.Layout;
 using Avalonia.Data;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace CodexManager;
 
@@ -17,6 +18,10 @@ public partial class MainView
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null)
     {
         var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
+        row.Tapped += (_, e) =>
+        {
+            if (!chat.Archived && e.Source is Visual source && source is not Button && !source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) CollapseSidebar();
+        };
         if (!chat.Archived) EnableHoldReorder(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); });
         ColorMenu(row, "chatColor:" + (colorId ?? chat.Id), "Chat input border color", () => { ApplyChatColors(); foreach (var view in remoteViews.Values) view.ApplyColors(); });
         row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });

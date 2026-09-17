@@ -172,9 +172,9 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             }
             // New clients distinguish explicit selection from restoring a cached selection.
             // Legacy clients retain their history-load behavior when the flag is absent.
-            if (request["activate"]?.GetValue<bool>() != false && chat.SessionId is not null && !chat.Busy)
+            if (request["activate"]?.GetValue<bool>() != false && !chat.Busy)
             {
-                if (page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1") _ = active.LoadHistory();
+                if (chat.SessionId is not null && (page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1")) _ = active.LoadHistory();
                 else if (request["activate"]?.GetValue<bool>() == true && !active.IsConnected && !active.IsReconnecting) _ = active.Reconnect();
             }
             var result = Summary(chat);
