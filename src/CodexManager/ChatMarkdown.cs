@@ -35,6 +35,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     static ChatMarkdown() => TextProperty.Changed.AddClassHandler<ChatMarkdown>((view, _) => view.Refresh());
     public ChatMarkdown()
     {
+        Engine = new ChatMarkdownEngine();
         SelectionEnabled = true; Focusable = true;
         renderTimer.Tick += (_, _) => FlushRender();
         AttachedToVisualTree += (_, _) => { attached = true; FlushRender(); ScheduleDecoration(); };

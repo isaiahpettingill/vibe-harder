@@ -27,6 +27,7 @@
   </Application.Resources>
   <Application.Styles>
     <FluentTheme />
+    <StyleInclude Source="avares://AvaloniaEdit/Themes/Fluent/AvaloniaEdit.xaml"/>
     <Style Selector="Popup"><Setter Property="WindowManagerAddShadowHint" Value="False"/></Style>
     <Style Selector="ContextMenu"><Setter Property="WindowManagerAddShadowHint" Value="False"/></Style>
     <Style Selector="TemplatedControl"><Setter Property="Foreground" Value="{DynamicResource AppText}"/></Style>
