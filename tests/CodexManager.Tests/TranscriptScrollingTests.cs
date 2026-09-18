@@ -10,6 +10,31 @@ namespace CodexManager.Tests;
 public class TranscriptScrollingTests
 {
     [AvaloniaFact]
+    public void BufferCountsConversationMessagesRatherThanThinkingAndActionGroups()
+    {
+        var messages = Enumerable.Range(0, 20).SelectMany(i => new[]
+        {
+            new Message { Role = i % 2 == 0 ? "user" : "assistant", Text = "Message " + i },
+            new Message { Role = "thought", Text = "Thinking" },
+            new Message { Role = "tool", Text = "Action" },
+            new Message { Role = "system", Text = "Session notice" }
+        }).Append(new Message { Text = "Last message" }).ToArray();
+        var list = Create(messages);
+        list.ItemTemplate = new FuncDataTemplate<Message>((message, _) => new TextBlock { Text = message!.Text, Height = message == messages[^1] ? 900 : 100 });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            window.UpdateLayout(); var panel = (TranscriptPanel)list.ItemsPanelRoot!;
+            panel.FollowEnd(); window.UpdateLayout();
+            foreach (var index in new[] { 76, 72, 68, 64 }) Assert.NotNull(list.ContainerFromIndex(index));
+            Assert.Null(list.ContainerFromIndex(60));
+            Assert.Null(list.ContainerFromIndex(0));
+            Assert.True(panel.IsFollowingEnd);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void TallLastMessageKeepsPrecedingRowsWarmWithoutRealizingAllHistory()
     {
         var messages = Enumerable.Range(0, 100).Select(i => new Message { Sequence = i, Text = "Message " + i }).ToArray();

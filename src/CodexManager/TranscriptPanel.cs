@@ -173,7 +173,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
             }
         }
         // A tall last row can fill the entire realization budget on its own.
-        // Keep preceding rows warm even then, so reversing direction does not
+        // Keep four preceding conversation messages warm even then, so reversing direction does not
         // recreate all of the nearby markdown controls at once.
         var bufferedRows = 0;
         for (var i = start - 1; i >= 0 && bufferedRows < 4; i--)
@@ -181,7 +181,8 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
             if (GroupStart(i) != i) continue;
             var control = Realize(i); control.Measure(new(viewport.Width, double.PositiveInfinity));
             SetHeight(i, Math.Max(1, control.DesiredSize.Height));
-            bufferedRows++; start = i;
+            if (Items[i] is Message { Role: "user" or "assistant" }) bufferedRows++;
+            start = i;
         }
         foreach (var index in realized.Keys.Where(i => i < start || i > end).ToArray()) Release(index);
         Extent = new(viewport.Width, Math.Max(viewport.Height, Top(Items.Count) + progressHeight));
