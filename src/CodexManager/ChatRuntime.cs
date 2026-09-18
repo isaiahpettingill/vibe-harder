@@ -194,7 +194,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             var result = await client!.Request(method, parameters, timeout.Token);
             chat.ConfigOptions = chat.ConfigOptions.Select(c => c.Id == config.Id ? c with { Current = value } : c).ToArray(); chat.ConfigVersion++;
             Configure(result);
-            if (remember) store.Setting(DefaultConfigKey(config.Id), value);
+            if (remember)
+            {
+                store.Setting(ChatConfigKey(config.Id), value);
+                store.Setting(WorkspaceConfigKey(config.Id), value);
+                store.Setting(GlobalConfigKey(config.Id), value);
+            }
             if (FullAccess(config) is not null) store.Setting(AccessKey(config), value);
             if (ModelPicker.IsModel(config)) ModelPicker.Remember(store, chat.Provider, value);
         }
@@ -328,8 +333,15 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         {
             if (loading)
             {
+                foreach (var option in chat.ConfigOptions)
+                    if (store.Setting(ChatConfigKey(option.Id)) is null) store.Setting(ChatConfigKey(option.Id), option.Current);
                 if (!init.GetProperty("agentCapabilities").GetProperty("loadSession").GetBoolean()) throw new IOException("This adapter does not support session resume. Update its connection command.");
-                try { Configure(await client.Request("session/load", RpcJson.Object(("sessionId", chat.SessionId), ("cwd", workspace.Path), ("mcpServers", new JsonArray())), timeout.Token)); await NormalizeVtCodeModel(); }
+                try
+                {
+                    Configure(await client.Request("session/load", RpcJson.Object(("sessionId", chat.SessionId), ("cwd", workspace.Path), ("mcpServers", new JsonArray())), timeout.Token));
+                    await NormalizeVtCodeModel();
+                    await ApplySessionDefaults();
+                }
                 catch (AcpException error) when (chat.Provider == AgentProvider.Codex && error.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)
                     && store.Setting("unmaterialized:" + chat.Id) == chat.SessionId && chat.Messages.All(m => m.Role == "system"))
                 {
@@ -358,8 +370,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         chat.SessionId = session.GetProperty("sessionId").GetString();
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
         await NormalizeVtCodeModel();
-        await ApplyNewSessionDefaults();
-        if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model)
+        await ApplySessionDefaults();
+        if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model && SavedConfig(model.Id) is null)
         {
             var recent = ModelPicker.Recent(store, chat.Provider).FirstOrDefault(v => model.Values.Any(option => option.Value == v));
             if (recent is not null && recent != model.Current) await SetConfigCore(model, recent);
@@ -374,14 +386,19 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             await SetConfigCore(provider, provider.Current);
     }
     private string DefaultConfigKey(string id) => $"sessionDefault:{chat.Provider}:{workspace.Distro ?? "local"}:{id}";
-    private async Task ApplyNewSessionDefaults()
+    private string ChatConfigKey(string id) => $"chatConfig:{chat.Provider}:{chat.Id}:{id}";
+    private string WorkspaceConfigKey(string id) => $"workspaceConfig:{chat.Provider}:{workspace.Id}:{id}";
+    private string GlobalConfigKey(string id) => $"globalConfig:{chat.Provider}:{id}";
+    private string? SavedConfig(string id) => store.Setting(ChatConfigKey(id)) ?? store.Setting(WorkspaceConfigKey(id))
+        ?? store.Setting(GlobalConfigKey(id)) ?? store.Setting(DefaultConfigKey(id));
+    private async Task ApplySessionDefaults()
     {
         // Mode/provider changes can replace the available model and reasoning options.
         HashSet<string> applied = [];
         while (chat.ConfigOptions.Where(c => !applied.Contains(c.Id)).OrderBy(c => c.Id == "mode" || c.Kind == "mode" ? 0 : c.Id == "provider" ? 1 : ModelPicker.IsModel(c) ? 2 : 3).FirstOrDefault() is { } option)
         {
             var id = option.Id; applied.Add(id);
-            var value = store.Setting(DefaultConfigKey(id));
+            var value = SavedConfig(id);
             if (value is null && chat.Provider == AgentProvider.Dirac && id is "yolo" or "auto_approve") value = "true";
             if (id == "provider" && authenticatedProviders is { Count: > 0 } &&
                 (value is null || !option.Values.Any(v => v.Value == value)) && !authenticatedProviders.Contains(option.Current)) value = option.Values.FirstOrDefault()?.Value;
@@ -389,7 +406,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             {
                 if (FullAccess(option) is not null) store.Setting(AccessKey(option), value);
                 if (value != option.Current) await SetConfigCore(option, value);
+                // Once used, inherited settings belong to this chat even if
+                // another chat later changes workspace or global defaults.
+                if (chat.ConfigOptions.FirstOrDefault(c => c.Id == id)?.Current == value)
+                    store.Setting(ChatConfigKey(id), value);
             }
+            else if (store.Setting(ChatConfigKey(id)) is null)
+                store.Setting(ChatConfigKey(id), option.Current);
         }
     }
 

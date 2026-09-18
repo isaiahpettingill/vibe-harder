@@ -5,6 +5,32 @@ namespace CodexManager.Tests;
 public class SessionConfigTests
 {
     [AvaloniaFact]
+    public async Task ModelPreferenceUsesChatThenWorkspaceThenGlobal()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("model-precedence-").FullName);
+        var workspace = new Workspace("one", "One", store.DirectoryPath);
+        var other = new Workspace("two", "Two", store.DirectoryPath);
+        store.Save(workspace); store.Save(other);
+        var command = "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config";
+        var first = new Chat { WorkspaceId = workspace.Id };
+        await using var runtime = new ChatRuntime(first, workspace, store, command);
+        await runtime.Connect();
+        await runtime.SetConfig(first.ConfigOptions.Single(c => c.Id == "model"), "large");
+        var second = new Chat { WorkspaceId = other.Id };
+        await using var secondRuntime = new ChatRuntime(second, other, store, command);
+        await secondRuntime.Connect();
+        Assert.Equal("large", second.ConfigOptions.Single(c => c.Id == "model").Current);
+        await secondRuntime.SetConfig(second.ConfigOptions.Single(c => c.Id == "model"), "small");
+        var third = new Chat { WorkspaceId = workspace.Id };
+        await using var thirdRuntime = new ChatRuntime(third, workspace, store, command);
+        await thirdRuntime.Connect();
+        Assert.Equal("large", third.ConfigOptions.Single(c => c.Id == "model").Current);
+        await thirdRuntime.SetConfig(third.ConfigOptions.Single(c => c.Id == "model"), "small");
+        await runtime.Reconnect();
+        Assert.Equal("large", first.ConfigOptions.Single(c => c.Id == "model").Current);
+    }
+
+    [AvaloniaFact]
     public async Task ProviderOptionsSupportModelsReasoningAndBooleanFastMode()
     {
         foreach (var provider in AgentProviders.All)
@@ -29,6 +55,12 @@ public class SessionConfigTests
             Assert.Equal("large", next.ConfigOptions.Single(c => c.Id == "model").Current);
             Assert.Equal("high", next.ConfigOptions.Single(c => c.Id == "reasoning").Current);
             Assert.Equal("true", next.ConfigOptions.Single(c => c.Id == "fast").Current);
+            // A fresh adapter process reports its small-model default on load.
+            // Resume must restore the most recent explicit selection instead.
+            await runtime.Reconnect();
+            Assert.Equal("large", chat.ConfigOptions.Single(c => c.Id == "model").Current);
+            Assert.Equal("high", chat.ConfigOptions.Single(c => c.Id == "reasoning").Current);
+            Assert.Equal("true", chat.ConfigOptions.Single(c => c.Id == "fast").Current);
         }
     }
     [AvaloniaFact]
