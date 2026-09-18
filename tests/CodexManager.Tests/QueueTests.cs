@@ -5,6 +5,40 @@ namespace CodexManager.Tests;
 public class QueueTests
 {
     [AvaloniaFact]
+    public async Task FailedReconnectKeepsQueuedMessages()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("failed-reconnect-queue-").FullName);
+        var workspace = new Workspace("w", "Queue", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node --invalid-reconnect-test-option");
+        runtime.Queue(new("keep this", []));
+        await runtime.Reconnect();
+        Assert.False(runtime.IsConnected);
+        Assert.Equal("keep this", Assert.Single(chat.QueuedInputs).Text);
+        Assert.DoesNotContain(chat.Messages, m => m.Role == "user");
+    }
+
+    [AvaloniaFact]
+    public async Task MessagesQueuedDuringReconnectSendWhenReady()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("reconnect-queue-").FullName);
+        var workspace = new Workspace("w", "Queue", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        using var service = new SessionService(store, [workspace], [chat], (_, _) => runtime);
+        var reconnect = runtime.Reconnect();
+        Assert.True(runtime.IsReconnecting);
+        await service.Handle(new() { ["method"] = "send", ["chatId"] = chat.Id, ["text"] = "queued while reconnecting" });
+        Assert.Single(chat.QueuedInputs);
+        await reconnect;
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while ((!chat.Messages.Any(m => m.Role == "user" && m.Text == "queued while reconnecting") || chat.Busy) && DateTime.UtcNow < until)
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.Empty(chat.QueuedInputs);
+        Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == "queued while reconnecting");
+    }
+
+    [AvaloniaFact]
     public async Task EscapeInterruptsWithAllQueuedMessagesAndAttachments()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("interrupt-queue-").FullName);

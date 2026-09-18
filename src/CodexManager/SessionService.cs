@@ -210,7 +210,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (chat.Title == "New chat" && input.Text.Length > 0) { chat.Title = input.Text[..Math.Min(80, input.Text.Length)].Replace('\n', ' '); store.Save(chat); Changed?.Invoke(); }
             if (method == "steer") return JsonValue.Create(await active.Steer(input));
             if (method == "send-now") { active.Queue(input); await active.AdvanceQueued(interrupt: true); return Summary(chat); }
-            if (method == "queue" || chat.Busy || active.IsRecovering) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
+            if (method == "queue" || chat.Busy || active.IsRecovering || active.IsReconnecting) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
         }
         else if (method == "stop") await active.Stop();
         else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); Changed?.Invoke(); }

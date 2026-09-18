@@ -248,7 +248,20 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         }
         catch (OperationCanceledException) { chat.Status = lifetime.IsCancellationRequested ? "Disconnected" : "Reconnect timed out or was cancelled — try reconnecting"; }
         catch (Exception error) { chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error); chat.Status = "Reconnect failed: " + error.Message; ShowInstallation(); }
-        finally { chat.Busy = false; reconnecting = false; Changed?.Invoke(); }
+        finally
+        {
+            chat.Busy = false; reconnecting = false; Changed?.Invoke();
+            SendQueuedWhenReady();
+        }
+    }
+    private void SendQueuedWhenReady()
+    {
+        if (connected && !chat.NeedsLogin && !reconnecting && chat.Status == "Ready" && chat.QueuedInputs.FirstOrDefault() is { } next)
+            Dispatcher.UIThread.Post(async () =>
+            {
+                if (!lifetime.IsCancellationRequested && connected && !reconnecting && !IsPreparing && !chat.Busy && chat.QueuedInputs.Contains(next))
+                { RemoveQueued(next); await Send(next.Text, next.Attachments); }
+            });
     }
     public async Task Connect(bool replayHistory = false)
     {
@@ -441,7 +454,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.Status = "History unavailable: " + error.Message;
             ShowInstallation();
         }
-        finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); }
+        finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); SendQueuedWhenReady(); }
     }
     public Task Send(string text, Attachment[] attachments, bool autoResume = false) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments, autoResume);
     private async Task SendCore(string text, Attachment[] attachments, bool autoResume)

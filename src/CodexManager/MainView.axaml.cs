@@ -644,9 +644,9 @@ public partial class MainView : UserControl
         TranscriptPanel.SetShowProgress(MessageList, !viewingHistory && current is { Busy: true, NeedsPermission: false, NeedsLogin: false } && !ComposerLoading);
         var stop = ComposerShowsStop;
         SendButton.Icon = ComposerLoading ? "connecting" : stop ? "stop" : "send";
-        SendButton.Label = ComposerLoading ? "Loading chat" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
+        SendButton.Label = ComposerLoading ? "Queue message (Enter)" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
         var runtime = current is null ? null : runtimes.GetValueOrDefault(current.Id);
-        SendButton.IsEnabled = current is not null && !ComposerLoading && (stop || (runtime is not { IsReconnecting: true } and not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true)));
+        SendButton.IsEnabled = current is not null && (runtime?.IsReconnecting == true ? !string.IsNullOrWhiteSpace(Composer.Text) || current.Attachments.Count > 0 : !ComposerLoading && (stop || (runtime is not { IsConfiguring: true } && (!current.Busy || runtime?.IsPrompting == true))));
     }
     private async void SendClick(object? sender, RoutedEventArgs e)
     {
@@ -675,10 +675,10 @@ public partial class MainView : UserControl
         if (text.Length == 0 && attachments.Length == 0) return;
         if (chat.Title == "New chat") chat.Title = text.Length == 0 ? attachments[0].Name : text.Split('\n')[0][..Math.Min(70, text.Split('\n')[0].Length)];
         var runtime = Runtime(chat, workspace);
-        if (runtime.IsReconnecting || runtime.IsConfiguring || runtime.IsRecovering) return;
-        if (chat.Busy)
+        if (!runtime.IsReconnecting && (runtime.IsConfiguring || runtime.IsRecovering)) return;
+        if (chat.Busy || runtime.IsReconnecting)
         {
-            if (!runtime.IsPrompting) return;
+            if (!runtime.IsPrompting && !runtime.IsReconnecting) return;
             runtime.Queue(new(text, attachments)); Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
             viewingHistory = false; pageLoad?.Cancel(); MessageList.ItemsSource = chat.Messages;
             ScrollTranscriptToEnd(force: true);

@@ -580,12 +580,12 @@ public sealed partial class RemoteView : UserControl, IDisposable
         TranscriptPanel.SetShowProgress(output, !viewingHistory && busy && !preparing && connection is not null && chatId is not null && approvals.Children.Count == 0);
         var stop = busy && !preparing && !HasDraft;
         send.Icon = preparing ? "connecting" : stop ? "stop" : "send";
-        send.Label = preparing ? "Loading chat" : stop ? "Stop" : busy ? "Queue message" : "Send";
-        send.IsEnabled = connection is not null && !sending && !preparing && chatId is not null && (stop || HasDraft);
+        send.Label = preparing ? "Queue message" : stop ? "Stop" : busy ? "Queue message" : "Send";
+        send.IsEnabled = connection is not null && !sending && chatId is not null && (stop || HasDraft);
     }
     private async Task SendOrStop(string method = "send")
     {
-        if (sending || preparing || chatId is null) return;
+        if (sending || chatId is null) return;
         var id = chatId; var text = composer.Text ?? ""; var sent = attachments.ToArray();
         var stop = busy && !preparing && !HasDraft;
         if (!stop && !HasDraft) return;
