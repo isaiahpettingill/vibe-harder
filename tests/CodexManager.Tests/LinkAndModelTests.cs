@@ -40,6 +40,31 @@ public class LinkAndModelTests
         }
         finally { picker.Hide(); window.Close(); }
     }
+    [AvaloniaFact]
+    public void MobileModelPickerDoesNotFocusSearchAndCanSelectAfterKeyboardResize()
+    {
+        var option = new SessionConfig("model", "Model", "select", "old", [new("old", "Old"), new("new", "New")]);
+        string? selected = null;
+        var picker = ModelPicker.Create(option, ["new"], value => { selected = value; return Task.CompletedTask; }, focusSearch: () => false);
+        var anchor = new Button { Content = "Models", Flyout = picker, VerticalAlignment = Avalonia.Layout.VerticalAlignment.Bottom };
+        var window = new Window { Content = anchor, Width = 400, Height = 800 }; window.Show(); window.UpdateLayout();
+        try
+        {
+            picker.ShowAt(anchor); window.UpdateLayout();
+            var panel = Assert.IsType<StackPanel>(picker.Content);
+            var search = panel.Children.OfType<TextBox>().Single();
+            var list = panel.Children.OfType<ListBox>().Single();
+            Assert.False(search.IsFocused);
+            Assert.True(list.IsFocused);
+            search.Focus(); window.Height = 400; window.UpdateLayout();
+            Assert.True(picker.IsOpen);
+            search.Text = "New"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent));
+            list.SelectedIndex = 0;
+            list.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Enter });
+            Assert.Equal("new", selected);
+        }
+        finally { picker.Hide(); window.Close(); }
+    }
     [Fact]
     public void RecentModelsIgnoreMalformedSettingsAndRepairOnSelection()
     {

@@ -515,7 +515,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                         {
                             var selectedChat = id;
                             button.Flyout = ModelPicker.Create(option, result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [],
-                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }), () => remoteRecentModels);
+                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }), () => remoteRecentModels, () => Bounds.Width >= 720 && !OperatingSystem.IsAndroid());
                             configs.Children.Add(button); continue;
                         }
                         button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);

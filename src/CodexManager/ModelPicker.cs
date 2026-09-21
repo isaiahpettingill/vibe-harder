@@ -21,13 +21,13 @@ public static class ModelPicker
     public static void Remember(Store store, AgentProvider provider, string value) => store.Setting("recentModels:" + provider,
         new JsonArray(new[] { value }.Concat(Recent(store, provider)).Distinct().Take(12).Select(v => (JsonNode)JsonValue.Create(v)!).ToArray()).ToJsonString());
 
-    public static Flyout Create(SessionConfig option, IReadOnlyList<string> recent, Func<string, Task> choose, Func<IReadOnlyList<string>>? refreshRecent = null)
+    public static Flyout Create(SessionConfig option, IReadOnlyList<string> recent, Func<string, Task> choose, Func<IReadOnlyList<string>>? refreshRecent = null, Func<bool>? focusSearch = null)
     {
         var search = new TextBox { Name = "ModelSearch", PlaceholderText = "Search models…" };
-        var list = new ListBox { Name = "ModelResults", MaxHeight = 320, ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()) };
+        var list = new ListBox { Name = "ModelResults", Focusable = true, MaxHeight = 320, ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()) };
         var empty = new TextBlock { Text = "Search to find a model.", IsVisible = false };
         var panel = new StackPanel { Width = 300, Spacing = 8, Children = { search, list, empty } };
-        var flyout = new Flyout { Content = panel };
+        var flyout = new Flyout { Content = panel, ShowMode = FlyoutShowMode.Transient };
         var recentIds = recent.Append(option.Current).Distinct().ToList();
         void Filter()
         {
@@ -55,7 +55,15 @@ public static class ModelPicker
         };
         list.KeyDown += async (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; await Select(); } };
         list.Tapped += async (_, _) => await Select();
-        flyout.Opened += (_, _) => { if (refreshRecent is not null) recentIds = refreshRecent().Append(option.Current).Distinct().ToList(); search.Text = ""; Filter(); search.Focus(); };
+        flyout.Opened += (_, _) =>
+        {
+            if (refreshRecent is not null) recentIds = refreshRecent().Append(option.Current).Distinct().ToList();
+            search.Text = ""; Filter();
+            // Opening the mobile picker should not summon the keyboard and
+            // resize its anchor before a recent model can be tapped.
+            if (focusSearch?.Invoke() ?? !OperatingSystem.IsAndroid()) search.Focus();
+            else list.Focus();
+        };
         Filter(); return flyout;
     }
 }

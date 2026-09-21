@@ -590,7 +590,7 @@ public partial class MainView : UserControl
                     ToolTip.SetTip(picker, option.Name);
                     if (configured.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
                     {
-                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value), () => ModelPicker.Recent(store, configured.Provider));
+                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value), () => ModelPicker.Recent(store, configured.Provider), () => !compact && !OperatingSystem.IsAndroid());
                         ConfigOptionsPanel.Children.Add(picker); continue;
                     }
                     var menu = new MenuFlyout();
