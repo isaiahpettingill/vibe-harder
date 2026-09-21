@@ -166,6 +166,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     {
         if (IsChangingHistory || loading || reconnecting || IsConfiguring || client is null || chat.SessionId is null) return;
         await SetConfigCore(config, value, remember: true);
+        await RestoreConfiguration();
+    }
+    private async Task RestoreConfiguration()
+    {
+        await ApplySessionDefaults();
         await RestoreAccess();
     }
     private static SessionValue? FullAccess(SessionConfig option) => option.Values.FirstOrDefault(v => v.Name.Equals("Full access", StringComparison.OrdinalIgnoreCase) || v.Name.Equals("Bypass permissions", StringComparison.OrdinalIgnoreCase));
@@ -199,6 +204,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             var result = await client!.Request(method, parameters, timeout.Token);
             chat.ConfigOptions = chat.ConfigOptions.Select(c => c.Id == config.Id ? c with { Current = value } : c).ToArray(); chat.ConfigVersion++;
             Configure(result);
+            if (chat.ConfigOptions.FirstOrDefault(c => c.Id == config.Id)?.Current != value)
+                throw new IOException("The agent did not accept the selected value.");
             if (remember)
             {
                 store.Setting(ChatConfigKey(config.Id), value);
@@ -389,11 +396,6 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         store.Setting("unmaterialized:" + chat.Id, chat.SessionId!); store.Save(chat); Configure(session);
         await NormalizeVtCodeModel();
         await ApplySessionDefaults();
-        if (chat.Provider == AgentProvider.OpenCode && chat.ConfigOptions.FirstOrDefault(ModelPicker.IsModel) is { } model && SavedConfig(model.Id) is null)
-        {
-            var recent = ModelPicker.Recent(store, chat.Provider).FirstOrDefault(v => model.Values.Any(option => option.Value == v));
-            if (recent is not null && recent != model.Current) await SetConfigCore(model, recent);
-        }
     }
 
     private async Task NormalizeVtCodeModel()
@@ -628,7 +630,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     {
         if (update.TryGetProperty("sessionUpdate", out var commandKind) && commandKind.GetString() == "available_commands_update")
         { chat.Commands = SlashCommand.Read(update); Changed?.Invoke(); return; }
-        if (update.TryGetProperty("sessionUpdate", out var configKind) && configKind.GetString() == "config_option_update") { Configure(update); if (connected && !loading && !reconnecting && !IsConfiguring) _ = RestoreAccess(); return; }
+        if (update.TryGetProperty("sessionUpdate", out var configKind) && configKind.GetString() == "config_option_update") { Configure(update); if (connected && !loading && !reconnecting && !IsConfiguring) _ = RestoreConfiguration(); return; }
         if ((loading && !replaying) || lifetime.IsCancellationRequested) return;
         var kind = update.GetProperty("sessionUpdate").GetString();
         if (kind is "agent_message_chunk" or "agent_thought_chunk" or "user_message_chunk")

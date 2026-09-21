@@ -75,12 +75,28 @@ public class SessionConfigTests
             Assert.Equal("high", chat.ConfigOptions.Single(c => c.Id == "reasoning").Current);
             Assert.Equal("true", chat.ConfigOptions.Single(c => c.Id == "fast").Current);
             Assert.False(runtime.IsConfiguring);
+            var otherWorkspace = new Workspace("other", "Other", directory); store.Save(otherWorkspace);
+            var otherChat = new Chat { WorkspaceId = otherWorkspace.Id, Provider = provider.Provider }; store.Save(otherChat);
+            await using var otherRuntime = new ChatRuntime(otherChat, otherWorkspace, store, command);
+            await otherRuntime.Connect();
+            Assert.Equal("large", otherChat.ConfigOptions.Single(c => c.Id == "model").Current);
+            Assert.Equal("high", otherChat.ConfigOptions.Single(c => c.Id == "reasoning").Current);
+            Assert.Equal("true", otherChat.ConfigOptions.Single(c => c.Id == "fast").Current);
+            await otherRuntime.SetConfig(otherChat.ConfigOptions.Single(c => c.Id == "reasoning"), "low");
+            await otherRuntime.SetConfig(otherChat.ConfigOptions.Single(c => c.Id == "fast"), "false");
             var next = new Chat { WorkspaceId = workspace.Id, Provider = provider.Provider }; store.Save(next);
             await using var nextRuntime = new ChatRuntime(next, workspace, store, command);
             await nextRuntime.Connect();
             Assert.Equal("large", next.ConfigOptions.Single(c => c.Id == "model").Current);
             Assert.Equal("high", next.ConfigOptions.Single(c => c.Id == "reasoning").Current);
             Assert.Equal("true", next.ConfigOptions.Single(c => c.Id == "fast").Current);
+            await nextRuntime.SetConfig(next.ConfigOptions.Single(c => c.Id == "reasoning"), "low");
+            await nextRuntime.SetConfig(next.ConfigOptions.Single(c => c.Id == "fast"), "false");
+            // Changing model resets reasoning in the fixture. Restore the chat's
+            // last reasoning selection when that model makes it available again.
+            await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "model"), "small");
+            await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "model"), "large");
+            Assert.Equal("high", chat.ConfigOptions.Single(c => c.Id == "reasoning").Current);
             // A fresh adapter process reports its small-model default on load.
             // Resume must restore the most recent explicit selection instead.
             await runtime.Reconnect();
