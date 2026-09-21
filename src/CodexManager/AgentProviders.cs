@@ -45,6 +45,15 @@ public static class AgentProviders
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
     private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => provider == AgentProvider.VTCode && command?.Trim() == "vtcode login" ? null : command;
-    public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "call authenticate", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login", "refresh_token_expired", "please log in again" }
-        .Any(text => error.Message.Contains(text, StringComparison.OrdinalIgnoreCase));
+    public static bool IsAuthenticationError(Exception error) => error is AcpException { AuthenticationRequired: true }
+        || error is System.Net.Http.HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized }
+        || AuthenticationText(error.Message)
+        || error is AggregateException aggregate && aggregate.InnerExceptions.Any(IsAuthenticationError)
+        || error.InnerException is { } inner && IsAuthenticationError(inner);
+    internal static bool AuthenticationText(string message) => new[]
+    {
+        "not logged in", "authentication required", "auth_required", "authentication_error", "call authenticate", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login",
+        "refresh_token_expired", "refresh_token_reused", "refresh_token_revoked", "invalid_grant", "invalid_token", "token_expired", "expired_token",
+        "token has expired", "token is expired", "token expired", "credentials have expired", "credentials expired", "session has expired", "please log in again", "please login again", "please re-authenticate"
+    }.Any(text => message.Contains(text, StringComparison.OrdinalIgnoreCase));
 }

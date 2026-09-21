@@ -215,7 +215,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (FullAccess(config) is not null) store.Setting(AccessKey(config), value);
             if (ModelPicker.IsModel(config)) ModelPicker.Remember(store, chat.Provider, value);
         }
-        catch (Exception error) { chat.Status = "Could not change " + config.Name + ": " + error.Message; chat.ConfigVersion++; }
+        catch (Exception error) { chat.NeedsLogin |= AgentProviders.IsAuthenticationError(error); chat.Status = "Could not change " + config.Name + ": " + error.Message; chat.ConfigVersion++; }
         finally { IsConfiguring = false; Changed?.Invoke(); }
     }
     private async Task ConnectWithRecovery(bool replayHistory, CancellationToken token)
@@ -324,6 +324,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (!connected || !ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
             connected = false;
             DisconnectSubagents();
+            if (connection.DisconnectReason is { } disconnectReason)
+                chat.NeedsLogin |= AgentProviders.IsAuthenticationError(new IOException(disconnectReason));
             if (!chat.Busy)
             {
                 chat.Status = connection.DisconnectReason ?? "Agent disconnected.";
