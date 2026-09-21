@@ -5,6 +5,32 @@ namespace CodexManager.Tests;
 public class SessionConfigTests
 {
     [AvaloniaFact]
+    public async Task SavedAccessWinsOverAdapterDefaultAndIsInheritedByWorkspace()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("access-defaults-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        // Older clients could save the adapter's default in the general setting
+        // while the dedicated access setting still held the user's selection.
+        store.Setting($"chatConfig:Codex:{chat.Id}:mode", "ask");
+        store.Setting($"sessionAccess:{chat.Id}:mode", "full-access");
+        var command = "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config --access --reset-access";
+        await using var runtime = new ChatRuntime(chat, workspace, store, command);
+        await runtime.Connect();
+        Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "mode"), "ask");
+        var next = new Chat { WorkspaceId = "w" }; store.Save(next);
+        await using var nextRuntime = new ChatRuntime(next, workspace, store, command);
+        await nextRuntime.Connect();
+        Assert.Equal("ask", next.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "mode"), "full-access");
+        await nextRuntime.Reconnect();
+        Assert.Equal("ask", next.ConfigOptions.Single(c => c.Id == "mode").Current);
+        await runtime.Reconnect();
+        Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+    }
+
+    [AvaloniaFact]
     public async Task ModelPreferenceUsesChatThenWorkspaceThenGlobal()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("model-precedence-").FullName);

@@ -176,8 +176,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         foreach (var option in chat.ConfigOptions.ToArray())
         {
             if (FullAccess(option) is not { } full) continue;
-            var value = store.Setting(AccessKey(option)) ?? full.Value;
+            var value = PreferredConfig(option) ?? full.Value;
             if (option.Current != value && option.Values.Any(v => v.Value == value)) await SetConfigCore(option, value);
+            if (chat.ConfigOptions.FirstOrDefault(c => c.Id == option.Id)?.Current == value)
+            {
+                store.Setting(ChatConfigKey(option.Id), value);
+                store.Setting(AccessKey(option), value);
+            }
         }
     }
     private async Task SetConfigCore(SessionConfig config, string value, bool remember = false)
@@ -347,7 +352,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (loading)
             {
                 foreach (var option in chat.ConfigOptions)
-                    if (store.Setting(ChatConfigKey(option.Id)) is null) store.Setting(ChatConfigKey(option.Id), option.Current);
+                    if (FullAccess(option) is null && store.Setting(ChatConfigKey(option.Id)) is null) store.Setting(ChatConfigKey(option.Id), option.Current);
                 if (!init.GetProperty("agentCapabilities").GetProperty("loadSession").GetBoolean()) throw new IOException("This adapter does not support session resume. Update its connection command.");
                 try
                 {
@@ -404,6 +409,9 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private string GlobalConfigKey(string id) => $"globalConfig:{chat.Provider}:{id}";
     private string? SavedConfig(string id) => store.Setting(ChatConfigKey(id)) ?? store.Setting(WorkspaceConfigKey(id))
         ?? store.Setting(GlobalConfigKey(id)) ?? store.Setting(DefaultConfigKey(id));
+    private string? PreferredConfig(SessionConfig option) => FullAccess(option) is { } full
+        ? store.Setting(AccessKey(option)) ?? SavedConfig(option.Id) ?? full.Value
+        : SavedConfig(option.Id);
     private async Task ApplySessionDefaults()
     {
         // Mode/provider changes can replace the available model and reasoning options.
@@ -411,7 +419,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         while (chat.ConfigOptions.Where(c => !applied.Contains(c.Id)).OrderBy(c => c.Id == "mode" || c.Kind == "mode" ? 0 : c.Id == "provider" ? 1 : ModelPicker.IsModel(c) ? 2 : 3).FirstOrDefault() is { } option)
         {
             var id = option.Id; applied.Add(id);
-            var value = SavedConfig(id);
+            var value = PreferredConfig(option);
             if (value is null && chat.Provider == AgentProvider.Dirac && id is "yolo" or "auto_approve") value = "true";
             if (id == "provider" && authenticatedProviders is { Count: > 0 } &&
                 (value is null || !option.Values.Any(v => v.Value == value)) && !authenticatedProviders.Contains(option.Current)) value = option.Values.FirstOrDefault()?.Value;
