@@ -45,6 +45,6 @@ public static class AgentProviders
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
     private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => provider == AgentProvider.VTCode && command?.Trim() == "vtcode login" ? null : command;
-    public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "call authenticate", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login" }
+    public static bool IsAuthenticationError(Exception error) => new[] { "not logged in", "authentication required", "call authenticate", "unauthenticated", "login required", "unauthorized", "api key", "auth login", "codex login", "refresh_token_expired", "please log in again" }
         .Any(text => error.Message.Contains(text, StringComparison.OrdinalIgnoreCase));
 }

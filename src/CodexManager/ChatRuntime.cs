@@ -514,7 +514,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (chat.Provider == AgentProvider.Pi && !turn.IsCancellationRequested &&
                 (!result.TryGetProperty("stopReason", out var piStop) || piStop.GetString() != "cancelled") &&
                 !chat.Messages.Any(m => m.Sequence > user.Sequence && m.Role is "assistant" or "tool" && !string.IsNullOrWhiteSpace(m.Text)))
-                throw new IOException("Pi ended the turn without a response. The pi-acp adapter can suppress Pi errors. Check Pi's model and authentication in this workspace's environment; your message has been kept for retry.");
+                throw new IOException(await PiDiagnostics.ReadError(workspace, chat.SessionId!, user.Timestamp ?? DateTimeOffset.UtcNow)
+                    ?? "Pi ended the turn without a response. The pi-acp adapter can suppress Pi errors. Check Pi's model and authentication in this workspace's environment; your message has been kept for retry.");
             restoreDiracContext = false;
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;

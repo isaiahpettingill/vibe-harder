@@ -4,6 +4,23 @@ namespace CodexManager.Tests;
 
 public class PiFailureTests
 {
+    [Fact]
+    public async Task PiLogProbeFindsExpiredLoginButIgnoresPreviousTurns()
+    {
+        var directory = Directory.CreateTempSubdirectory("pi-log-").FullName;
+        var logs = Path.Combine(directory, ".pi", "pi-acp"); Directory.CreateDirectory(logs);
+        var file = Path.Combine(directory, "session.jsonl");
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var error = "OAuth refresh failed: refresh_token_expired. Please log in again.";
+        await File.WriteAllTextAsync(file, System.Text.Json.JsonSerializer.Serialize(new { message = new { role = "assistant", timestamp = now, stopReason = "error", errorMessage = error } }), TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(logs, "session-map.json"), System.Text.Json.JsonSerializer.Serialize(new { sessions = new { test = new { sessionFile = file } } }), TestContext.Current.CancellationToken);
+        var probe = (string)typeof(PiDiagnostics).GetField("Probe", System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.NonPublic)!.GetRawConstantValue()!;
+        async Task<string> Read(long since) => await Hosts.Capture(Hosts.Info("node", "-e", "require('node:os').homedir=()=>" + System.Text.Json.JsonSerializer.Serialize(directory) + ";const sessionId='test',since=" + since + ";" + probe));
+        Assert.Equal(error, await Read(now - 1));
+        Assert.Equal("", await Read(now + 1));
+        Assert.True(AgentProviders.IsAuthenticationError(new IOException(error)));
+    }
+
     [AvaloniaFact]
     public async Task SilentPiTurnShowsFailureAndKeepsInputAndQueue()
     {
