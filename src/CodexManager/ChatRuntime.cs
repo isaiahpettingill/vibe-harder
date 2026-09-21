@@ -613,7 +613,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private void Add(string role, string text, string? toolId = null)
     {
         if (replaying && chat.Messages.LastOrDefault() is { } previous) store.SaveMessage(chat, previous);
-        var m = new Message { Role = role, Provider = chat.Provider, Text = text, ToolId = toolId, Sequence = chat.NextSequence++ };
+        var m = new Message { Timestamp = replaying ? null : DateTimeOffset.UtcNow, Role = role, Provider = chat.Provider, Text = text, ToolId = toolId, Sequence = chat.NextSequence++ };
         chat.Messages.Add(m); store.TrimHistory(chat); if (!replaying) store.SaveMessage(chat, m);
     }
     private async Task Update(JsonElement update)

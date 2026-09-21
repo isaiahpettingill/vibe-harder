@@ -83,6 +83,7 @@ public sealed class Message : Observable
     public ObservableCollection<Attachment> Attachments { get; } = [];
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
     public string Role { get; init; } = "assistant";
+    public DateTimeOffset? Timestamp { get; init; } = DateTimeOffset.UtcNow;
     public string? ToolId { get; init; }
     public string? ProviderMessageId { get; set; }
     public string ToolInput { get; set; } = "";

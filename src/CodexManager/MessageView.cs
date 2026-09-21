@@ -17,18 +17,27 @@ public sealed class MessageView : UserControl
     private SubagentInfo? legacySubagent;
     private readonly Button toggle = new() { HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
     private readonly TextBlock title = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, FontSize = 11 };
+    private readonly TextBlock timestamp = new() { Name = "MessageTimestamp", FontSize = 10, VerticalAlignment = VerticalAlignment.Center, Margin = new(8, 0, 0, 0) };
+    private static readonly HashSet<MessageView> timestampViews = [];
+    private static readonly Avalonia.Threading.DispatcherTimer timestampTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly ScrollViewer details;
     private bool expanded;
     private bool attached;
     private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Message actions", VerticalAlignment = VerticalAlignment.Top };
     public bool IsExpandedOutput => IsOutput && expanded;
     private bool IsOutput => Message?.Role is "tool" or "thought" or "plan";
-    static MessageView() => MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
+    static MessageView()
+    {
+        MessageProperty.Changed.AddClassHandler<MessageView>((view, args) => view.Change(args.OldValue as Message));
+        timestampTimer.Tick += (_, _) => { foreach (var view in timestampViews) view.UpdateTimestamp(); };
+    }
     public MessageView()
     {
         toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; if (Message is not null) Message.OutputExpanded = expanded; Refresh(); };
-        var header = new Grid { ColumnDefinitions = new("*,Auto") };
+        var header = new Grid { ColumnDefinitions = new("*,Auto,Auto") };
         header.Children.Add(toggle); Grid.SetColumn(history, 1); header.Children.Add(history);
+        timestamp.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
+        Grid.SetColumn(timestamp, 2); header.Children.Add(timestamp);
         history.Click += async (_, _) =>
         {
             if (Message is not { } message) return;
@@ -47,14 +56,20 @@ public sealed class MessageView : UserControl
         expanded = !IsOutput || Message?.OutputExpanded == true; Refresh();
     }
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
-    { base.OnAttachedToVisualTree(e); attached = true; if (Message is not null) Message.PropertyChanged += MessageChanged; Refresh(); }
+    { base.OnAttachedToVisualTree(e); attached = true; timestampViews.Add(this); timestampTimer.Start(); if (Message is not null) Message.PropertyChanged += MessageChanged; Refresh(); }
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
-    { attached = false; details.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
+    { attached = false; timestampViews.Remove(this); if (timestampViews.Count == 0) timestampTimer.Stop(); details.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
+    private void UpdateTimestamp()
+    {
+        timestamp.Text = Message?.Timestamp is { } time ? MessageTime.Format(time, DateTimeOffset.UtcNow) : "";
+        timestamp.IsVisible = Message?.Timestamp is not null;
+    }
     private void MessageChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e) => Refresh();
     public void Collapse() { if (IsOutput) { expanded = false; if (Message is not null) Message.OutputExpanded = false; subagentView?.Collapse(); Refresh(); } }
     public void Expand() { if (IsOutput) { expanded = true; if (Message is not null) Message.OutputExpanded = true; Refresh(); } }
     private void Refresh()
     {
+        UpdateTimestamp();
         var isUser = Message is { Role: "user" } && (!string.IsNullOrWhiteSpace(Message.Text) || Message.Attachments.Count > 0);
         frame.BorderThickness = isUser ? new Thickness(2, 0, 0, 0) : default;
         frame.Padding = isUser ? new Thickness(12, 8) : default;

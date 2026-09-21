@@ -40,6 +40,8 @@ public sealed class Store : IDisposable
         if (providerColumn.ExecuteScalar() is null) Execute("ALTER TABLE chats ADD COLUMN provider TEXT NOT NULL DEFAULT 'Codex'");
         using var recoveryColumn = db.CreateCommand(); recoveryColumn.CommandText = "SELECT name FROM pragma_table_info('chats') WHERE name='pending_input'";
         if (recoveryColumn.ExecuteScalar() is null) Execute("ALTER TABLE chats ADD COLUMN pending_input TEXT");
+        using var timestampColumn = db.CreateCommand(); timestampColumn.CommandText = "SELECT name FROM pragma_table_info('messages') WHERE name='timestamp'";
+        if (timestampColumn.ExecuteScalar() is null) Execute("ALTER TABLE messages ADD COLUMN timestamp TEXT");
         if (backgroundWrites)
         {
             using var read = db.CreateCommand(); read.CommandText = "SELECT key,value FROM settings";
@@ -106,9 +108,9 @@ public sealed class Store : IDisposable
     }
     public void LoadMessages(Chat chat)
     {
-        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,d.json FROM messages m LEFT JOIN message_details d ON d.message_id=m.id WHERE chat_id=$id ORDER BY seq"; cmd.Parameters.AddWithValue("$id", chat.Id);
+        using var cmd = db.CreateCommand(); cmd.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,d.json,m.timestamp FROM messages m LEFT JOIN message_details d ON d.message_id=m.id WHERE chat_id=$id ORDER BY seq"; cmd.Parameters.AddWithValue("$id", chat.Id);
         using var r = cmd.ExecuteReader();
-        while (r.Read()) chat.Messages.Add(new() { Provider = chat.Provider, Id = r.GetString(0), Role = r.GetString(1), Text = r.GetString(2), ToolId = r.IsDBNull(3) ? null : r.GetString(3), Sequence = r.GetInt32(4), Subagent = r.IsDBNull(5) ? null : JsonSerializer.Deserialize(r.GetString(5), StoreJsonContext.Default.SubagentInfo) });
+        while (r.Read()) chat.Messages.Add(new() { Provider = chat.Provider, Id = r.GetString(0), Role = r.GetString(1), Text = r.GetString(2), ToolId = r.IsDBNull(3) ? null : r.GetString(3), Sequence = r.GetInt32(4), Timestamp = r.IsDBNull(6) ? null : DateTimeOffset.Parse(r.GetString(6), System.Globalization.CultureInfo.InvariantCulture), Subagent = r.IsDBNull(5) ? null : JsonSerializer.Deserialize(r.GetString(5), StoreJsonContext.Default.SubagentInfo) });
         r.Close();
         chat.HistoryLoaded = true; chat.NextSequence = chat.Messages.Count == 0 ? 0 : chat.Messages.Max(m => m.Sequence) + 1;
         foreach (var m in chat.Messages)
@@ -127,14 +129,14 @@ public sealed class Store : IDisposable
         {
             using var connection = new SqliteConnection(connectionString); connection.Open();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value,d.json FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id LEFT JOIN message_details d ON d.message_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
+            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value,d.json,m.timestamp FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id LEFT JOIN message_details d ON d.message_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
             command.Parameters.AddWithValue("$tool", (object?)toolId ?? DBNull.Value);
             command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$before", (object?)before ?? DBNull.Value); command.Parameters.AddWithValue("$limit", limit);
             using var rows = command.ExecuteReader(); var result = new List<Message>();
             while (rows.Read())
             {
                 token.ThrowIfCancellationRequested();
-                var message = new Message { Id = rows.GetString(0), Role = rows.GetString(1), Text = rows.GetString(2), ToolId = rows.IsDBNull(3) ? null : rows.GetString(3), Sequence = rows.GetInt32(4), Provider = provider };
+                var message = new Message { Id = rows.GetString(0), Role = rows.GetString(1), Text = rows.GetString(2), ToolId = rows.IsDBNull(3) ? null : rows.GetString(3), Sequence = rows.GetInt32(4), Timestamp = rows.IsDBNull(8) ? null : DateTimeOffset.Parse(rows.GetString(8), System.Globalization.CultureInfo.InvariantCulture), Provider = provider };
                 if (!rows.IsDBNull(5)) foreach (var attachment in JsonSerializer.Deserialize(rows.GetString(5), StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(attachment);
                 message.ProviderMessageId = rows.IsDBNull(6) ? null : rows.GetString(6);
                 message.Subagent = rows.IsDBNull(7) ? null : JsonSerializer.Deserialize(rows.GetString(7), StoreJsonContext.Default.SubagentInfo);
@@ -232,8 +234,8 @@ public sealed class Store : IDisposable
         if (savedMessages.TryGetValue(m.Id, out var saved) && saved.Message.TryGetTarget(out var target) && ReferenceEquals(target, m) && saved.Revision == m.Revision) { SaveAttachments(m.Id, m.Attachments); return; }
         if (m.Sequence < 0) m.Sequence = c.NextSequence++;
         c.NextSequence = Math.Max(c.NextSequence, m.Sequence + 1);
-        const string sql = "INSERT INTO messages VALUES($id,$chat,$role,$text,$tool,$seq) ON CONFLICT(id) DO UPDATE SET text=$text";
-        (string, object?)[] args = [("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence)];
+        const string sql = "INSERT INTO messages(id,chat_id,role,text,tool_id,seq,timestamp) VALUES($id,$chat,$role,$text,$tool,$seq,$timestamp) ON CONFLICT(id) DO UPDATE SET text=$text";
+        (string, object?)[] args = [("$id", m.Id), ("$chat", c.Id), ("$role", m.Role), ("$text", m.Text), ("$tool", m.ToolId), ("$seq", m.Sequence), ("$timestamp", m.Timestamp?.ToString("O"))];
         if (writer is not null) writer.Enqueue(connection => ExecuteOn(connection, sql, args), "message:" + m.Id);
         else Execute(sql, args);
         if (m.Subagent is { } subagent)

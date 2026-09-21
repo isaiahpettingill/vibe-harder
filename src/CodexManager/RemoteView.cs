@@ -645,7 +645,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     }
     private Message ReadMessage(JsonNode row)
     {
-        var message = new Message { Provider = messageProvider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
+        var message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
         message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
         foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         return message;
@@ -660,7 +660,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (row["revision"] is { } revision) messageRevisions[id] = revision.GetValue<string>();
             if (row["text"] is null) continue;
             byId ??= messages.ToDictionary(m => m.Id);
-            if (!byId.TryGetValue(id, out var message)) { message = new Message { Provider = messageProvider, Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
+            if (!byId.TryGetValue(id, out var message)) { message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
             message.Text = row["text"]!.GetValue<string>();
             message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
             if (row["attachments"] is { } files)
