@@ -324,6 +324,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (!connected || !ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
             connected = false;
             DisconnectSubagents();
+            if (!chat.Busy)
+            {
+                chat.Status = connection.DisconnectReason ?? "Agent disconnected.";
+                Add("system", chat.Status);
+                Changed?.Invoke();
+            }
             if (!chat.Busy && !chat.NeedsLogin && (IsActiveView?.Invoke() == true || DateTimeOffset.UtcNow < remoteViewUntil)) _ = Reconnect(true);
         });
         client.SessionUpdateAsync = async (session, update) => await Dispatcher.UIThread.InvokeAsync(() => RouteUpdate(session, update), DispatcherPriority.Background);
@@ -505,6 +511,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
+            if (chat.Provider == AgentProvider.Pi && !turn.IsCancellationRequested &&
+                (!result.TryGetProperty("stopReason", out var piStop) || piStop.GetString() != "cancelled") &&
+                !chat.Messages.Any(m => m.Sequence > user.Sequence && m.Role is "assistant" or "tool" && !string.IsNullOrWhiteSpace(m.Text)))
+                throw new IOException("Pi ended the turn without a response. The pi-acp adapter can suppress Pi errors. Check Pi's model and authentication in this workspace's environment; your message has been kept for retry.");
             restoreDiracContext = false;
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;

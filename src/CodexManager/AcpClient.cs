@@ -16,6 +16,7 @@ public sealed class AcpClient : IAsyncDisposable
     private long nextId;
     private int disposed;
     private string diagnostics = "";
+    public string? DisconnectReason { get; private set; }
     public bool Alive => !lifetime.IsCancellationRequested && !process.HasExited;
     public event Action<JsonElement>? Update;
     public event Action? Disconnected;
@@ -87,11 +88,13 @@ public sealed class AcpClient : IAsyncDisposable
                 }
             }
             await Task.WhenAny(errorReader, Task.Delay(200));
-            failure = new IOException("Agent exited. " + diagnostics.Trim());
+            if (!process.HasExited) await Task.WhenAny(process.WaitForExitAsync(lifetime.Token), Task.Delay(200));
+            failure = new IOException((process.HasExited ? $"Agent exited (code {process.ExitCode}). " : "Agent closed its output stream. ") + diagnostics.Trim());
         }
         catch (Exception error) { failure = error; }
         finally
         {
+            DisconnectReason = failure?.Message ?? "Agent disconnected.";
             foreach (var item in pending.Values) item.TrySetException(failure ?? new IOException("Agent disconnected."));
             lifetime.Cancel();
             Disconnected?.Invoke();

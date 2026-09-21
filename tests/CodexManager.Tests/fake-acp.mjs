@@ -59,6 +59,7 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
+   if(process.argv.includes('--silent-turn')) { response(m.id,{stopReason:'end_turn'}); break; }
    if(m.params.prompt[0]?.text==='subagents') {
     const child = (sessionId, value) => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId,update:value}});
     child('fixture-session',{sessionUpdate:'subagent_spawned',subagentSessionId:'child-1',name:'Investigate',task:'Check the implementation'});
