@@ -108,6 +108,7 @@ public class DesktopUpdaterTests
         var script = DesktopUpdater.UnixInstallScript(123, "/tmp/app new", "/tmp/app old", "/tmp/app old/VibeHarder", "/tmp/log");
         Assert.Contains("kill -0 123", script);
         Assert.Contains("mv '/tmp/app new.previous' '/tmp/app old'", script);
+        Assert.Contains("sh '/tmp/app old/install.sh' --refresh-icons || true", script);
         Assert.EndsWith("exec '/tmp/app old/VibeHarder' --updated\n", script);
     }
 }

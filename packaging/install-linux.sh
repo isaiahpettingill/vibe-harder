@@ -6,6 +6,22 @@ case "$data_dir" in /*) ;; *) echo 'XDG_DATA_HOME must be absolute' >&2; exit 1;
 target="$data_dir/codex-manager"
 desktop_dir="$data_dir/applications"
 icon_dir="$data_dir/icons/hicolor/256x256/apps"
+refresh_icons() {
+  mkdir -p "$icon_dir"
+  cp "$source_dir/Assets/app.png" "$icon_dir/codex-manager.png"
+  # Overwriting a file does not change its directory's mtime. Icon themes use
+  # these timestamps to detect changes, including on desktops without GTK.
+  touch "$icon_dir" "$data_dir/icons/hicolor"
+  if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -f -t "$data_dir/icons/hicolor" >/dev/null 2>&1 || true; fi
+  for cache_builder in kbuildsycoca6 kbuildsycoca5; do
+    if command -v "$cache_builder" >/dev/null 2>&1; then "$cache_builder" --noincremental >/dev/null 2>&1 || true; break; fi
+  done
+}
+if [ "${1:-}" = '--refresh-icons' ]; then
+  # Portable copies must not overwrite another installation's launcher icon.
+  if [ "$source_dir" = "$target" ] && [ -f "$desktop_dir/codex-manager.desktop" ]; then refresh_icons; fi
+  exit 0
+fi
 test -f "$source_dir/VibeHarder" || { echo 'Run this script from an extracted Vibe Harder package.' >&2; exit 1; }
 case "$(uname -m):$(cat "$source_dir/runtime.txt")" in
   x86_64:linux-x64|aarch64:linux-arm64|arm64:linux-arm64|x86_64:linux-musl-x64|aarch64:linux-musl-arm64|arm64:linux-musl-arm64) ;;
@@ -16,7 +32,6 @@ if [ "$source_dir" != "$target" ]; then cp -a "$source_dir/." "$target/"; fi
 chmod +x "$target/VibeHarder"
 chmod +x "$target/vibe-harder.sh" "$target/install-cli.sh"
 sh "$target/install-cli.sh"
-cp "$target/Assets/app.png" "$icon_dir/codex-manager.png"
 # Quote the Exec argument according to the Desktop Entry specification; percent
 # signs must be doubled because they introduce field codes, even inside quotes.
 exec_path=$(printf '%s' "$target/VibeHarder" | sed 's/\\/\\\\\\\\/g; s/"/\\\\"/g; s/`/\\\\`/g; s/\$/\\\\$/g; s/%/%%/g')
@@ -48,5 +63,5 @@ if [ -f "$desktop_file" ]; then
 fi
 if ! cmp -s "$desktop_new" "$desktop_file"; then mv "$desktop_new" "$desktop_file"; fi
 if command -v update-desktop-database >/dev/null 2>&1; then update-desktop-database "$desktop_dir"; fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then gtk-update-icon-cache -f -t "$data_dir/icons/hicolor" >/dev/null 2>&1 || true; fi
+refresh_icons
 printf 'Installed Vibe Harder. Open it from your application menu.\n'

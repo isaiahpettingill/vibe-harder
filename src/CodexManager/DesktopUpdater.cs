@@ -96,7 +96,8 @@ public static class DesktopUpdater
     public static string UnixInstallScript(int processId, string prepared, string destination, string executable, string log)
     {
         var backup = prepared + ".previous";
-        return $"#!/bin/sh\nwhile kill -0 {processId} 2>/dev/null; do sleep 1; done\nexec >>{ShellQuote(log)} 2>&1\nif mv {ShellQuote(destination)} {ShellQuote(backup)}; then\n  if mv {ShellQuote(prepared)} {ShellQuote(destination)}; then\n    rm -rf -- {ShellQuote(backup)}\n  else\n    mv {ShellQuote(backup)} {ShellQuote(destination)}\n  fi\nfi\nexec {ShellQuote(executable)} --updated\n";
+        var integration = ShellQuote(destination.TrimEnd('/') + "/install.sh");
+        return $"#!/bin/sh\nwhile kill -0 {processId} 2>/dev/null; do sleep 1; done\nexec >>{ShellQuote(log)} 2>&1\nif mv {ShellQuote(destination)} {ShellQuote(backup)}; then\n  if mv {ShellQuote(prepared)} {ShellQuote(destination)}; then\n    rm -rf -- {ShellQuote(backup)}\n    if [ -f {integration} ]; then sh {integration} --refresh-icons || true; fi\n  else\n    mv {ShellQuote(backup)} {ShellQuote(destination)}\n  fi\nfi\nexec {ShellQuote(executable)} --updated\n";
     }
 
     // The helper waits for the normal shutdown to flush sessions and release application files.

@@ -87,6 +87,17 @@ shutil.copy(Path(os.environ['FIXTURE'])/name, args[args.index('--output')+1])
                 reinstall = subprocess.run(["sh", str(package / "install.sh")], env=env, text=True, capture_output=True)
                 self.assertEqual(0, reinstall.returncode, reinstall.stdout + reinstall.stderr)
                 self.assertEqual(customized, desktop.read_text())
+                icon = data / "icons/hicolor/256x256/apps/codex-manager.png"
+                icon.write_bytes(b"old icon")
+                installed = data / "codex-manager"
+                (installed / "Assets/app.png").write_bytes(b"updated icon")
+                refreshed = subprocess.run(["sh", str(installed / "install.sh"), "--refresh-icons"], env=env, text=True, capture_output=True)
+                self.assertEqual(0, refreshed.returncode, refreshed.stdout + refreshed.stderr)
+                self.assertEqual(b"updated icon", icon.read_bytes())
+                self.assertEqual(customized, desktop.read_text())
+                portable = subprocess.run(["sh", str(package / "install.sh"), "--refresh-icons"], env=env, text=True, capture_output=True)
+                self.assertEqual(0, portable.returncode, portable.stdout + portable.stderr)
+                self.assertEqual(b"updated icon", icon.read_bytes())
 
     def test_supported_architectures_and_libcs(self):
         for arch in ("x86_64", "aarch64"):
