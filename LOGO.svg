@@ -1,6 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" fill="#000000"/>
-  <g fill="#ffffff">
+  <rect x="4" y="8" width="120" height="116" rx="12" fill="#303030"/>
+  <rect x="4" y="4" width="120" height="116" rx="12" fill="#646464"/>
+  <rect x="4" y="5" width="120" height="115" rx="12" fill="#505050"/>
+  <g fill="#3b3b3b">
+    <polygon points="22,38 48,64 22,90 16,84 36,64 16,44"/>
+    <rect x="52" y="82" width="20" height="8"/>
+    <polygon points="86,38 112,64 86,90 80,84 100,64 80,44"/>
+  </g>
+  <g fill="#f2f2f2">
     <polygon points="22,36 48,62 22,88 16,82 36,62 16,42"/>
     <rect x="52" y="80" width="20" height="8"/>
     <polygon points="86,36 112,62 86,88 80,82 100,62 80,42"/>

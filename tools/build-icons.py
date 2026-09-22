@@ -1,4 +1,4 @@
-"""Render the simple monochrome LOGO.svg into platform icons. Requires Pillow."""
+"""Render the monochrome LOGO.svg into platform icons. Requires Pillow."""
 from pathlib import Path
 import shutil
 import xml.etree.ElementTree as ET
@@ -15,7 +15,12 @@ def render(node, inherited_fill='#000000'):
     if tag == 'rect':
         x, y = float(node.get('x', 0)), float(node.get('y', 0))
         width, height = float(node.get('width')), float(node.get('height'))
-        draw.rectangle((x * scale, y * scale, (x + width) * scale - 1, (y + height) * scale - 1), fill=fill)
+        bounds = (x * scale, y * scale, (x + width) * scale - 1, (y + height) * scale - 1)
+        radius = float(node.get('rx', 0)) * scale
+        if radius:
+            draw.rounded_rectangle(bounds, radius=radius, fill=fill)
+        else:
+            draw.rectangle(bounds, fill=fill)
     elif tag == 'polygon':
         points = [tuple(float(value) * scale for value in point.split(',')) for point in node.get('points').split()]
         draw.polygon(points, fill=fill)
