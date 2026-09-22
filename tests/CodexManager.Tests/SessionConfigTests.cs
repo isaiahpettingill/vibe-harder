@@ -4,6 +4,32 @@ namespace CodexManager.Tests;
 
 public class SessionConfigTests
 {
+    [AvaloniaTheory]
+    [InlineData("chat")]
+    [InlineData("workspace")]
+    [InlineData("global")]
+    [InlineData("legacy")]
+    public async Task OpenCodeRecentModelsNeverOverrideSavedPreferences(string scope)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("opencode-migration-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id, Provider = AgentProvider.OpenCode }; store.Save(chat);
+        ModelPicker.Remember(store, AgentProvider.OpenCode, "large");
+        var key = scope switch
+        {
+            "chat" => $"chatConfig:OpenCode:{chat.Id}:model",
+            "workspace" => "workspaceConfig:OpenCode:w:model",
+            "global" => "globalConfig:OpenCode:model",
+            _ => "sessionDefault:OpenCode:local:model"
+        };
+        store.Setting(key, "small");
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config");
+        await runtime.Connect();
+        Assert.Equal("small", chat.ConfigOptions.Single(c => c.Id == "model").Current);
+        await runtime.Reconnect();
+        Assert.Equal("small", chat.ConfigOptions.Single(c => c.Id == "model").Current);
+    }
+
     [AvaloniaFact]
     public async Task SavedAccessWinsOverAdapterDefaultAndIsInheritedByWorkspace()
     {

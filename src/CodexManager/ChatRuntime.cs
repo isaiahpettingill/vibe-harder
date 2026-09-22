@@ -430,6 +430,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         {
             var id = option.Id; applied.Add(id);
             var value = PreferredConfig(option);
+            // Older OpenCode installs kept model choices only in picker recents.
+            // Migrate those only when no scoped (or legacy) preference exists.
+            if (value is null && chat.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
+                value = ModelPicker.Recent(store, chat.Provider).FirstOrDefault(recent => option.Values.Any(v => v.Value == recent));
             if (value is null && chat.Provider == AgentProvider.Dirac && id is "yolo" or "auto_approve") value = "true";
             if (id == "provider" && authenticatedProviders is { Count: > 0 } &&
                 (value is null || !option.Values.Any(v => v.Value == value)) && !authenticatedProviders.Contains(option.Current)) value = option.Values.FirstOrDefault()?.Value;

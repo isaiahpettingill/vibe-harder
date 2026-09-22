@@ -128,6 +128,10 @@ public class LinkAndModelTests
         Assert.Equal("large", Assert.IsType<SessionValue>(list.Items[0]).Value);
         search.Text = "SMALL"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent));
         Assert.Equal("small", Assert.IsType<SessionValue>(Assert.Single(list.Items)).Value);
+        // The migrated value is now chat-local, even if another chat changes recents.
+        ModelPicker.Remember(store, AgentProvider.OpenCode, "small");
+        await runtime.Reconnect();
+        Assert.Equal("large", chat.ConfigOptions.Single(c => c.Id == "model").Current);
     }
 
     [AvaloniaFact]
