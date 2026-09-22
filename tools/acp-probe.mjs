@@ -6,7 +6,7 @@ import {writeFileSync} from 'node:fs';
 const wsl = process.argv.includes('--wsl');
 const cwd = wsl ? '/tmp/codex-manager-smoke' : resolve('artifacts/smoke-workspace');
 const child = wsl
-  ? spawn('wsl.exe', ['-d', 'Debian', '--cd', cwd, '--exec', 'bash', '-lc', 'exec npx -y @agentclientprotocol/codex-acp@1.11.0'], {windowsHide:true})
+  ? spawn('wsl.exe', ['-d', 'Debian', '--cd', cwd, '--exec', 'bash', '-lc', 'exec npx -y @agentclientprotocol/codex-acp@1.13.0'], {windowsHide:true})
   : spawn(process.execPath, [resolve('node_modules/@agentclientprotocol/codex-acp/dist/index.js')], {cwd, windowsHide:true});
 let seq = 0;
 const pending = new Map();

@@ -986,7 +986,7 @@ public partial class MainView : UserControl
                     panel.Children.Add(new TextBlock { Text = (isWsl ? "WSL" : "Local") + " OpenAI authentication (reconnect to apply)", Classes = { "muted" } }); panel.Children.Add(authentication);
                 }
                 var key = AgentProviders.CommandKey(provider.Provider, isWsl);
-                var field = new TextBox { Text = store.Setting(key) ?? provider.DefaultCommand, TextWrapping = TextWrapping.Wrap };
+                var field = new TextBox { Text = AgentProviders.Command(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };
                 fields[key] = field;
                 var loginKey = $"{provider.Provider}:{(isWsl ? "wsl" : "local")}LoginCommand";
                 var loginField = new TextBox { Text = AgentProviders.LoginCommand(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };

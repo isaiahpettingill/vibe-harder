@@ -5,7 +5,7 @@ namespace CodexManager;
 
 public static class Hosts
 {
-    public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@1.11.0";
+    public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@1.13.0";
     public static string ResourceDirectory => OperatingSystem.IsMacOS() && Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) == "MacOS" && Directory.Exists(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) : AppContext.BaseDirectory;
     public static string WindowsShellCommand(string command)
     {

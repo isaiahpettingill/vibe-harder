@@ -2,6 +2,22 @@ namespace CodexManager.Tests;
 
 public class ConfigurationTests
 {
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Debian")]
+    public void CodexBridgeUpgradesSavedShippedDefaultButPreservesCustomCommands(string? distro)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-command-").FullName);
+        var workspace = new Workspace("w", "Test", "/tmp", distro);
+        var key = AgentProviders.CommandKey(AgentProvider.Codex, workspace.IsWsl);
+        store.Setting(key, "npx -y @agentclientprotocol/codex-acp@1.11.0");
+        Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+        Assert.Equal(Hosts.DefaultAdapter, store.Setting(key));
+        const string custom = "my-wrapper npx -y @agentclientprotocol/codex-acp@1.11.0 --custom";
+        store.Setting(key, custom);
+        Assert.Equal(custom, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+    }
+
     [Fact]
     public void WindowsNpxUsesCmdWithoutChangingExecutionPolicyOrWslCommands()
     {

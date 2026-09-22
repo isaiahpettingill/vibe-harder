@@ -2,7 +2,7 @@
 import {spawn, spawnSync} from 'node:child_process';
 import {createInterface} from 'node:readline';
 const provider = process.argv[2] ?? 'codex';
-const commands = {codex:'npx -y @agentclientprotocol/codex-acp@1.11.0', claude:'npx -y @agentclientprotocol/claude-agent-acp@0.76.0', opencode:'opencode acp'};
+const commands = {codex:'npx -y @agentclientprotocol/codex-acp@1.13.0', claude:'npx -y @agentclientprotocol/claude-agent-acp@0.76.0', opencode:'opencode acp'};
 if (!commands[provider]) throw new Error('Use codex, claude, or opencode');
 const cwd = process.argv[3] ?? process.cwd();
 const distro = process.argv[4];

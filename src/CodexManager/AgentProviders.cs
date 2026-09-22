@@ -27,8 +27,16 @@ public static class AgentProviders
     public static AgentOption Get(AgentProvider provider) => All.Single(p => p.Provider == provider);
     public static string CommandKey(AgentProvider provider, bool wsl) =>
         provider == AgentProvider.Codex ? (wsl ? "wslCommand" : "localCommand") : $"{provider}:{(wsl ? "wsl" : "local")}Command";
-    public static string Command(Store store, Workspace workspace, AgentProvider provider) =>
-        store.Setting(CommandKey(provider, workspace.IsWsl)) ?? Get(provider).DefaultCommand;
+    public static string Command(Store store, Workspace workspace, AgentProvider provider)
+    {
+        var key = CommandKey(provider, workspace.IsWsl);
+        var command = store.Setting(key);
+        // Settings previously saved unchanged defaults as explicit commands.
+        // Upgrade that exact shipped command without rewriting custom launchers.
+        if (provider == AgentProvider.Codex && command?.Trim() == "npx -y @agentclientprotocol/codex-acp@1.11.0")
+            store.Setting(key, command = Hosts.DefaultAdapter);
+        return command ?? Get(provider).DefaultCommand;
+    }
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider) =>
         Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" } : null);
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
