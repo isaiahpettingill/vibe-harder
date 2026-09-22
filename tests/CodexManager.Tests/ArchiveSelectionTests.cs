@@ -1,4 +1,7 @@
 using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -45,7 +48,7 @@ public class ArchiveSelectionTests
         finally { window.Close(); view.DisposeMobile(); }
     }
     [AvaloniaFact]
-    public void ArchiveBrowsingPreservesTheActiveChatAndUsesIndependentCollapsedGroups()
+    public async Task ArchiveBrowsingPreservesTheActiveChatAndDoubleClickRestoresAndOpens()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("archive-browse-").FullName);
         store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
@@ -74,6 +77,20 @@ public class ArchiveSelectionTests
             Mode(false); window.UpdateLayout(); Assert.Same(active, Current());
             Mode(true); window.UpdateLayout();
             Assert.False(view.GetVisualDescendants().OfType<ListBox>().Single(l => l.Name == "Chats_w").IsVisible);
+            view.GetVisualDescendants().OfType<IconButton>().Single(b => b.Name == "CollapseWorkspace_w").RaiseEvent(new(Button.ClickEvent));
+            window.UpdateLayout();
+            var check = view.GetVisualDescendants().OfType<CheckBox>().Single(c => c.Name == "SelectArchived_newer");
+            var row = Assert.IsType<Grid>(check.Parent);
+            var content = Assert.IsType<Grid>(row.Children[1]);
+            var title = content.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>().First();
+            var point = title.TranslatePoint(new Point(4, 4), window)!.Value;
+            window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
+            Assert.True(newer.Archived); Assert.Same(active, Current());
+            window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
+            await WaitUntil(() => !newer.Archived && ReferenceEquals(newer, Current()));
+            Assert.False(store.Chats().Single(c => c.Id == newer.Id).Archived);
+            Assert.True(older.Archived);
+            Assert.False((bool)typeof(MainView).GetField("showArchived", flags)!.GetValue(view)!);
         }
         finally { window.Close(); view.DisposeMobile(); }
     }

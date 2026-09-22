@@ -3,6 +3,7 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Layout;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace CodexManager;
 
@@ -35,7 +36,34 @@ public partial class MainView
             UpdateArchiveSelection();
         };
         var row = new Grid { ColumnDefinitions = new("Auto,*") };
-        row.Children.Add(check); Grid.SetColumn(content, 1); row.Children.Add(content); return row;
+        row.Children.Add(check); Grid.SetColumn(content, 1); row.Children.Add(content);
+        row.DoubleTapped += async (_, e) =>
+        {
+            if (e.Source is not Visual source || source is Button || source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) return;
+            e.Handled = true;
+            historyOperation = RestoreAndOpenChat(chat, remote); await historyOperation;
+        };
+        return row;
+    }
+    private async Task RestoreAndOpenChat(Chat chat, RemoteView? remote)
+    {
+        if (archiveBatchRunning || !chat.Archived) return;
+        archiveBatchRunning = true; UpdateArchiveSelection();
+        try
+        {
+            if (remote is not null) await remote.UnarchiveChat(chat.Id);
+            else { chat.Archived = false; store.Save(chat); await store.FlushAsync(); }
+            ShowArchiveView(false);
+            if (remote is not null) { OpenRemoteHost(remote.Host); remote.SelectChat(chat.Id); }
+            else
+            {
+                SelectWorkspace(workspaces.Single(w => w.Id == chat.WorkspaceId));
+                ChatList.SelectedItem = chat;
+            }
+            CollapseSidebar();
+        }
+        catch (Exception error) { StatusText.Text = "Could not open archived chat: " + error.Message; }
+        finally { archiveBatchRunning = false; UpdateArchiveSelection(); }
     }
     private void UpdateArchiveSelection()
     {
