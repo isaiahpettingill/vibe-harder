@@ -40,6 +40,9 @@ public static class AppTheme
         Brush("AppBorder", palette.Border); Brush("AppText", palette.Text);
         Brush("AppMuted", palette.Muted); Brush("AppAccent", palette.Accent);
         var accentColor = Color.Parse(palette.Accent);
+        // ColorTextBlock retains inline foregrounds during selection. Keep the
+        // accent translucent so links remain legible instead of accent-on-accent.
+        Brush("ChatSelection", Color.FromArgb(90, accentColor.R, accentColor.G, accentColor.B).ToString());
         static double Linear(byte value) { var v = value / 255.0; return v <= .04045 ? v / 12.92 : Math.Pow((v + .055) / 1.055, 2.4); }
         var luminance = .2126 * Linear(accentColor.R) + .7152 * Linear(accentColor.G) + .0722 * Linear(accentColor.B);
         var darkLuminance = .9278 * Linear(20) + .0722 * Linear(28);

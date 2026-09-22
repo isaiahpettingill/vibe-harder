@@ -159,7 +159,7 @@ public sealed partial class ThemedTerminalControl
 
     protected override void OnPointerPressed(PointerPressedEventArgs e)
     {
-        pressedLink = !HasSelection && e.ClickCount == 1 && e.KeyModifiers == KeyModifiers.None && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
+        pressedLink = !HasSelection && e.ClickCount == 1 && e.KeyModifiers is KeyModifiers.None or KeyModifiers.Control or KeyModifiers.Meta && e.GetCurrentPoint(this).Properties.IsLeftButtonPressed
             ? LinkAt(e.GetPosition(this)) : null;
         linkPressPosition = e.GetPosition(this); linkPointer = e.Pointer.Id;
         base.OnPointerPressed(e);

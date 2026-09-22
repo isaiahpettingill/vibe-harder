@@ -84,6 +84,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(SessionNotice ? "SessionFontSize" : Muted ? "ToolFontSize" : "ChatFontSize"));
             if (SessionNotice) block.FontStyle = FontStyle.Italic;
             StyleInlineCode(block.Content);
+            block.Bind(CTextBlock.SelectionBrushProperty, this.GetResourceObservable("ChatSelection"));
             DecorateLinks(block);
             block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted || SessionNotice ? "AppMuted" : "AppText"));
         }
@@ -147,8 +148,11 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         foreach (var inline in inlines)
         {
-            if (inline is CCode)
+            if (inline is CCode code)
             {
+                // A decorated span gets its selection painted above the code
+                // background; bare inline backgrounds hide the selection.
+                code.Padding = new Thickness(1, 0);
                 inline.Bind(CInline.ForegroundProperty, this.GetResourceObservable("AppAccent")); inline.Bind(CInline.BackgroundProperty, this.GetResourceObservable("AppSurface"));
                 inline.FontWeight = FontWeight.Normal;
                 inline.Bind(CInline.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
@@ -194,7 +198,8 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (!e.GetCurrentPoint(block).Properties.IsLeftButtonPressed) return;
             start = e.GetPosition(block); pressed = At(start);
             if (pressed is null) return;
-            if (Document is { } document && e.Pointer.Type == PointerType.Mouse)
+            var openModifier = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+            if (!openModifier && Document is { } document && e.Pointer.Type == PointerType.Mouse)
             {
                 selecting = true; selectionStart = e.GetPosition(document.Control);
                 document.Select(selectionStart, selectionStart); Focus(); e.Pointer.Capture(block);
@@ -206,7 +211,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
                     Cancel(); ShowCopyMenu([link]);
                 }, TimeSpan.FromMilliseconds(500));
             e.Handled = true;
-        }, RoutingStrategies.Tunnel);
+        }, RoutingStrategies.Tunnel, true);
         block.AddHandler(PointerMovedEvent, (_, e) =>
         {
             var delta = e.GetPosition(block) - start;

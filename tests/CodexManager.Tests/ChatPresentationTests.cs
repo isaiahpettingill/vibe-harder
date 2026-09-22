@@ -15,14 +15,42 @@ namespace CodexManager.Tests;
 public class ChatPresentationTests
 {
     [AvaloniaFact]
+    public async Task ControlClickActivatesMarkdownLinkWithoutSelectingText()
+    {
+        // Unsupported targets surface a local popup, proving activation without
+        // opening an external browser from the test.
+        var view = new ChatMarkdown { Text = "[Report](unsupported://report)" };
+        var window = new Window { Content = view, Width = 600, Height = 200 };
+        var popups = new List<Avalonia.Controls.Primitives.Popup>();
+        using var subscription = Avalonia.Controls.Primitives.Popup.IsOpenProperty.Changed.AddClassHandler<Avalonia.Controls.Primitives.Popup>((popup, _) => { if (popup.IsOpen) popups.Add(popup); });
+        window.Show();
+        try
+        {
+            await Task.Delay(150, TestContext.Current.CancellationToken); window.UpdateLayout();
+            var block = view.GetVisualDescendants().OfType<CTextBlock>().Single();
+            var point = block.TranslatePoint(new Point(8, block.Bounds.Height / 2), window)!.Value;
+            window.MouseDown(point, MouseButton.Left, RawInputModifiers.Control);
+            window.MouseUp(point, MouseButton.Left, RawInputModifiers.Control);
+            Assert.Single(popups);
+            Assert.True(string.IsNullOrEmpty(block.GetSelectedText()));
+        }
+        finally { foreach (var popup in popups) popup.IsOpen = false; window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task LinksAndInlineCodeSupportDragSelection()
     {
+        AppTheme.Apply(AppTheme.All[0]);
         var view = new ChatMarkdown { Text = "[Report details](https://example.com) and `inline code`" };
         var window = new Window { Content = view, Width = 600, Height = 200 }; window.Show();
         try
         {
             await Task.Delay(150); window.UpdateLayout();
             var block = view.GetVisualDescendants().OfType<CTextBlock>().Single();
+            var selection = Assert.IsType<Avalonia.Media.SolidColorBrush>(block.SelectionBrush);
+            Assert.InRange(selection.Color.A, (byte)60, (byte)110);
+            var code = Assert.Single(block.Content.OfType<CCode>());
+            Assert.True(code.Padding.Left > 0);
             var start = block.TranslatePoint(new Point(2, block.Bounds.Height / 2), window)!.Value;
             var end = block.TranslatePoint(new Point(block.Bounds.Width - 2, block.Bounds.Height / 2), window)!.Value;
             window.MouseDown(start, MouseButton.Left); window.MouseMove(end); window.MouseUp(end, MouseButton.Left);

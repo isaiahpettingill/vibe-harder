@@ -135,12 +135,18 @@ public class TerminalLinkTests
             window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
             Assert.Single(popups);
             model.Feed("\u001b[?1000l");
+            model.ClearSelection();
+            point = Cell(terminal, 9, 0);
+            window.MouseDown(point, MouseButton.Left, RawInputModifiers.Control);
+            window.MouseUp(point, MouseButton.Left, RawInputModifiers.Control);
+            Assert.Equal(2, popups.Count);
+            popups[1].IsOpen = false;
             using var touch = new Avalonia.Input.Pointer(42, PointerType.Touch, true);
             terminal.RaiseEvent(new PointerPressedEventArgs(terminal, touch, terminal, point, 1,
                 new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None, 1));
             terminal.RaiseEvent(new PointerReleasedEventArgs(terminal, touch, terminal, point, 2,
                 new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
-            Assert.Equal(2, popups.Count);
+            Assert.Equal(3, popups.Count);
         }
         finally { foreach (var popup in popups) popup.IsOpen = false; window.Close(); }
     }
