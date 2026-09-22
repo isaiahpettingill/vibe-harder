@@ -44,9 +44,9 @@ Section "Vibe Harder"
   Delete "$DESKTOP\Codex Manager.lnk"
   Delete "$INSTDIR\CodexManager.exe"
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe"
+  CreateShortcut "$SMPROGRAMS\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe" "" "$INSTDIR\Assets\app.ico" 0
   ${If} $CreateDesktopShortcut == 1
-    CreateShortcut "$DESKTOP\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe"
+    CreateShortcut "$DESKTOP\Vibe Harder.lnk" "$INSTDIR\VibeHarder.exe" "" "$INSTDIR\Assets\app.ico" 0
   ${EndIf}
   ReadRegStr $0 HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "CodexManager"
   StrCmp $0 "" +2
@@ -59,6 +59,15 @@ Section "Vibe Harder"
   WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "UninstallString" '"$INSTDIR\Uninstall.exe"'
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "NoModify" 1
   WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\CodexManager" "NoRepair" 1
+  ; Invalidate cached executable/shortcut icons after replacing their resources.
+  ; SHCNE_ASSOCCHANGED / SHCNF_IDLIST, then SHCNE_UPDATEITEM / SHCNF_PATHW.
+  System::Call 'shell32::SHChangeNotify(i 0x08000000, i 0, p 0, p 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$INSTDIR\VibeHarder.exe", p 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$INSTDIR\Assets\app.ico", p 0)'
+  System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$SMPROGRAMS\Vibe Harder.lnk", p 0)'
+  ${If} $CreateDesktopShortcut == 1
+    System::Call 'shell32::SHChangeNotify(i 0x00002000, i 0x0005, w "$DESKTOP\Vibe Harder.lnk", p 0)'
+  ${EndIf}
 SectionEnd
 
 Section "Uninstall"
