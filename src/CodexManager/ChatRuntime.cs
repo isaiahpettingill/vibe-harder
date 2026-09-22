@@ -7,6 +7,9 @@ namespace CodexManager;
 public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IAsyncDisposable
 {
     private AcpClient? client;
+    public BackendUpdates? BackendMaintenance { get; set; }
+    public Func<string>? ResolveCommand { get; set; }
+    public bool HasBackendProcess => client?.Alive == true;
     private HashSet<string>? authenticatedProviders;
     private string vtOpenAiMethod = "chatgpt";
     private bool vtOpenAiPinned;
@@ -303,13 +306,16 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         lifetime.Token.ThrowIfCancellationRequested();
         DisconnectSubagents();
         var files = new AcpFileSystem(workspace, () => chat.SessionId, subagentRoots.ContainsKey);
-        var launchCommand = command;
+        var launchCommand = ResolveCommand?.Invoke() ?? command;
         if (chat.Provider == AgentProvider.VTCode)
         {
             vtOpenAiMethod = VtCodeLaunch.Method(store, workspace);
-            (launchCommand, vtOpenAiPinned) = VtCodeLaunch.Prepare(command, authenticatedProviders, vtOpenAiMethod);
+            (launchCommand, vtOpenAiPinned) = VtCodeLaunch.Prepare(launchCommand, authenticatedProviders, vtOpenAiMethod);
         }
-        client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
+        void StartAgent() => client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
+        if (BackendMaintenance is { } maintenance) await maintenance.BeforeStart(workspace, chat.Provider, StartAgent, lifetime.Token);
+        else StartAgent();
+        if (client is null) throw new IOException("Could not start the agent.");
         StartIdleTimer();
         var connection = client;
         client.ExtensionNotification += (method, parameters) => Dispatcher.UIThread.Post(() =>

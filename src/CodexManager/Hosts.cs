@@ -5,12 +5,12 @@ namespace CodexManager;
 
 public static class Hosts
 {
-    public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@1.13.0";
+    public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@latest";
     public static string ResourceDirectory => OperatingSystem.IsMacOS() && Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) == "MacOS" && Directory.Exists(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) : AppContext.BaseDirectory;
     public static string WindowsShellCommand(string command)
     {
         if (command.StartsWith("npx ", StringComparison.Ordinal)) return "npx.cmd " + command[4..];
-        foreach (var name in new[] { "npm", "opencode", "codex", "claude", "dirac", "pi", "pi-acp" })
+        foreach (var name in new[] { "npm", "opencode", "codex", "claude", "dirac", "pi", "pi-acp", "cline", "vtcode" })
             if (command == name || command.StartsWith(name + " ", StringComparison.Ordinal))
                 return "& $(if (Get-Command " + name + ".cmd -ErrorAction SilentlyContinue) { '" + name + ".cmd' } else { '" + name + "' })" + command[name.Length..];
         return command;
@@ -23,6 +23,7 @@ public static class Hosts
         var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         paths.Add(Path.Combine(user, ".local", "bin"));
         paths.Add(Path.Combine(user, ".opencode", "bin"));
+        paths.Add(Path.Combine(user, ".bun", "bin"));
         if (OperatingSystem.IsMacOS()) { paths.Add("/opt/homebrew/bin"); paths.Add("/usr/local/bin"); }
         return "export PATH=" + Quote(string.Join(':', paths)) + ":\"$PATH\"; " + command;
     }
@@ -58,6 +59,7 @@ public static class Hosts
             info = Info("powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", WindowsShellCommand(command));
             info.WorkingDirectory = workspace.Path;
             var paths = new[] { Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Process), Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.User), Environment.GetEnvironmentVariable("PATH", EnvironmentVariableTarget.Machine), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".opencode", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "scoop", "shims") };
+            paths = [.. paths, Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".bun", "bin"), Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "VT Code")];
             info.Environment["PATH"] = string.Join(Path.PathSeparator, paths.Where(p => !string.IsNullOrWhiteSpace(p)).SelectMany(p => Environment.ExpandEnvironmentVariables(p!).Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)).Distinct(StringComparer.OrdinalIgnoreCase));
         }
         else

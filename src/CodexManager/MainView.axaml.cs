@@ -696,6 +696,9 @@ public partial class MainView : UserControl
         if (!runtimes.TryGetValue(chat.Id, out var runtime))
         {
             runtime = new(chat, owner, store, AgentProviders.Command(store, owner, chat.Provider));
+            if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
+                runtime.BackendMaintenance = BackendMaintenance;
+            runtime.ResolveCommand = () => AgentProviders.Command(store, owner, chat.Provider);
             runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
@@ -964,6 +967,10 @@ public partial class MainView : UserControl
         var connections = new ConnectionSettingsView(store, false, ConfigureRemoteServer, ConfigureWebServer);
         connections.Paired += host => { BuildWorkspaceTree(); OpenRemoteHost(host); desktopWindow?.Activate(); };
         agents.Children.Add(new TextBlock { Text = "Choose agents for new chats. Existing chats are kept. Expand a provider to configure its commands.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
+        var backendAutoUpdate = new CheckBox { Name = "AutoUpdateBackends", Content = "Keep enabled agent backends up to date", IsChecked = BackendUpdates.Enabled(store) };
+        ToolTip.SetTip(backendAutoUpdate, "Check at startup, every six hours, on reconnect, and when you check for app updates. Backends in use are skipped.");
+        backendAutoUpdate.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(BackendUpdates.EnabledKey, backendAutoUpdate.IsChecked == true ? "1" : "0"));
+        agents.Children.Add(backendAutoUpdate);
         var fields = new Dictionary<string, TextBox>();
         foreach (var provider in AgentProviders.All)
         {
@@ -972,7 +979,19 @@ public partial class MainView : UserControl
             label.Children.Add(new Image { Source = BrandAssets.Provider(provider.Provider), Width = 16, Height = 16 });
             label.Children.Add(new TextBlock { Text = provider.Label, VerticalAlignment = VerticalAlignment.Center });
             var enabled = new CheckBox { Name = $"{provider.Provider}Enabled", Content = label, IsChecked = AgentProviders.IsEnabled(store, provider.Provider) };
-            enabled.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting(AgentProviders.EnabledKey(provider.Provider), enabled.IsChecked == true ? "1" : "0"); BuildWorkspaceTree(); });
+            enabled.IsCheckedChanged += async (_, _) =>
+            {
+                ApplyChange(() => { store.Setting(AgentProviders.EnabledKey(provider.Provider), enabled.IsChecked == true ? "1" : "0"); BuildWorkspaceTree(); });
+                if (enabled.IsChecked != true) return;
+                saveError.Text = "Checking " + provider.Name + " installation…";
+                try
+                {
+                    await BackendMaintenance.Check(discoveryLifetime.Token, force: true, installProvider: provider.Provider);
+                    if (!closing) saveError.Text = BackendMaintenance.LastSummary;
+                }
+                catch (OperationCanceledException) { }
+                catch (Exception error) { if (!closing) saveError.Text = error.Message; }
+            };
             var commands = new Expander { Name = $"{provider.Provider}Commands", Header = enabled, Content = panel, IsExpanded = false, HorizontalAlignment = HorizontalAlignment.Stretch };
             var section = new StackPanel { Spacing = 4 };
             section.Children.Add(commands); section.Children.Add(new Separator()); agents.Children.Add(section);
@@ -988,6 +1007,9 @@ public partial class MainView : UserControl
                 var key = AgentProviders.CommandKey(provider.Provider, isWsl);
                 var field = new TextBox { Text = AgentProviders.Command(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };
                 fields[key] = field;
+                foreach (var updateHost in isWsl ? workspaces.Where(w => w.IsWsl).Select(w => w.Distro!).Distinct() : ["local"])
+                    if (store.Setting("backendUpdate:" + updateHost + ":" + provider.Provider) is { } updateStatus)
+                        panel.Children.Add(new TextBlock { Text = updateHost + ": " + updateStatus, TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
                 var loginKey = $"{provider.Provider}:{(isWsl ? "wsl" : "local")}LoginCommand";
                 var loginField = new TextBox { Text = AgentProviders.LoginCommand(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };
                 fields[loginKey] = loginField;
@@ -1487,6 +1509,7 @@ public partial class MainView : UserControl
         try
         {
             await Cleanup(() => { SaveAll(); return Task.CompletedTask; });
+            await Cleanup(() => backendUpdates);
             CloseRemoteView();
             remoteSessions.Dispose();
             // Cancel providers before waiting for operations that depend on them.

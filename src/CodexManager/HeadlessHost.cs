@@ -12,11 +12,15 @@ public static class HeadlessHost
         using var store = new Store(backgroundWrites: true); var workspaces = store.Workspaces(); var chats = store.Chats();
         foreach (var chat in chats) chat.RetainHistory = false;
         var runtimes = new Dictionary<string, ChatRuntime>(); SessionService service = null!;
+        var backendMaintenance = new BackendUpdates(store, () => workspaces.ToArray(), (owner, provider) =>
+            chats.Any(c => c.Provider == provider && runtimes.TryGetValue(c.Id, out var runtime) && runtime.HasBackendProcess && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)));
         ChatRuntime Runtime(Chat chat, Workspace workspace)
         {
             if (!runtimes.TryGetValue(chat.Id, out var runtime))
             {
                 runtime = new(chat, workspace, store, AgentProviders.Command(store, workspace, chat.Provider));
+                runtime.BackendMaintenance = backendMaintenance;
+                runtime.ResolveCommand = () => AgentProviders.Command(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
             }
             return runtime;
@@ -34,6 +38,7 @@ public static class HeadlessHost
         : null);
         using var stopped = new CancellationTokenSource(); bool stopping = false;
         using var webLifetime = new CancellationTokenSource();
+        var backendUpdates = backendMaintenance.Run(webLifetime.Token);
         WebServer? webServer = null;
         async Task StartWeb()
         {
@@ -54,7 +59,7 @@ public static class HeadlessHost
             if (stopping) return; stopping = true;
             try
             {
-                webLifetime.Cancel(); await webStartup;
+                webLifetime.Cancel(); await webStartup; await backendUpdates;
                 if (webServer is not null) await webServer.DisposeAsync();
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
                 await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);

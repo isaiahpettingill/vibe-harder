@@ -5,7 +5,7 @@ namespace CodexManager;
 
 public static class ChatHistory
 {
-    public const string DefaultCodexCommand = "npx -y @openai/codex@0.154.0";
+    public const string DefaultCodexCommand = "npx -y @openai/codex@latest";
     public static async Task<List<Chat>> Discover(Workspace workspace, string command, CancellationToken token = default, AgentProvider provider = AgentProvider.Codex, Action<bool>? authenticationChanged = null)
     {
         await using var client = new AcpClient(AgentProviders.Start(workspace, command, provider));

@@ -50,6 +50,8 @@ public class SettingsUiTests
         var store = new Store(directory, backgroundWrites: true); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "1");
         var window = new MainWindow(store); window.Show();
         var field = typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+        typeof(MainView).GetField("backendMaintenance", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(window.View,
+            new BackendUpdates(store, () => [], (_, _) => false, (_, _, _) => Task.FromResult(0)));
         var original = Assert.IsType<TrayIcon>(field.GetValue(window.View));
         async Task Wait(Func<bool> check) { var until = DateTime.UtcNow.AddSeconds(5); while (!check() && DateTime.UtcNow < until) await Task.Delay(20); Assert.True(check()); }
         try

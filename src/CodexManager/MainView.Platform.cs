@@ -80,10 +80,17 @@ public partial class MainView
         desktopStarted = true;
         if (startInTray && !foregroundRequested) window.Hide();
         StartUpdateChecks();
+        if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
+            backendUpdates = BackendMaintenance.Run(discoveryLifetime.Token);
         await ConfigureRemoteServer();
         await ConfigureWebServer();
         await OfferInterruptedChats();
     }
+
+    private Task backendUpdates = Task.CompletedTask;
+    private BackendUpdates? backendMaintenance;
+    private BackendUpdates BackendMaintenance => backendMaintenance ??= new BackendUpdates(store, () => workspaces.ToArray(), (owner, provider) =>
+        chats.Any(c => c.Provider == provider && runtimes.TryGetValue(c.Id, out var runtime) && runtime.HasBackendProcess && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)));
 
     private void InitializeLayout()
     {

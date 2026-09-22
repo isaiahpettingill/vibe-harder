@@ -12,11 +12,11 @@ public static class AgentProviders
 {
     public static IReadOnlyList<AgentOption> All { get; } = [
         new(AgentProvider.Codex, "Codex", "◇", Hosts.DefaultAdapter),
-        new(AgentProvider.Claude, "Claude", "✳", "npx -y @agentclientprotocol/claude-agent-acp@0.76.0"),
+        new(AgentProvider.Claude, "Claude", "✳", "npx -y @agentclientprotocol/claude-agent-acp@latest"),
         new(AgentProvider.OpenCode, "OpenCode", "▣", "opencode acp"),
         new(AgentProvider.VTCode, "VT Code", "◇", "vtcode acp"),
-        new(AgentProvider.Dirac, "Dirac", "◇", "npx -y dirac-cli@0.5.13 --acp"),
-        new(AgentProvider.Pi, "Pi", "◇", "npx -y pi-acp@0.0.33"),
+        new(AgentProvider.Dirac, "Dirac", "◇", "npx -y dirac-cli@latest --acp"),
+        new(AgentProvider.Pi, "Pi", "◇", "npx -y pi-acp@latest"),
         new(AgentProvider.Cline, "Cline", "◇", "cline --acp")
     ];
     public static bool IsAdditional(AgentProvider provider) => provider is AgentProvider.VTCode or AgentProvider.Dirac or AgentProvider.Pi or AgentProvider.Cline;
@@ -33,10 +33,17 @@ public static class AgentProviders
         var command = store.Setting(key);
         // Settings previously saved unchanged defaults as explicit commands.
         // Upgrade that exact shipped command without rewriting custom launchers.
-        if (provider == AgentProvider.Codex && command?.Trim() == "npx -y @agentclientprotocol/codex-acp@1.11.0")
-            store.Setting(key, command = Hosts.DefaultAdapter);
+        if (IsPreviousDefault(provider, command?.Trim())) store.Setting(key, command = Get(provider).DefaultCommand);
         return command ?? Get(provider).DefaultCommand;
     }
+    private static bool IsPreviousDefault(AgentProvider provider, string? command) => provider switch
+    {
+        AgentProvider.Codex => command is "npx -y @agentclientprotocol/codex-acp@1.11.0" or "npx -y @agentclientprotocol/codex-acp@1.13.0",
+        AgentProvider.Claude => command == "npx -y @agentclientprotocol/claude-agent-acp@0.76.0",
+        AgentProvider.Dirac => command == "npx -y dirac-cli@0.5.13 --acp",
+        AgentProvider.Pi => command == "npx -y pi-acp@0.0.33",
+        _ => false
+    };
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider) =>
         Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" } : null);
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
@@ -44,15 +51,21 @@ public static class AgentProviders
         NormalizeLoginCommand(provider, store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand")) ?? (provider switch
         {
             AgentProvider.Codex => (store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand") ?? ChatHistory.DefaultCodexCommand) + " login",
-            AgentProvider.Claude => "npx -y @anthropic-ai/claude-code@2.1.268 auth login",
+            AgentProvider.Claude => "npx -y @anthropic-ai/claude-code@latest auth login",
             AgentProvider.OpenCode => "opencode auth login",
             AgentProvider.VTCode => "vtcode login openai",
-            AgentProvider.Dirac => "npx -y dirac-cli@0.5.13 auth",
+            AgentProvider.Dirac => "npx -y dirac-cli@latest auth",
             AgentProvider.Pi => "pi",
             AgentProvider.Cline => "cline auth",
             _ => throw new ArgumentOutOfRangeException(nameof(provider))
         });
-    private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => provider == AgentProvider.VTCode && command?.Trim() == "vtcode login" ? null : command;
+    private static string? NormalizeLoginCommand(AgentProvider provider, string? command) => (provider, command?.Trim()) switch
+    {
+        (AgentProvider.VTCode, "vtcode login") => null,
+        (AgentProvider.Claude, "npx -y @anthropic-ai/claude-code@2.1.268 auth login") => null,
+        (AgentProvider.Dirac, "npx -y dirac-cli@0.5.13 auth") => null,
+        _ => command
+    };
     public static bool IsAuthenticationError(Exception error) => error is AcpException { AuthenticationRequired: true }
         || error is System.Net.Http.HttpRequestException { StatusCode: System.Net.HttpStatusCode.Unauthorized }
         || AuthenticationText(error.Message)

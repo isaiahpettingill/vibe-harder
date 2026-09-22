@@ -57,12 +57,14 @@ public partial class MainView
             if (manual) updateButton.Content = "Checking for updates…";
             try
             {
+                if (manual && BackendUpdates.Enabled(store)) await BackendMaintenance.Check(discoveryLifetime.Token, force: true);
                 var release = await DesktopUpdater.Check(installation, discoveryLifetime.Token);
                 if (closing) return;
                 availableUpdate = release;
                 updateButton.Content = release is null ? "Check for updates" : $"Download update {release.Version}";
                 ToolTip.SetTip(updateButton, release is null ? "You’re up to date. Click to check again." : "A new release is available. Download now and restart when you are ready.");
-                if (manual) StatusText.Text = release is null ? "You’re up to date." : $"Update {release.Version} is available.";
+                if (manual) StatusText.Text = (release is null ? "The app is up to date." : $"Update {release.Version} is available.")
+                    + (BackendUpdates.Enabled(store) ? " " + BackendMaintenance.LastSummary : "");
             }
             catch (Exception error)
             {
