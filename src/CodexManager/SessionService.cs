@@ -26,6 +26,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     public void Dispose() => terminals.Dispose();
     public event Action? Changed;
     public Func<Chat, Workspace, Task<string?>>? DeleteChat { get; set; }
+    public Func<Workspace, Task>? CloseWorkspace { get; set; }
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
     {
@@ -68,14 +69,21 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var parent = distro is null ? Directory.GetParent(path)?.FullName ?? path : path.TrimEnd('/').LastIndexOf('/') is > 0 and var i ? path[..i] : "/";
             return new JsonObject { ["path"] = path, ["parent"] = parent, ["directories"] = new JsonArray(directories.Select(d => (JsonNode)JsonValue.Create(d)!).ToArray()) };
         }
-        if (method == "list") return new JsonObject
+        if (method == "list")
         {
-            ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
-            ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
-            ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
-            ["workspaces"] = new JsonArray(workspaces.Where(w => store.Setting("closed:" + w.Id) != "1").Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
-            ["chats"] = new JsonArray(chats.Where(c => store.Setting("closed:" + c.WorkspaceId) != "1").Select(c => (JsonNode)Summary(c)).ToArray())
-        };
+            var orderedWorkspaces = SidebarOrder.Apply(store, "workspaces", workspaces.Where(w => store.Setting("closed:" + w.Id) != "1"), w => w.Id);
+            var orderedChats = orderedWorkspaces.SelectMany(w =>
+                SidebarOrder.Apply(store, "chats:" + w.Id, chats.Where(c => c.WorkspaceId == w.Id), c => c.Id).Where(c => !c.Archived)
+                    .Concat(chats.Where(c => c.WorkspaceId == w.Id && c.Archived).OrderByDescending(c => c.Updated).ThenBy(c => c.Id)));
+            return new JsonObject
+            {
+                ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
+                ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
+                ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
+                ["workspaces"] = new JsonArray(orderedWorkspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
+                ["chats"] = new JsonArray(orderedChats.Select(c => (JsonNode)Summary(c)).ToArray())
+            };
+        }
         if (method == "workspace")
         {
             var path = Text("path"); var distro = Text("distro");
@@ -85,6 +93,30 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var existing = workspaces.FirstOrDefault(w => w.Path == path && w.Distro == workspace.Distro);
             if (existing is not null) { store.Setting("closed:" + existing.Id, "0"); Changed?.Invoke(); return JsonValue.Create(existing.Id); }
             workspaces.Add(workspace); store.Save(workspace); Changed?.Invoke(); return JsonValue.Create(workspace.Id);
+        }
+        if (method == "workspace/close")
+        {
+            var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
+            if (CloseWorkspace is { } close) await close(owner);
+            else store.Setting("closed:" + owner.Id, "1");
+            Changed?.Invoke(); return JsonValue.Create(true);
+        }
+        if (method == "reorder")
+        {
+            var scope = Text("scope"); var source = Text("source"); var target = Text("target");
+            if (scope == "workspaces")
+            {
+                if (!workspaces.Any(w => w.Id == source) || !workspaces.Any(w => w.Id == target)) throw new IOException("Unknown workspace.");
+            }
+            else if (scope.StartsWith("chats:", StringComparison.Ordinal) && workspaces.Any(w => scope == "chats:" + w.Id))
+            {
+                var ownerId = scope[6..];
+                if (!chats.Any(c => c.Id == source && c.WorkspaceId == ownerId && !c.Archived) ||
+                    !chats.Any(c => c.Id == target && c.WorkspaceId == ownerId && !c.Archived)) throw new IOException("Unknown chat.");
+            }
+            else throw new IOException("Unknown sidebar order.");
+            SidebarOrder.Move(store, scope, source, target, request["after"]?.GetValue<bool>() == true);
+            Changed?.Invoke(); return JsonValue.Create(true);
         }
         if (method == "create")
         {

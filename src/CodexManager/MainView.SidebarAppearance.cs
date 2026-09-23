@@ -21,7 +21,7 @@ public partial class MainView
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Control, SidebarDrop> SidebarDropTargets = new();
     private bool sidebarRebuildPending;
     private readonly Border sidebarDropIndicator = new() { Height = 2, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, ZIndex = 1000 };
-    private void EnableHoldReorder(Control target, string scope, string id, Action refresh, Control? gestureTarget = null)
+    private void EnableHoldReorder(Control target, string scope, string id, Action refresh, Control? gestureTarget = null, Action<string, string, bool>? move = null)
     {
         var surface = gestureTarget ?? target;
         SidebarDropTargets.AddOrUpdate(target, new(scope, id, surface));
@@ -106,7 +106,11 @@ public partial class MainView
             {
                 if (!dragging) return;
                 e.Handled = true; FindDestination(e.GetPosition(this));
-                if (destination is { } drop) SidebarOrder.Move(store, scope, id, drop.Drop.Id, drop.After);
+                if (destination is { } drop)
+                {
+                    if (move is { } remoteMove) remoteMove(id, drop.Drop.Id, drop.After);
+                    else SidebarOrder.Move(store, scope, id, drop.Drop.Id, drop.After);
+                }
             }
             catch (Exception error) { AppDiagnostics.Record("Reorder sidebar", error); }
             finally { Finish(); }

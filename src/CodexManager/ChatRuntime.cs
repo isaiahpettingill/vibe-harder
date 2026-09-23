@@ -259,7 +259,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (client is not null) await client.DisposeAsync();
             if (activeTask is not null) await activeTask;
             if (lifetime.IsCancellationRequested) return;
-            if (chat.SessionId is not null && chat.Messages.Count == 0) { await LoadHistory(); return; }
+            if (chat.SessionId is not null && chat.Messages.Count == 0 &&
+                (store.Setting("historyIncomplete:" + chat.Id) == "1" ||
+                 (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token)).Length == 0))
+            { await LoadHistory(); return; }
             chat.Busy = true; chat.Status = "Reconnecting…"; Changed?.Invoke();
             await ConnectWithRecovery(false, recoveryCancellation?.Token ?? lifetime.Token); chat.Status = "Ready";
         }

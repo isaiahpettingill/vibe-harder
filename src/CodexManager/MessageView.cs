@@ -45,6 +45,7 @@ public sealed class MessageView : UserControl
             else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.ShowHistoryActions(history, message);
         };
         details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+        ScrollViewer.SetIsScrollChainingEnabled(details, true);
         frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("AppAccent"));
         frame.Child = new StackPanel { Spacing = 6, Children = { header, details } };
         Content = frame;

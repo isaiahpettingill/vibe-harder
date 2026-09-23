@@ -146,7 +146,7 @@ public partial class MainView : UserControl
         workspaces = new((remoteOnly ? [] : loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = remoteOnly ? [] : loadedChats ?? store.Chats();
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
-        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat };
+        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
         DragDrop.SetAllowDrop(ComposerBorder, true);

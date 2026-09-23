@@ -27,8 +27,14 @@ public class RemoteTranscriptScrollingTests
             if (request["before"] is not null || request["after"] is not null) historyLoads++;
             return Task.FromResult<JsonNode?>(new JsonObject
             {
-                ["provider"] = "Claude", ["busy"] = true, ["preparing"] = false, ["status"] = "Working", ["queued"] = 0,
-                ["config"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(),
+                ["provider"] = "Claude",
+                ["busy"] = true,
+                ["preparing"] = false,
+                ["status"] = "Working",
+                ["queued"] = 0,
+                ["config"] = new JsonArray(),
+                ["permissions"] = new JsonArray(),
+                ["queue"] = new JsonArray(),
                 ["messages"] = new JsonArray(
                     new JsonObject { ["id"] = "one", ["role"] = "assistant", ["sequence"] = 100, ["text"] = shortContent ? "Short answer" : longText },
                     new JsonObject { ["id"] = "two", ["role"] = "assistant", ["sequence"] = 101, ["text"] = shortContent ? "Done" : longText })
@@ -46,6 +52,7 @@ public class RemoteTranscriptScrollingTests
         var window = new Window { Content = view, Width = 420, Height = 800 }; window.Show();
         try
         {
+            view.SelectChat("c");
             await Wait(() => polls >= 2); await Task.Delay(100); window.UpdateLayout();
             var panel = view.GetVisualDescendants().OfType<TranscriptPanel>().Single();
             Assert.True(panel.IsFollowingEnd);

@@ -237,6 +237,24 @@ public sealed partial class RemoteView : UserControl, IDisposable
     public event Action<string>? WorkspaceOpened;
     public string? SelectedChatId => chatId;
     public bool HasWorkspace => workspaces.SelectedItem is RemoteItem;
+    public async Task Reorder(string scope, string source, string target, bool after)
+    {
+        try
+        {
+            if (await Call(new() { ["method"] = "reorder", ["scope"] = scope, ["source"] = source, ["target"] = target, ["after"] = after }) is not null)
+                await RefreshList();
+        }
+        catch (Exception error) { AppDiagnostics.Record("Reorder remote sidebar", error); }
+    }
+    public async Task CloseWorkspace(string id)
+    {
+        try
+        {
+            if (await Call(new() { ["method"] = "workspace/close", ["workspaceId"] = id }) is not null)
+                await RefreshList();
+        }
+        catch (Exception error) { AppDiagnostics.Record("Close remote workspace", error); }
+    }
     private readonly IconButton openTerminal = new() { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
     public bool ShowTerminalButton { get => openTerminal.IsVisible; set => openTerminal.IsVisible = value; }
     public void SelectChat(string id, bool userInitiated = true)
@@ -522,9 +540,12 @@ public sealed partial class RemoteView : UserControl, IDisposable
                     }
                 }
                 var firstPage = messages.Count == 0;
-                if (firstPage && !viewingHistory) (output.ItemsPanelRoot as TranscriptPanel)?.FollowEnd();
-                ApplyMessages(result["messages"]!.AsArray());
-                if (firstPage && !viewingHistory && output.ItemsPanelRoot is null && messages.Count > 0) output.ScrollIntoView(messages[^1]);
+                // Attach the initial page in one layout pass. Adding messages one
+                // at a time while following the end visibly scrolls through them.
+                if (firstPage && !viewingHistory) output.ItemsSource = null;
+                try { ApplyMessages(result["messages"]!.AsArray()); }
+                finally { if (firstPage && !viewingHistory) output.ItemsSource = messages; }
+                if (firstPage && !viewingHistory && messages.Count > 0) output.ScrollIntoView(messages[^1]);
                 if (DateTimeOffset.UtcNow >= nextCatalogRefresh) { nextCatalogRefresh = DateTimeOffset.UtcNow.AddSeconds(2); await RefreshList(); }
                 if (lifetime.IsCancellationRequested || id != chatId) return;
                 var permissionText = result["permissions"]!.ToJsonString();
@@ -743,16 +764,19 @@ public sealed partial class RemoteView : UserControl, IDisposable
     {
         if (refreshing) return;
         var owner = (workspaces.SelectedItem as RemoteItem)?.Id;
-        var selectedId = chatId;
+        var selectedId = chatRows.Any(c => c is not null && c["id"]?.GetValue<string>() == chatId && c["workspaceId"]?.GetValue<string>() == owner && c["archived"]?.GetValue<bool>() != true) ? chatId : null;
         refreshing = true;
         try
         {
             chats.ItemsSource = chatRows.Where(c => c!["workspaceId"]!.GetValue<string>() == owner && c["archived"]?.GetValue<bool>() != true).Select(c => new RemoteItem(c!["id"]!.GetValue<string>(), c["title"]!.GetValue<string>())).ToArray();
-            chats.SelectedItem = chats.Items.OfType<RemoteItem>().FirstOrDefault(c => c.Id == selectedId) ?? chats.Items.OfType<RemoteItem>().FirstOrDefault();
+            chats.SelectedItem = chats.Items.OfType<RemoteItem>().FirstOrDefault(c => c.Id == selectedId);
         }
         finally { refreshing = false; }
-        if (chats.SelectedItem is RemoteItem selected && selected.Id != chatId) SelectChat(selected.Id, userInitiated: false);
-        if (chats.SelectedItem is null) { chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear(); }
+        if (chats.SelectedItem is null)
+        {
+            if (chatId is not null) SaveBrowserDraft();
+            chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear();
+        }
     }
     private async Task<JsonNode?> Call(JsonObject request)
     {

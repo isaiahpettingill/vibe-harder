@@ -76,6 +76,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         var codeBlocks = new List<Border>();
         foreach (var control in this.GetVisualDescendants())
         {
+            // Markdown.Avalonia adds scroll viewers after rendering. Let touch
+            // panning continue into the transcript when they reach an edge.
+            if (control is ScrollViewer scroll) ScrollViewer.SetIsScrollChainingEnabled(scroll, true);
             if (control is Border border && border.Classes.Contains("CodeBlock")) codeBlocks.Add(border);
             if (control is not CTextBlock block) continue;
             if (decoratedBlocks.TryGetValue(block, out _)) continue;

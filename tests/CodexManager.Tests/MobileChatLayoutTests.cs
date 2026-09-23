@@ -5,6 +5,8 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using System.Reflection;
+using System.Text.Json.Nodes;
 
 namespace CodexManager.Tests;
 
@@ -60,6 +62,27 @@ public class MobileChatLayoutTests
     }
 
     [AvaloniaFact]
+    public async Task OpeningSavedRemoteChatDoesNotReplayItsVisibleHistory()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("remote-history-reconnect-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        var chat = new Chat { Id = "c", WorkspaceId = workspace.Id, SessionId = "fixture-session", RetainHistory = false };
+        store.Save(workspace); store.Save(chat);
+        store.SaveMessage(chat, new Message { Role = "user", Text = "Earlier question" });
+        store.SaveMessage(chat, new Message { Role = "assistant", Text = "Earlier answer" });
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        using var service = new SessionService(store, [workspace], [chat], (_, _) => runtime);
+        var first = await service.Handle(new() { ["method"] = "chat", ["chatId"] = chat.Id, ["activate"] = true });
+        var before = first!["messages"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()).ToArray();
+        var deadline = DateTime.UtcNow.AddSeconds(10);
+        while (!runtime.IsConnected && DateTime.UtcNow < deadline) await Task.Delay(20);
+        Assert.True(runtime.IsConnected);
+        var next = await service.Handle(new() { ["method"] = "chat", ["chatId"] = chat.Id, ["activate"] = false });
+        Assert.Equal(before, next!["messages"]!.AsArray().Select(m => m!["id"]!.GetValue<string>()));
+        Assert.Equal("Earlier answer", next["messages"]!.AsArray()[^1]!["text"]!.GetValue<string>());
+    }
+
+    [AvaloniaFact]
     public async Task NarrowSidebarFillsViewportShowsActionsAndClosesOnCurrentChatTap()
     {
         var directory = Path.Combine(Path.GetTempPath(), "mobile-sidebar-" + Guid.NewGuid().ToString("N"));
@@ -94,5 +117,42 @@ public class MobileChatLayoutTests
         using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", "")) { ShowTerminalButton = false };
         Assert.False(view.ShowTerminalButton);
         view.ShowTerminalButton = true; Assert.True(view.ShowTerminalButton);
+    }
+
+    [AvaloniaFact]
+    public void SelectingRemoteWorkspaceDoesNotOpenAnUnselectedChat()
+    {
+        using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", ""));
+        var flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var itemType = typeof(RemoteView).GetNestedType("RemoteItem", BindingFlags.NonPublic)!;
+        object Item(string id, string name) => Activator.CreateInstance(itemType, id, name)!;
+        var workspaces = (ComboBox)typeof(RemoteView).GetField("workspaces", flags)!.GetValue(view)!;
+        typeof(RemoteView).GetField("chatRows", flags)!.SetValue(view, new JsonArray(
+            new JsonObject { ["id"] = "chat-one", ["workspaceId"] = "one", ["title"] = "First", ["archived"] = false },
+            new JsonObject { ["id"] = "chat-two", ["workspaceId"] = "two", ["title"] = "Second", ["archived"] = false }));
+        var one = Item("one", "First"); var two = Item("two", "Second");
+        workspaces.ItemsSource = new[] { one, two };
+        workspaces.SelectedItem = one;
+        Assert.Null(view.SelectedChatId);
+        view.SelectChat("chat-one");
+        Assert.Equal("chat-one", view.SelectedChatId);
+        workspaces.SelectedItem = two;
+        Assert.Null(view.SelectedChatId);
+    }
+
+    [AvaloniaFact]
+    public async Task NestedMessageScrollersChainTouchPanningToTranscript()
+    {
+        var message = new Message { Role = "assistant", Text = "A long answer\n\n" + new string('x', 400) };
+        var view = new MessageView { Message = message };
+        var window = new Window { Content = view, Width = 400, Height = 300 }; window.Show();
+        try
+        {
+            await Task.Delay(60); window.UpdateLayout();
+            var scrollers = view.GetVisualDescendants().OfType<ScrollViewer>().ToArray();
+            Assert.True(scrollers.Length >= 2);
+            Assert.All(scrollers, scroll => Assert.True(ScrollViewer.GetIsScrollChainingEnabled(scroll)));
+        }
+        finally { window.Close(); }
     }
 }
