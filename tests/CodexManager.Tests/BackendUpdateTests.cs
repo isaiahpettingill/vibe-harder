@@ -3,7 +3,7 @@ namespace CodexManager.Tests;
 public class BackendUpdateTests
 {
     [Avalonia.Headless.XUnit.AvaloniaFact]
-    public async Task ReconnectResolvesCommandAgainAndUpdatesBeforeStartingTheReplacement()
+    public async Task ReconnectResolvesCommandAgainWithoutRepeatingRecentUpdate()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("backend-runtime-").FullName);
         var workspace = new Workspace("w", "Test", store.DirectoryPath);
@@ -20,7 +20,7 @@ public class BackendUpdateTests
         resolved += " --access";
         await runtime.Reconnect();
         Assert.Contains(chat.ConfigOptions, c => c.Id == "mode");
-        Assert.Equal(2, resolutions); Assert.Equal(2, updates);
+        Assert.Equal(2, resolutions); Assert.Equal(1, updates);
     }
 
     [Fact]
@@ -59,7 +59,32 @@ public class BackendUpdateTests
         Assert.True(startedSecond); Assert.Single(commands, c => c == "codex update");
         active = false;
         await updater.BeforeStart(owner, AgentProvider.Codex, () => { }, TestContext.Current.CancellationToken);
-        Assert.Equal(2, commands.Count(c => c == "codex update"));
+        Assert.Single(commands, c => c == "codex update");
+    }
+    [Fact]
+    public async Task SlowUpdateOfAnotherProviderDoesNotDelayStartingAnAgent()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("backend-gates-").FullName);
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.EnabledKey(provider.Provider), provider.Provider is AgentProvider.Codex or AgentProvider.OpenCode ? "1" : "0");
+        var updating = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updater = new BackendUpdates(store, () => [], (_, _) => false, async (_, command, token) =>
+        {
+            if (command == "codex update") { updating.SetResult(); await release.Task.WaitAsync(token); }
+            return 0;
+        });
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(5));
+        var check = updater.Check(timeout.Token);
+        try
+        {
+            await updating.Task.WaitAsync(timeout.Token);
+            var started = false;
+            await updater.BeforeStart(new Workspace("w", "Local", store.DirectoryPath), AgentProvider.OpenCode, () => started = true, timeout.Token);
+            Assert.True(started);
+            Assert.False(check.IsCompleted);
+        }
+        finally { release.TrySetResult(); await check; }
     }
     [Fact]
     public async Task ExternalProcessesPreventBackendUpdates()

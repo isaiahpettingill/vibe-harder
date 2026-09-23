@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace CodexManager;
 
@@ -9,8 +10,8 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
 {
     public const string EnabledKey = "autoUpdateBackends";
     public static bool Enabled(Store store) => store.Setting(EnabledKey) != "0";
-    private readonly Dictionary<string, DateTimeOffset> nextCheck = [];
-    private readonly SemaphoreSlim gate = new(1, 1);
+    private readonly ConcurrentDictionary<string, DateTimeOffset> nextCheck = new();
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
     public string LastSummary { get; private set; } = "";
     public static (string Executable, string Update, string? Adapter) Plan(AgentProvider provider) => provider switch
     {
@@ -39,22 +40,23 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
     public async Task Check(CancellationToken token, bool force = false, AgentProvider? installProvider = null)
     {
         if (!Enabled(store) && installProvider is null) return;
-        await gate.WaitAsync(token);
-        try { await CheckCore(token, force, installProvider); }
-        finally { gate.Release(); }
+        await CheckCore(token, force, installProvider);
     }
     public async Task BeforeStart(Workspace workspace, AgentProvider provider, Action start, CancellationToken token)
     {
+        var gate = Gate(workspace, provider);
         await gate.WaitAsync(token);
         try
         {
-            if (Enabled(store)) await CheckCore(token, force: true, installProvider: null, workspace, provider);
+            if (Enabled(store)) await CheckCore(token, force: false, installProvider: null, workspace, provider, gateHeld: true);
             token.ThrowIfCancellationRequested();
-            start(); // Start while holding the update gate so another check cannot race it.
+            start(); // An update of this provider in this environment cannot race the launch.
         }
         finally { gate.Release(); }
     }
-    private async Task CheckCore(CancellationToken token, bool force, AgentProvider? installProvider, Workspace? onlyWorkspace = null, AgentProvider? onlyProvider = null)
+    private string Key(Workspace workspace, AgentProvider provider) => (workspace.Distro ?? "local") + ":" + provider;
+    private SemaphoreSlim Gate(Workspace workspace, AgentProvider provider) => gates.GetOrAdd(Key(workspace, provider), _ => new SemaphoreSlim(1, 1));
+    private async Task CheckCore(CancellationToken token, bool force, AgentProvider? installProvider, Workspace? onlyWorkspace = null, AgentProvider? onlyProvider = null, bool gateHeld = false)
     {
         List<string> failures = []; var deferred = false;
         var local = new Workspace("backend-updates", "Local", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
@@ -68,17 +70,19 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                 if (installProvider is { } selected && selected != provider.Provider) continue;
                 if (onlyProvider is { } selectedProvider && selectedProvider != provider.Provider) continue;
                 if (!AgentProviders.IsEnabled(store, provider.Provider)) continue;
-                if (busy(environment, provider.Provider)) { deferred = true; continue; }
-                var key = (environment.Distro ?? "local") + ":" + provider.Provider;
-                if (!force && nextCheck.TryGetValue(key, out var next) && next > DateTimeOffset.UtcNow) continue;
-                nextCheck[key] = DateTimeOffset.UtcNow.AddHours(6);
+                var key = Key(environment, provider.Provider);
+                var gate = gateHeld ? null : Gate(environment, provider.Provider);
+                if (gate is not null) await gate.WaitAsync(token);
                 try
                 {
+                    if (busy(environment, provider.Provider)) { deferred = true; continue; }
+                    if (!force && nextCheck.TryGetValue(key, out var next) && next > DateTimeOffset.UtcNow) continue;
+                    nextCheck[key] = DateTimeOffset.UtcNow.AddHours(6);
                     var plan = Plan(provider.Provider);
                     var run = execute ?? Execute;
                     var failed = false;
                     if (await run(environment, ProcessProbe(provider.Provider, OperatingSystem.IsWindows() && !environment.IsWsl), token) != 0)
-                    { deferred = true; nextCheck.Remove(key); continue; }
+                    { deferred = true; nextCheck.TryRemove(key, out _); continue; }
                     var installed = await run(environment, plan.Executable + " --version", token) == 0;
                     if (installed && installProvider is null)
                         failed = await run(environment, plan.Update, token) != 0;
@@ -102,6 +106,7 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                     store.Setting("backendUpdate:" + key, "Update failed: " + error.Message);
                     AppDiagnostics.Record("Backend update " + key, error);
                 }
+                finally { gate?.Release(); }
             }
         LastSummary = failures.Count > 0 ? "Backend updates need attention: " + string.Join(", ", failures) + ". See Agents settings."
             : deferred ? "Backend checks completed; busy agents will be checked when idle." : "Enabled backend checks completed.";

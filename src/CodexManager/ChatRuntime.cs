@@ -228,7 +228,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         {
             token.ThrowIfCancellationRequested();
             try { await Connect(replayHistory); return; }
-            catch (Exception error) when (attempt < 5 && error is not OperationCanceledException && !AgentProviders.IsAuthenticationError(error) && installation is null && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
+            catch (Exception error) when (attempt < 5 && error is not OperationCanceledException && !IsMissingCodexRollout(error) && !AgentProviders.IsAuthenticationError(error) && installation is null && !chat.NeedsLogin && !token.IsCancellationRequested && !lifetime.IsCancellationRequested)
             {
                 if (replayHistory) { chat.Messages.Clear(); foreach (var message in previous) chat.Messages.Add(message); }
                 chat.Status = $"Reconnecting ({attempt}/4)…"; Changed?.Invoke();
@@ -236,6 +236,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             }
         }
     }
+    private bool IsMissingCodexRollout(Exception error) => chat.Provider == AgentProvider.Codex && error is AcpException acp &&
+        acp.Message.Contains("no rollout", StringComparison.OrdinalIgnoreCase);
     public Task Reconnect(bool automatic = false)
     {
         if (IsChangingHistory) return Task.CompletedTask;
@@ -299,6 +301,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private async Task ConnectCore(bool replayHistory)
     {
         if (connected && client?.Alive == true) return;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, turn?.Token ?? lifetime.Token);
+        timeout.CancelAfter(TimeSpan.FromSeconds(90));
         connected = false;
         if (client is not null) await client.DisposeAsync();
         chat.Commands = []; Changed?.Invoke();
@@ -313,7 +317,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             (launchCommand, vtOpenAiPinned) = VtCodeLaunch.Prepare(launchCommand, authenticatedProviders, vtOpenAiMethod);
         }
         void StartAgent() => client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
-        if (BackendMaintenance is { } maintenance) await maintenance.BeforeStart(workspace, chat.Provider, StartAgent, lifetime.Token);
+        if (BackendMaintenance is { } maintenance) await maintenance.BeforeStart(workspace, chat.Provider, StartAgent, timeout.Token);
         else StartAgent();
         if (client is null) throw new IOException("Could not start the agent.");
         StartIdleTimer();
@@ -359,8 +363,6 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 });
             }
         };
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token, turn?.Token ?? lifetime.Token);
-        timeout.CancelAfter(TimeSpan.FromSeconds(90));
         var init = await client.Initialize(timeout.Token);
         ReadHistoryCapabilities(init);
         ReadExtensionCapabilities(init);
@@ -381,13 +383,20 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                     await NormalizeVtCodeModel();
                     await ApplySessionDefaults();
                 }
-                catch (AcpException error) when (chat.Provider == AgentProvider.Codex && error.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)
+                catch (AcpException error) when (IsMissingCodexRollout(error)
                     && store.Setting("unmaterialized:" + chat.Id) == chat.SessionId && chat.Messages.All(m => m.Role == "system"))
                 {
                     // A new Codex session may exist only in the adapter process until
                     // its first prompt. Replace only sessions we know never received one.
                     loading = false; replaying = false;
                     await NewSession(timeout.Token);
+                }
+                catch (AcpException error) when (IsMissingCodexRollout(error) && !replayHistory && chat.Messages.Any(m => m.Role is "user" or "assistant" or "tool"))
+                {
+                    loading = false;
+                    await NewSession(timeout.Token);
+                    store.Setting("restoreContext:" + chat.Id, "1");
+                    Add("system", "The Codex session was unavailable. A replacement session was started and will use this chat's saved transcript as context for the next message.");
                 }
             }
             else
@@ -507,7 +516,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (chat.Provider == AgentProvider.VTCode)
                 VtCodeLaunch.EnsureAuthentication(chat.ConfigOptions, vtOpenAiPinned);
             string? restoredContext = null;
-            if (restoreDiracContext)
+            var restoreContext = restoreDiracContext || store.Setting("restoreContext:" + chat.Id) == "1";
+            if (restoreContext)
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);
                 restoredContext = (await store.ExportChatAsync(chat).WaitAsync(turn.Token)).Plain;
@@ -529,6 +539,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 throw new IOException(await PiDiagnostics.ReadError(workspace, chat.SessionId!, user.Timestamp ?? DateTimeOffset.UtcNow)
                     ?? "Pi ended the turn without a response. The pi-acp adapter can suppress Pi errors. Check Pi's model and authentication in this workspace's environment; your message has been kept for retry.");
             restoreDiracContext = false;
+            if (restoreContext) store.Setting("restoreContext:" + chat.Id, "");
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;
             if (completed) { chat.NeedsLogin = false; AuthenticationSucceeded?.Invoke(); chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }

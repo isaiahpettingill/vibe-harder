@@ -60,4 +60,55 @@ public class StreamingTests
         else { var error = await Assert.ThrowsAsync<AcpException>(() => runtime.Connect()); Assert.Contains("no rollout found", error.Message); Assert.Equal("missing-empty", chat.SessionId); }
         Assert.Equal("Keep my draft", chat.Draft); Assert.Empty(chat.Messages);
     }
+    [AvaloniaFact]
+    public async Task MissingRolloutWithoutFoundRecoversAnUnpromptedSession()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-short-rollout-").FullName);
+        var workspace = new Workspace("w", "Missing", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "missing-short", Draft = "Keep my draft" }; store.Save(chat);
+        store.Setting("unmaterialized:" + chat.Id, chat.SessionId);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        await runtime.Reconnect();
+        Assert.True(runtime.IsConnected);
+        Assert.Equal("fixture-session", chat.SessionId);
+        Assert.Equal("Keep my draft", chat.Draft);
+        Assert.Equal("Ready", chat.Status);
+    }
+    [AvaloniaFact]
+    public async Task MissingPromptedSessionUsesSavedTranscriptAndSendsQueuedInput()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-missing-prompted-").FullName);
+        var workspace = new Workspace("w", "Missing", store.DirectoryPath); store.Save(workspace);
+        var log = Path.Combine(store.DirectoryPath, "starts.txt");
+        var prompts = Path.Combine(store.DirectoryPath, "prompts.txt");
+        var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "missing-short" }; store.Save(chat);
+        var prior = new Message { Role = "user", Text = "Earlier request" }; chat.Messages.Add(prior); store.SaveMessage(chat, prior);
+        chat.QueuedInputs.Add(new PendingInput("Keep queued", [])); store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --startup-log=\"" + log + "\" --prompt-log=\"" + prompts + "\"");
+        await runtime.Reconnect();
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while ((chat.QueuedInputs.Count > 0 || chat.Busy) && DateTime.UtcNow < until) await Task.Delay(20);
+        Assert.True(runtime.IsConnected);
+        Assert.Equal("fixture-session", chat.SessionId);
+        Assert.Empty(chat.QueuedInputs);
+        Assert.Contains(chat.Messages, m => m.Role == "system" && m.Text.Contains("replacement session"));
+        Assert.Contains("Earlier request", File.ReadAllText(prompts));
+        Assert.Contains("Keep queued", File.ReadAllText(prompts));
+        Assert.Single(File.ReadAllLines(log));
+    }
+    [AvaloniaFact]
+    public async Task ReplacementKeepsTranscriptContextAcrossRestartBeforeNextPrompt()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-replacement-context-").FullName);
+        var workspace = new Workspace("w", "Missing", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "missing-short" }; store.Save(chat);
+        var prior = new Message { Role = "user", Text = "Earlier request" }; chat.Messages.Add(prior); store.SaveMessage(chat, prior);
+        var command = "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"";
+        await using (var first = new ChatRuntime(chat, workspace, store, command)) await first.Connect();
+        var prompts = Path.Combine(store.DirectoryPath, "prompts.txt");
+        await using (var second = new ChatRuntime(chat, workspace, store, command + " --prompt-log=\"" + prompts + "\"")) await second.Send("Next request", []);
+        Assert.Contains("Earlier request", File.ReadAllText(prompts));
+        Assert.Contains("Next request", File.ReadAllText(prompts));
+        Assert.Equal("", store.Setting("restoreContext:" + chat.Id));
+    }
 }

@@ -52,6 +52,7 @@ createInterface({input:process.stdin}).on('line',line=>{
    }
    if(process.argv.includes('--load-hang')) { update('Loading a long history'); break; }
    if(m.params.sessionId==='missing-empty') { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'Internal error',data:{details:'no rollout found for thread id missing-empty'}}}); break; }
+   if(m.params.sessionId==='missing-short') { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'Internal error',data:{details:'no rollout'}}}); break; }
    if(recoveryFile) appendFileSync(recoveryFile,'loaded\n');
    if (m.params.sessionId==='imported-session') {
     emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:m.params.sessionId,update:{sessionUpdate:'user_message_chunk',content:{type:'text',text:'Earlier question'}}}});
