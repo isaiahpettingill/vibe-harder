@@ -56,8 +56,7 @@ public sealed class RemoteWorkspacePicker : UserControl
             try
             {
                 var destination = path.Text?.Trim() ?? current;
-                var name = destination.TrimEnd('/', '\\').Split('/', '\\').Last();
-                if (await call(new() { ["method"] = "workspace", ["path"] = destination, ["name"] = name.Length == 0 ? destination : name, ["distro"] = Distro }) is { } opened) { OpenedWorkspaceId = opened.GetValue<string>(); Closed?.Invoke(); }
+                if (await call(new() { ["method"] = "workspace", ["path"] = destination, ["name"] = Workspace.DefaultName(destination), ["distro"] = Distro }) is { } opened) { OpenedWorkspaceId = opened.GetValue<string>(); Closed?.Invoke(); }
                 else error.Text = "Could not open this folder. Check that it exists on the host.";
             }
             catch (Exception ex) { error.Text = ex.Message; }

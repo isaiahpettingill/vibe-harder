@@ -58,7 +58,7 @@ public static class FileLinks
         return new JsonObject { ["name"] = Path.GetFileName(path), ["length"] = stream.Length, ["stamp"] = stamp, ["data"] = Convert.ToBase64String(bytes) };
     }
 
-    public static async Task<string> Download(Func<JsonObject, Task<JsonNode?>> call, string chatId, string target, CancellationToken token)
+    public static async Task<string> Download(Func<JsonObject, Task<JsonNode?>> call, string chatId, string target, CancellationToken token, Action<long, long>? progress = null)
     {
         var folder = Path.Combine(CacheDirectory, Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(folder);
@@ -85,6 +85,7 @@ public static class FileLinks
                     var bytes = Convert.FromBase64String(chunk["data"]!.GetValue<string>());
                     if (bytes.Length > 256 * 1024 || offset + bytes.Length > size || (bytes.Length == 0 && offset < size)) throw new IOException("Invalid file download response.");
                     await output.WriteAsync(bytes, token); offset += bytes.Length;
+                    progress?.Invoke(offset, size);
                 } while (offset < length);
             }
             finally { if (output is not null) await output.DisposeAsync(); }

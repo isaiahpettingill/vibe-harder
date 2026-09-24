@@ -11,6 +11,36 @@ public partial class MainView
 {
     private bool sidebarDragging;
     private bool sidebarHolding;
+    private IPointer? sidebarTouchPointer;
+    private Point sidebarTouchOrigin;
+    private bool sidebarTouchScrolled;
+    private void TrackSidebarTouch()
+    {
+        WorkspaceScroll.AddHandler(PointerPressedEvent, (_, e) =>
+        {
+            if (e.Pointer.Type != PointerType.Touch) return;
+            sidebarTouchPointer = e.Pointer;
+            sidebarTouchOrigin = e.GetPosition(WorkspaceScroll);
+            sidebarTouchScrolled = false;
+        }, RoutingStrategies.Tunnel, true);
+        WorkspaceScroll.AddHandler(PointerMovedEvent, (_, e) =>
+        {
+            if (e.Pointer != sidebarTouchPointer) return;
+            var delta = e.GetPosition(WorkspaceScroll) - sidebarTouchOrigin;
+            if (delta.X * delta.X + delta.Y * delta.Y > 100) sidebarTouchScrolled = true;
+        }, RoutingStrategies.Tunnel, true);
+        WorkspaceScroll.AddHandler(PointerReleasedEvent, (_, e) =>
+        {
+            if (e.Pointer != sidebarTouchPointer) return;
+            var released = e.Pointer;
+            Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+            {
+                if (sidebarTouchPointer == released) { sidebarTouchPointer = null; sidebarTouchScrolled = false; }
+            }, Avalonia.Threading.DispatcherPriority.Background);
+        }, RoutingStrategies.Tunnel, true);
+    }
+    private bool IsSidebarTouchSwipe(IPointer pointer) => pointer.Type == PointerType.Touch && pointer == sidebarTouchPointer && sidebarTouchScrolled;
+    private bool SidebarTouchSwipe => sidebarTouchPointer is not null && sidebarTouchScrolled;
     private Control WorkspaceDivider()
     {
         var line = new Border { Height = 1, Margin = new Thickness(8, 7, 8, 7), IsHitTestVisible = false };
@@ -121,7 +151,7 @@ public partial class MainView
         }
         surface.AddHandler(PointerPressedEvent, (_, e) =>
         {
-            if (sidebarDragging || sidebarHolding || !e.GetCurrentPoint(surface).Properties.IsLeftButtonPressed) return;
+            if (e.Pointer.Type == PointerType.Touch || sidebarDragging || sidebarHolding || !e.GetCurrentPoint(surface).Properties.IsLeftButtonPressed) return;
             for (var source = e.Source as Visual; source is not null && source != surface; source = Avalonia.VisualTree.VisualExtensions.GetVisualParent(source))
                 if (source is IconButton or CheckBox or TextBox) return;
             origin = e.GetPosition(this); pointer = e.Pointer; sidebarHolding = true;

@@ -27,6 +27,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     public event Action? Changed;
     public Func<Chat, Workspace, Task<string?>>? DeleteChat { get; set; }
     public Func<Workspace, Task>? CloseWorkspace { get; set; }
+    public Func<Workspace, string, Task>? RenameWorkspace { get; set; }
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
     {
@@ -88,7 +89,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             var path = Text("path"); var distro = Text("distro");
             if (string.IsNullOrWhiteSpace(path)) throw new IOException("Enter a workspace path on the host.");
-            var workspace = new Workspace(Guid.NewGuid().ToString("N"), Text("name"), path, string.IsNullOrWhiteSpace(distro) ? null : distro);
+            var workspace = new Workspace(Guid.NewGuid().ToString("N"), string.IsNullOrWhiteSpace(Text("name")) ? Workspace.DefaultName(path) : Text("name").Trim(), path, string.IsNullOrWhiteSpace(distro) ? null : distro);
             await Hosts.Validate(workspace);
             var existing = workspaces.FirstOrDefault(w => w.Path == path && w.Distro == workspace.Distro);
             if (existing is not null) { store.Setting("closed:" + existing.Id, "0"); Changed?.Invoke(); return JsonValue.Create(existing.Id); }
@@ -99,6 +100,19 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
             if (CloseWorkspace is { } close) await close(owner);
             else store.Setting("closed:" + owner.Id, "1");
+            Changed?.Invoke(); return JsonValue.Create(true);
+        }
+        if (method == "workspace/rename")
+        {
+            var name = Text("name").Trim();
+            if (name.Length is 0 or > 250) throw new IOException("Enter a workspace name with at most 250 characters.");
+            var owner = workspaces.Single(w => w.Id == Text("workspaceId"));
+            if (RenameWorkspace is { } rename) await rename(owner, name);
+            else
+            {
+                var updated = owner with { Name = name };
+                workspaces[workspaces.IndexOf(owner)] = updated; store.Save(updated);
+            }
             Changed?.Invoke(); return JsonValue.Create(true);
         }
         if (method == "reorder")

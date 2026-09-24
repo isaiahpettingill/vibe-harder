@@ -69,7 +69,7 @@ public class MobileInteractionTests
     public async Task RemoteFolderPickerBrowsesHostAndOpensSelectedChild()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        var child = Directory.CreateDirectory(Path.Combine(directory, "child")).FullName;
+        var child = Directory.CreateDirectory(Path.Combine(directory, "my_project-name")).FullName;
         using var store = new Store(directory); var workspaces = new List<Workspace>();
         var service = new SessionService(store, workspaces, [], (_, _) => throw new InvalidOperationException());
         var picker = new RemoteWorkspacePicker(service.Handle); var closed = false; picker.Closed += () => closed = true;
@@ -85,6 +85,7 @@ public class MobileInteractionTests
             Field<TextBox>("RemoteFolderPath").Text = child;
             Field<Button>("OpenRemoteFolder").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => closed); Assert.Equal(child, Assert.Single(workspaces).Path);
+            Assert.Equal("my_project-name", Assert.Single(workspaces).Name);
             await service.Handle(new() { ["method"] = "workspace", ["path"] = child, ["name"] = "Again" });
             Assert.Single(workspaces);
             await Assert.ThrowsAsync<DirectoryNotFoundException>(() => service.Handle(new() { ["method"] = "workspace", ["path"] = Path.Combine(directory, "missing") }));

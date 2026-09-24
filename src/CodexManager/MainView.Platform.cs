@@ -94,6 +94,7 @@ public partial class MainView
 
     private void InitializeLayout()
     {
+        TrackSidebarTouch();
         Classes.Set("touchSidebar", remoteOnly || OperatingSystem.IsAndroid());
         sidebarWidth = RootPanes.ColumnDefinitions[0].Width.Value;
         sidebarOpen = store.Setting("sidebarCollapsed") != "1";

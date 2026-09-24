@@ -60,6 +60,7 @@ public static class AppIcons
             "search" => PackIconCodiconsKind.Search,
             "fullscreen" => PackIconCodiconsKind.ScreenFull,
             "latest" => PackIconCodiconsKind.ArrowDown,
+            "download" => PackIconCodiconsKind.ArrowDown,
             "chevron-up" => PackIconCodiconsKind.ChevronUp,
             "chevron-down" => PackIconCodiconsKind.ChevronDown,
             "chevron-right" => PackIconCodiconsKind.ChevronRight,
@@ -90,6 +91,12 @@ public static class AppIcons
 public sealed class IconButton : Button
 {
     protected override Type StyleKeyOverride => typeof(Button);
+    public Func<bool>? ClickAllowed { get; set; }
+    protected override void OnClick()
+    {
+        if (ClickAllowed?.Invoke() == false) return;
+        base.OnClick();
+    }
     private string? icon;
     private string? label;
     private double iconSize = 13;

@@ -1,7 +1,10 @@
 <UserControl xmlns="https://github.com/avaloniaui" xmlns:local="using:CodexManager" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:md="clr-namespace:Markdown.Avalonia;assembly=Markdown.Avalonia" xmlns:edit="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit" x:Class="CodexManager.MainView" Background="{DynamicResource AppBackground}" FontFamily="{DynamicResource UIFont}" FontSize="{DynamicResource UIFontSize}">
   <Grid Name="RootPanes" ColumnDefinitions="250,5,*" RowDefinitions="Auto,*,28">
-    <local:IconButton Name="SidebarToggle" Icon="menu" Label="Toggle sidebar" Grid.ColumnSpan="3" HorizontalAlignment="Left" MinHeight="40" Margin="6,2"/>
-    <local:IconButton Name="MobileTerminalButton" Icon="terminal" Label="Remote terminal" Grid.ColumnSpan="3" HorizontalAlignment="Right" MinHeight="40" Margin="6,2" IsVisible="False" IsEnabled="False" Click="MobileTerminalClick"/>
+    <Grid Grid.ColumnSpan="3" ColumnDefinitions="*,Auto,Auto" Margin="6,2">
+      <local:IconButton Name="SidebarToggle" Icon="menu" Label="Toggle sidebar" HorizontalAlignment="Left" MinHeight="40"/>
+      <local:IconButton Name="RemoteDownloadsButton" Grid.Column="1" Icon="download" Label="Pending downloads" MinHeight="40" IsVisible="False"/>
+      <local:IconButton Name="MobileTerminalButton" Grid.Column="2" Icon="terminal" Label="Remote terminal" MinHeight="40" IsVisible="False" IsEnabled="False" Click="MobileTerminalClick"/>
+    </Grid>
     <Border Name="SidebarDismiss" Grid.Row="1" Grid.ColumnSpan="3" ZIndex="19" Background="{DynamicResource AppBackground}" IsVisible="False"/>
     <Border Name="Sidebar" ZIndex="20" Background="{DynamicResource AppBackground}" Padding="10" Grid.Row="1">
       <Grid RowDefinitions="Auto,Auto,Auto,*,Auto">

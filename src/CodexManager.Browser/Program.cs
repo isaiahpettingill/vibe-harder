@@ -21,7 +21,13 @@ internal static partial class Program
     [JSImport("read", "web")] private static partial string? Read(string key);
     [JSImport("write", "web")] private static partial void Write(string key, string value);
     [JSImport("download", "web")] private static partial void Download(string name, byte[] content);
-    [JSImport("downloadUrl", "web")] private static partial void DownloadUrl(string url);
+    [JSImport("downloadUrl", "web")] private static partial Task DownloadUrl(string url, int transferId);
+    [JSExport]
+    public static void DownloadProgress(int transferId, double received, double total)
+    {
+        if (Application.Current?.ApplicationLifetime is ISingleViewApplicationLifetime { MainView: MainView view })
+            view.ReportBrowserDownloadProgress(transferId, (long)received, (long)total);
+    }
     [JSExport]
     public static void VisibilityChanged(bool visible)
     {

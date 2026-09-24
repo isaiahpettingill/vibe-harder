@@ -53,6 +53,9 @@ public class ChatPresentationTests
             Assert.True(code.Padding.Left > 0);
             var start = block.TranslatePoint(new Point(2, block.Bounds.Height / 2), window)!.Value;
             var end = block.TranslatePoint(new Point(block.Bounds.Width - 2, block.Bounds.Height / 2), window)!.Value;
+            window.MouseMove(start);
+            await Task.Delay(50);
+            Assert.Equal("https://example.com", ToolTip.GetTip(block));
             window.MouseDown(start, MouseButton.Left); window.MouseMove(end); window.MouseUp(end, MouseButton.Left);
             Assert.Contains("Report details", block.GetSelectedText());
             Assert.Contains("inline code", block.GetSelectedText());

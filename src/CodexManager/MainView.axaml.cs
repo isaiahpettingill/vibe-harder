@@ -73,7 +73,7 @@ public partial class MainView : UserControl
             if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
             RefreshRemoteSidebar(); return;
         }
-        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store) { ShowTerminalButton = !remoteOnly }; remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
+        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store, remoteDownloads) { ShowTerminalButton = !remoteOnly }; remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         view.SetConnectionCollapsed(store.Setting(RemoteCollapsedKey(host)) == "1");
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
@@ -126,6 +126,7 @@ public partial class MainView : UserControl
     {
         this.store = store; this.remoteOnly = remoteOnly;
         InitializeComponent();
+        InitializeDownloads();
         InitializeChatSearch();
         OpenWorkspaceButton.Content = AppIcons.Label("add", "Open workspace");
         ArchiveViewButton.Content = AppIcons.Label("chevron-down", "Chats", trailing: true);
@@ -146,7 +147,7 @@ public partial class MainView : UserControl
         workspaces = new((remoteOnly ? [] : loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = remoteOnly ? [] : loadedChats ?? store.Chats();
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
-        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace };
+        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
         DragDrop.SetAllowDrop(ComposerBorder, true);
@@ -193,7 +194,7 @@ public partial class MainView : UserControl
         {
             var path = WorkspaceLaunch.Normalize(directory);
             var existing = store.Workspaces().FirstOrDefault(w => !w.IsWsl && WorkspaceLaunch.SameLocalPath(w.Path, path));
-            OpenWorkspace(existing ?? new Workspace(Guid.NewGuid().ToString("N"), Path.GetFileName(path) is { Length: > 0 } name ? name : path, path));
+            OpenWorkspace(existing ?? new Workspace(Guid.NewGuid().ToString("N"), Workspace.DefaultName(path), path));
         }
         catch (Exception error) when (!AppDiagnostics.IsUnrecoverable(error)) { StatusText.Text = AppDiagnostics.Message("Could not open workspace", error); }
     }
@@ -321,15 +322,18 @@ public partial class MainView : UserControl
         if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
         foreach (var owner in SidebarOrder.Apply(store, "workspaces", workspaces.Where(w => store.Setting("closed:" + w.Id) != "1"), w => w.Id))
         {
-            var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto") };
+            var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto,Auto") };
             var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
-            title.Click += (_, _) => { if (showArchived) { SetWorkspaceExpanded(owner.Id, !WorkspaceExpanded(owner.Id)); BuildWorkspaceTree(); } else SelectWorkspace(owner, true); };
-            var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", IconSize = 10, Label = "New chat", Classes = { "rowAction" } };
+            title.Click += (_, _) => { if (SidebarTouchSwipe) return; if (showArchived) { SetWorkspaceExpanded(owner.Id, !WorkspaceExpanded(owner.Id)); BuildWorkspaceTree(); } else SelectWorkspace(owner, true); };
+            var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", IconSize = 10, Label = "New chat", ClickAllowed = () => !SidebarTouchSwipe, Classes = { "rowAction" } };
             ToolTip.SetTip(create, "New chat"); Grid.SetColumn(create, 2);
             create.IsVisible = !showArchived; create.Flyout = ProviderMenu(owner);
-            var close = new IconButton { Name = "CloseWorkspace_" + owner.Id, Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", Classes = { "rowAction" } };
-            ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 3);
+            var rename = new IconButton { Name = "RenameWorkspace_" + owner.Id, Icon = "edit", IconSize = 10, Label = "Rename workspace", ClickAllowed = () => !SidebarTouchSwipe, Classes = { "rowAction" } };
+            rename.Click += (_, _) => WorkspaceRename.Show(rename, owner.Name, async name => { await RenameWorkspace(owner, name); return true; });
+            Grid.SetColumn(rename, 3);
+            var close = new IconButton { Name = "CloseWorkspace_" + owner.Id, Icon = "remove", IconSize = 10, Label = "Close workspace (keep chats)", ClickAllowed = () => !SidebarTouchSwipe, Classes = { "rowAction" } };
+            ToolTip.SetTip(close, "Close workspace (keep chats)"); Grid.SetColumn(close, 4);
             close.Click += async (_, _) =>
             {
                 close.IsEnabled = false;
@@ -337,10 +341,10 @@ public partial class MainView : UserControl
                 try { await operation; }
                 finally { workspaceClosures.Remove(operation); }
             };
-            header.Children.Add(title); header.Children.Add(create); header.Children.Add(close);
-            var list = new SidebarChatList { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0) };
+            header.Children.Add(title); header.Children.Add(create); header.Children.Add(rename); header.Children.Add(close);
+            var list = new SidebarChatList { Name = "Chats_" + owner.Id, Background = Brushes.Transparent, Tag = owner, Margin = new(8, 0, 0, 0), TouchSwipe = IsSidebarTouchSwipe };
             list.IsVisible = WorkspaceExpanded(owner.Id);
-            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace" };
+            var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace", ClickAllowed = () => !SidebarTouchSwipe };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; SetWorkspaceExpanded(owner.Id, list.IsVisible); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
             list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
@@ -356,7 +360,7 @@ public partial class MainView : UserControl
         {
             var collapsed = store.Setting(RemoteCollapsedKey(host)) == "1";
             var header = new Grid { ColumnDefinitions = new("Auto,*") };
-            var collapse = new IconButton { Name = "CollapseConnection_" + host.Address + "_" + host.Port, Icon = collapsed ? "chevron-right" : "chevron-down", IconSize = 10, Label = collapsed ? "Expand connection" : "Collapse connection" };
+            var collapse = new IconButton { Name = "CollapseConnection_" + host.Address + "_" + host.Port, Icon = collapsed ? "chevron-right" : "chevron-down", IconSize = 10, Label = collapsed ? "Expand connection" : "Collapse connection", ClickAllowed = () => !SidebarTouchSwipe };
             var button = new Button { Content = "Remote · " + host.Name + " (" + host.Address + ")", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             var section = new StackPanel { IsVisible = !collapsed }; remoteSections[host.Address + ":" + host.Port] = section;
             void SetCollapsed(bool value)
@@ -367,7 +371,7 @@ public partial class MainView : UserControl
                 if (!value) { if (!showArchived) OpenRemoteHost(host); RefreshRemoteSidebar(); }
             }
             collapse.Click += (_, _) => SetCollapsed(!collapsed);
-            button.Click += (_, _) => { if (showArchived) SetCollapsed(!collapsed); else if (collapsed) SetCollapsed(false); else OpenRemoteHost(host); };
+            button.Click += (_, _) => { if (SidebarTouchSwipe) return; if (showArchived) SetCollapsed(!collapsed); else if (collapsed) SetCollapsed(false); else OpenRemoteHost(host); };
             Grid.SetColumn(button, 1); header.Children.Add(collapse); header.Children.Add(button); WorkspaceTree.Children.Add(header); WorkspaceTree.Children.Add(section);
             if (remoteViews.TryGetValue(host, out var saved)) saved.SetConnectionCollapsed(collapsed);
         }
@@ -384,6 +388,16 @@ public partial class MainView : UserControl
             menu.Items.Add(item);
         }
         return menu;
+    }
+    private Task RenameWorkspace(Workspace owner, string name)
+    {
+        var index = workspaces.ToList().FindIndex(w => w.Id == owner.Id);
+        if (index < 0) throw new IOException("Workspace is no longer open.");
+        var updated = workspaces[index] with { Name = name };
+        workspaces[index] = updated;
+        if (workspace?.Id == owner.Id) workspace = updated;
+        store.Save(updated); BuildWorkspaceTree(); UpdateControls();
+        return Task.CompletedTask;
     }
     private async Task CloseWorkspace(Workspace owner)
     {

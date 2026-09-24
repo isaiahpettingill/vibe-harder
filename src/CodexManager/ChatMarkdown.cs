@@ -185,6 +185,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         Walk(block.Content);
         if (links.Count == 0) return;
         CHyperlink? pressed = null;
+        string? hoveredTarget = null;
         Point start = default;
         IDisposable? hold = null;
         Point selectionStart = default;
@@ -217,10 +218,20 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         }, RoutingStrategies.Tunnel, true);
         block.AddHandler(PointerMovedEvent, (_, e) =>
         {
+            if (e.Pointer.Type == PointerType.Mouse)
+            {
+                var target = At(e.GetPosition(block))?.CommandParameter;
+                if (hoveredTarget != target)
+                {
+                    hoveredTarget = target;
+                    Dispatcher.UIThread.Post(() => { if (hoveredTarget == target) ToolTip.SetTip(block, target); }, DispatcherPriority.Background);
+                }
+            }
             var delta = e.GetPosition(block) - start;
             if (delta.X * delta.X + delta.Y * delta.Y > 100) Cancel();
             if (selecting && Document is { } document) document.Select(selectionStart, e.GetPosition(document.Control));
         }, RoutingStrategies.Tunnel, true);
+        block.PointerExited += (_, _) => { hoveredTarget = null; Dispatcher.UIThread.Post(() => ToolTip.SetTip(block, null), DispatcherPriority.Background); };
         block.AddHandler(PointerReleasedEvent, async (_, e) =>
         {
             var link = pressed; Cancel();

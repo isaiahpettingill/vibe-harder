@@ -29,18 +29,23 @@ public sealed partial class RemoteView : UserControl, IDisposable
     public async Task OpenFileLink(string target)
     {
         if (chatId is not { } id) throw new IOException("Select a chat first.");
-        if (OperatingSystem.IsBrowser())
+        var transfer = downloads.Begin(target);
+        try
         {
-            var download = await Call(new() { ["method"] = "file/download", ["chatId"] = id, ["path"] = target });
-            var url = download?["url"]?.GetValue<string>() ?? throw new IOException("Reconnect and try downloading again.");
-            BrowserPlatform.DownloadUrl(url);
-            return;
+            if (OperatingSystem.IsBrowser())
+            {
+                var download = await Call(new() { ["method"] = "file/download", ["chatId"] = id, ["path"] = target });
+                var url = download?["url"]?.GetValue<string>() ?? throw new IOException("Reconnect and try downloading again.");
+                await BrowserPlatform.DownloadUrl(url, transfer.Id);
+                return;
+            }
+            var path = await FileLinks.Download(Call, id, target, lifetime.Token, (received, total) => downloads.Report(transfer.Id, received, total));
+            if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
+            if (TopLevel.GetTopLevel(this) is not { } top) return;
+            var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
+            if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
         }
-        var path = await FileLinks.Download(Call, id, target, lifetime.Token);
-        if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
-        if (TopLevel.GetTopLevel(this) is not { } top) return;
-        var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
-        if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
+        finally { downloads.Finish(transfer.Id); }
     }
     public Control CreateConnectionStatus()
     {
@@ -255,6 +260,15 @@ public sealed partial class RemoteView : UserControl, IDisposable
         }
         catch (Exception error) { AppDiagnostics.Record("Close remote workspace", error); }
     }
+    public async Task<bool> RenameWorkspace(string id, string name)
+    {
+        try
+        {
+            if (await Call(new() { ["method"] = "workspace/rename", ["workspaceId"] = id, ["name"] = name }) is null) return false;
+            await RefreshList(); return true;
+        }
+        catch (Exception error) { AppDiagnostics.Record("Rename remote workspace", error); return false; }
+    }
     private readonly IconButton openTerminal = new() { Name = "RemoteOpenTerminal", Icon = "terminal", Label = "Open remote terminal" };
     public bool ShowTerminalButton { get => openTerminal.IsVisible; set => openTerminal.IsVisible = value; }
     public void SelectChat(string id, bool userInitiated = true)
@@ -278,6 +292,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private readonly Action? activate;
     private readonly HashSet<string> notifiedPermissions = [];
     private readonly Store? preferences;
+    private readonly RemoteDownloads downloads;
     public void ApplyColors()
     {
         if (preferences is null) return;
@@ -287,9 +302,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
         composer.BorderBrush = SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) ?? this.FindResource("AppBorder") as Avalonia.Media.IBrush;
         composer.BorderThickness = new Thickness(SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) is null ? 1 : 2);
     }
-    public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null, Store? preferences = null)
+    public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null, Store? preferences = null, RemoteDownloads? downloads = null)
     {
         this.preferences = preferences;
+        this.downloads = downloads ?? new RemoteDownloads();
         this.allowAll = allowAll ?? (() => false); this.activate = activate;
         this.host = host;
         var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };

@@ -17,6 +17,13 @@ public abstract class Observable : INotifyPropertyChanged
 
 public sealed record Workspace(string Id, string Name, string Path, string? Distro = null)
 {
+    public static string DefaultName(string path)
+    {
+        var trimmed = path.TrimEnd('/', '\\');
+        var separator = trimmed.LastIndexOfAny(['/', '\\']);
+        var folder = trimmed[(separator + 1)..];
+        return folder.Length > 0 ? folder : path;
+    }
     public bool IsWsl => !string.IsNullOrEmpty(Distro);
     public string Host => IsWsl ? $"WSL · {Distro}" : OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "Linux";
     public string Caption => $"{Name}  ·  {Host}";

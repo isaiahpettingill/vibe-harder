@@ -4,6 +4,28 @@ namespace CodexManager.Tests;
 
 public class RemoteCatalogTests
 {
+    [Theory]
+    [InlineData(@"C:\repos\my_project-name\", "my_project-name")]
+    [InlineData("/home/user/my_project-name/", "my_project-name")]
+    [InlineData("/", "/")]
+    public void DefaultWorkspaceNameKeepsFolderPunctuation(string path, string expected) => Assert.Equal(expected, Workspace.DefaultName(path));
+
+    [Fact]
+    public async Task RenameWorkspaceUpdatesCatalogAndSavedWorkspace()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("rename-workspace-").FullName);
+        var owner = new Workspace("workspace", "Initial", store.DirectoryPath);
+        store.Save(owner);
+        var workspaces = new List<Workspace> { owner };
+        using var service = new SessionService(store, workspaces, [], (_, _) => throw new InvalidOperationException());
+        await Assert.ThrowsAsync<IOException>(() => service.Handle(new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.Id, ["name"] = "  " }));
+        await service.Handle(new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.Id, ["name"] = "  My_project-name  " });
+        Assert.Equal("My_project-name", Assert.Single(workspaces).Name);
+        Assert.Equal("My_project-name", Assert.Single(store.Workspaces()).Name);
+        Assert.Equal("My_project-name", (await service.Handle(new() { ["method"] = "list" }))!["workspaces"]!.AsArray()[0]!["name"]!.GetValue<string>());
+        Assert.Equal(owner.Path, Assert.Single(workspaces).Path);
+    }
+
     [Fact]
     public async Task CatalogUsesHostSidebarOrderAndWorkspaceVisibility()
     {

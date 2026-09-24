@@ -86,9 +86,12 @@ public class LinkAndModelTests
         var bytes = new byte[600000]; Random.Shared.NextBytes(bytes); await File.WriteAllBytesAsync(path, bytes, TestContext.Current.CancellationToken);
         var workspace = new Workspace("w", "Test", directory);
         var requestCount = 0;
-        var downloaded = await FileLinks.Download(async request => { requestCount++; return await FileLinks.Read(request, workspace); }, "chat", "test%20file.bin:42", TestContext.Current.CancellationToken);
+        var progress = new List<(long Received, long Total)>();
+        var downloaded = await FileLinks.Download(async request => { requestCount++; return await FileLinks.Read(request, workspace); }, "chat", "test%20file.bin:42", TestContext.Current.CancellationToken,
+            (received, total) => progress.Add((received, total)));
         Assert.Equal("test file.bin", Path.GetFileName(downloaded));
         Assert.Equal(bytes, await File.ReadAllBytesAsync(downloaded, TestContext.Current.CancellationToken)); Assert.Equal(3, requestCount);
+        Assert.Equal([(262144L, 600000L), (524288L, 600000L), (600000L, 600000L)], progress);
         Assert.Equal(path, FileLinks.Resolve(new Uri(path).AbsoluteUri, workspace));
         File.Delete(downloaded); Directory.Delete(Path.GetDirectoryName(downloaded)!); File.Delete(path); Directory.Delete(directory);
     }

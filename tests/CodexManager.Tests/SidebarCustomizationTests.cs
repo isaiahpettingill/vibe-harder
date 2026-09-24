@@ -29,10 +29,8 @@ public class SidebarCustomizationTests
         using var reopened = new Store(directory);
         Assert.Equal(new[] { "newer", "new", "b", "a" }, SidebarOrder.Apply(reopened, scope, new[] { "a", "b", "new", "newer" }, id => id));
     }
-    [AvaloniaTheory]
-    [InlineData(PointerType.Touch)]
-    [InlineData(PointerType.Mouse)]
-    public async Task LongPressReordersWithoutAGrabHandle(PointerType pointerType)
+    [AvaloniaFact]
+    public async Task MouseLongPressReordersWithoutAGrabHandle()
     {
         var store = new Store(Directory.CreateTempSubdirectory("sidebar-touch-").FullName);
         store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
@@ -43,25 +41,66 @@ public class SidebarCustomizationTests
         var clicked = 0; title.Click += (_, _) => clicked++; first.Children.Add(title);
         var second = new Grid { Height = 60, Background = Brushes.Transparent };
         var register = typeof(MainView).GetMethod("EnableHoldReorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        register.Invoke(view, [first, "test", "first", (Action)(() => { }), null]);
-        register.Invoke(view, [second, "test", "second", (Action)(() => { }), null]);
+        register.Invoke(view, [first, "test", "first", (Action)(() => { }), null, null]);
+        register.Invoke(view, [second, "test", "second", (Action)(() => { }), null, null]);
         view.Content = new StackPanel { Children = { first, second } };
         var window = new Window { Width = 300, Height = 250, Content = view }; window.Show();
         try
         {
-            var pointer = new Pointer(123, pointerType, true);
-            var properties = new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed);
             var start = first.TranslatePoint(new Point(20, 20), window)!.Value;
-            if (pointerType == PointerType.Mouse) window.MouseDown(start, MouseButton.Left);
-            else first.RaiseEvent(new PointerPressedEventArgs(first, pointer, window, start, 0, properties, KeyModifiers.None));
+            window.MouseDown(start, MouseButton.Left);
             await Task.Delay(600, TestContext.Current.CancellationToken);
             Assert.Contains("dragging", first.Classes);
             var end = second.TranslatePoint(new Point(20, 50), window)!.Value;
-            if (pointerType == PointerType.Mouse) { window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left); }
-            else first.RaiseEvent(new PointerReleasedEventArgs(first, pointer, window, end, 600, new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left);
             Assert.Equal(0, clicked);
             Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "test", new[] { "first", "second" }, s => s));
             Assert.DoesNotContain("dragging", first.Classes);
+        }
+        finally { window.Close(); view.DisposeMobile(); }
+    }
+    [AvaloniaFact]
+    public async Task TouchSwipeAcrossSidebarRowsDoesNotOpenOrReorder()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("sidebar-swipe-").FullName);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var firstOwner = new Workspace("first", "First", store.DirectoryPath);
+        var secondOwner = new Workspace("second", "Second", store.DirectoryPath);
+        store.Save(firstOwner); store.Save(secondOwner);
+        var firstChat = new Chat { Id = "first-chat", Title = "First chat", WorkspaceId = firstOwner.Id };
+        var secondChat = new Chat { Id = "second-chat", Title = "Second chat", WorkspaceId = firstOwner.Id };
+        store.Save(firstChat); store.Save(secondChat);
+        store.Setting("workspace", firstOwner.Id); store.Setting("chat:" + firstOwner.Id, firstChat.Id);
+        var view = new MainView(store, [firstOwner, secondOwner], [firstChat, secondChat]);
+        var window = new Window { Content = view, Width = 1000, Height = 700 }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            var list = view.GetVisualDescendants().OfType<SidebarChatList>().Single(c => c.Name == "Chats_first");
+            var row = view.GetVisualDescendants().OfType<ChatActivityIndicator>().Single(c => c.Name == "Activity_second-chat").GetVisualAncestors().OfType<Grid>().First(c => c.Classes.Contains("chatRow"));
+            var title = view.GetVisualDescendants().OfType<Button>().Single(c => c.Name == "Workspace_second");
+            void Swipe(Control control, int id)
+            {
+                using var pointer = new Pointer(id, PointerType.Touch, true);
+                var start = control.TranslatePoint(new Point(12, 8), window)!.Value;
+                var end = new Point(start.X, start.Y + 16);
+                control.RaiseEvent(new PointerPressedEventArgs(control, pointer, window, start, 1,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+                control.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, control, pointer, window, end, 2,
+                    new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+                control.RaiseEvent(new PointerReleasedEventArgs(control, pointer, window, end, 3,
+                    new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+            }
+            Swipe(row, 123);
+            Assert.Same(firstChat, list.SelectedItem);
+            Swipe(title, 124);
+            Assert.Equal(firstOwner.Id, store.Setting("workspace"));
+            var create = view.GetVisualDescendants().OfType<IconButton>().Single(c => c.Name == "NewChat_second");
+            Swipe(create, 125);
+            Assert.False(create.Flyout?.IsOpen);
+            await Task.Delay(600, TestContext.Current.CancellationToken);
+            Assert.Equal(new[] { firstOwner.Id, secondOwner.Id }, SidebarOrder.Apply(store, "workspaces", new[] { firstOwner, secondOwner }, w => w.Id).Select(w => w.Id));
+            Assert.Equal(new[] { firstChat.Id, secondChat.Id }, SidebarOrder.Apply(store, "chats:first", new[] { firstChat, secondChat }, c => c.Id).Select(c => c.Id));
         }
         finally { window.Close(); view.DisposeMobile(); }
     }
@@ -111,8 +150,8 @@ public class SidebarCustomizationTests
         var first = new StackPanel { Children = { firstHeading, new Border { Height = 60 } } };
         var second = new StackPanel { Children = { secondHeading, new Border { Height = 200 } } };
         var register = typeof(MainView).GetMethod("EnableHoldReorder", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        register.Invoke(view, [first, "test", "first", (Action)(() => { }), firstHeading]);
-        register.Invoke(view, [second, "test", "second", (Action)(() => { }), secondHeading]);
+        register.Invoke(view, [first, "test", "first", (Action)(() => { }), firstHeading, null]);
+        register.Invoke(view, [second, "test", "second", (Action)(() => { }), secondHeading, null]);
         view.Content = new StackPanel { Children = { first, second } };
         var window = new Window { Content = view, Width = 400, Height = 500 }; window.Show();
         try

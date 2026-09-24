@@ -53,8 +53,8 @@ public sealed class WorkspaceDialog : Window
         {
             try
             {
-                var p = path.Text?.Trim() ?? ""; var label = p.TrimEnd('/', '\\').Split('/', '\\').Last();
-                var w = new Workspace(Guid.NewGuid().ToString("N"), string.IsNullOrWhiteSpace(name.Text) ? (label.Length == 0 ? p : label) : name.Text.Trim(), p, Distro);
+                var p = path.Text?.Trim() ?? "";
+                var w = new Workspace(Guid.NewGuid().ToString("N"), string.IsNullOrWhiteSpace(name.Text) ? Workspace.DefaultName(p) : name.Text.Trim(), p, Distro);
                 open.IsEnabled = false; await Hosts.Validate(w); Close(w);
             }
             catch (Exception ex) { error.Text = "Could not open folder: " + ex.Message; }
