@@ -20,6 +20,8 @@ public class PresentationSleepTests
         var saved = await store.ReadPageAsync(chat);
         Assert.Contains("echo first", saved.Single(m => m.ToolId == "one").Text);
         Assert.Contains("echo second", saved.Single(m => m.ToolId == "two").Text);
+        Assert.Contains("first result", saved.Single(m => m.ToolId == "one").Text);
+        Assert.Contains("second result", saved.Single(m => m.ToolId == "two").Text);
         Assert.All(saved.Where(m => m.ToolId is not null), m => Assert.Contains("completed", m.Text));
     }
     private static string Seed()

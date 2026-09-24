@@ -689,6 +689,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (message is null && id is not null) message = (await store.ReadPageAsync(chat, limit: 1, token: lifetime.Token, toolId: id)).FirstOrDefault();
             if (lifetime.IsCancellationRequested) return;
             if (message is null) { Add("tool", "", id); message = chat.Messages.Last(); }
+            var previousOutput = ToolMessageContent.Split(message.Text).Output;
             message.Subagent = SubagentInfo.FromTool(update, message.Subagent);
             if (update.TryGetProperty("messageId", out var toolMessageId) && toolMessageId.ValueKind == JsonValueKind.String) message.ProviderMessageId = toolMessageId.GetString();
             if (id is not null && activeToolInputs.TryGetValue(id, out var previousInput)) message.ToolInput = previousInput;
@@ -697,14 +698,25 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (update.TryGetProperty("rawInput", out var input) && input.ValueKind is not JsonValueKind.Null)
                 message.ToolInput = "\n\n```\n" + (input.ValueKind == JsonValueKind.Object && input.TryGetProperty("command", out var commandInput) && commandInput.ValueKind == JsonValueKind.String ? commandInput.GetString() : input.GetRawText()) + "\n```";
             if (id is not null && message.ToolInput.Length > 0) activeToolInputs[id] = message.ToolInput;
-            var details = "";
-            if (update.TryGetProperty("content", out var contents))
+            var details = previousOutput;
+            var hasContent = update.TryGetProperty("content", out var contents) && contents.ValueKind == JsonValueKind.Array;
+            if (hasContent)
+            {
+                details = "";
                 foreach (var item in contents.EnumerateArray())
                 {
                     if (item.TryGetProperty("content", out var c) && c.TryGetProperty("text", out var value)) details += "\n\n" + value.GetString();
                     if (item.TryGetProperty("type", out var type) && type.GetString() == "diff") details += "\n\n```diff\n" + (item.TryGetProperty("oldText", out var old) ? "- " + old.GetString() : "") + "\n+ " + item.GetProperty("newText").GetString() + "\n```";
                 }
-            message.Text = $"{title}\n\n*{status}*{message.ToolInput}{details}"; if (!replaying) store.SaveMessage(chat, message);
+            }
+            if (update.TryGetProperty("rawOutput", out var rawOutput) && (!hasContent || details.Length == 0))
+                details = rawOutput.ValueKind switch
+                {
+                    JsonValueKind.Null or JsonValueKind.Undefined => "",
+                    JsonValueKind.String => rawOutput.GetString() ?? "",
+                    _ => rawOutput.GetRawText()
+                };
+            message.Text = $"{title}\n\n*{status}*{message.ToolInput}{(details.Length > 0 && !details.StartsWith('\n') ? "\n\n" : "")}{details}"; if (!replaying) store.SaveMessage(chat, message);
             if (id is not null && status is "completed" or "failed") activeToolInputs.Remove(id);
         }
         else if (kind == "plan")

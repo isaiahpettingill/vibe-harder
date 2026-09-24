@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input.Platform;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.VisualTree;
@@ -21,6 +22,15 @@ public sealed class MessageView : UserControl
     private static readonly HashSet<MessageView> timestampViews = [];
     private static readonly Avalonia.Threading.DispatcherTimer timestampTimer = new() { Interval = TimeSpan.FromSeconds(30) };
     private readonly ScrollViewer details;
+    private readonly ContentControl toolBody = new();
+    private readonly StackPanel toolDetails = new() { Spacing = 4 };
+    private readonly Grid outputHeader = new() { ColumnDefinitions = new("*,Auto") };
+    private readonly Button outputToggle = new() { Name = "ToggleCommandOutput", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+    private readonly TextBlock outputLabel = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, FontSize = 11 };
+    private readonly IconButton copyOutput = new() { Name = "CopyCommandOutput", Icon = "copy", IconSize = 11, Label = "Copy command output" };
+    private readonly SelectableTextBlock outputText = new() { Name = "CommandOutputText", TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(8) };
+    private readonly ScrollViewer outputScroll = new() { Name = "CommandOutputScroll", MaxHeight = 240, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
+    private readonly Border outputFrame = new() { BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4) };
     private bool expanded;
     private bool attached;
     private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Message actions", VerticalAlignment = VerticalAlignment.Top };
@@ -46,6 +56,14 @@ public sealed class MessageView : UserControl
         };
         details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
         ScrollViewer.SetIsScrollChainingEnabled(details, true);
+        outputToggle.Content = outputLabel;
+        outputToggle.Click += (_, _) => { if (Message is not null) Message.ToolOutputExpanded = !Message.ToolOutputExpanded; Refresh(); };
+        copyOutput.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(outputText.Text ?? ""); };
+        outputHeader.Children.Add(outputToggle); Grid.SetColumn(copyOutput, 1); outputHeader.Children.Add(copyOutput);
+        outputText.Bind(TextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+        outputScroll.Content = outputText; ScrollViewer.SetIsScrollChainingEnabled(outputScroll, true);
+        outputFrame.Child = outputScroll; outputFrame.Bind(Border.BorderBrushProperty, this.GetResourceObservable("AppBorder"));
+        toolDetails.Children.Add(toolBody); toolDetails.Children.Add(outputHeader); toolDetails.Children.Add(outputFrame);
         frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("AppAccent"));
         frame.Child = new StackPanel { Spacing = 6, Children = { header, details } };
         Content = frame;
@@ -59,7 +77,7 @@ public sealed class MessageView : UserControl
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
     { base.OnAttachedToVisualTree(e); attached = true; timestampViews.Add(this); timestampTimer.Start(); if (Message is not null) Message.PropertyChanged += MessageChanged; Refresh(); }
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
-    { attached = false; timestampViews.Remove(this); if (timestampViews.Count == 0) timestampTimer.Stop(); details.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
+    { attached = false; timestampViews.Remove(this); if (timestampViews.Count == 0) timestampTimer.Stop(); details.Content = null; toolBody.Content = null; body = null; if (Message is not null) Message.PropertyChanged -= MessageChanged; base.OnDetachedFromVisualTree(e); }
     private void UpdateTimestamp()
     {
         timestamp.Text = Message?.Timestamp is { } time ? MessageTime.Format(time, DateTimeOffset.UtcNow) : "";
@@ -83,6 +101,7 @@ public sealed class MessageView : UserControl
         if (subagent is not null)
         {
             toggle.IsVisible = false; history.IsVisible = false; details.IsVisible = true; details.MaxHeight = 600;
+            toolBody.Content = null;
             subagentView ??= new SubagentView(); subagentView.Update(subagent); details.Content = subagentView;
             subagentView.ExpansionChanged = value => { if (Message is not null) Message.OutputExpanded = value; };
             if (Message?.OutputExpanded == true) subagentView.Expand();
@@ -94,6 +113,7 @@ public sealed class MessageView : UserControl
         history.IsVisible = !legacyResume && !this.GetVisualAncestors().Any(v => v is SubagentView or SubagentInspector) && Message?.Role is "user" or "assistant" or "tool";
         title.Foreground = this.TryFindResource(IsOutput ? "AppMuted" : "AppAccent", out var brush) ? brush as IBrush : null;
         var text = Message?.Text ?? "";
+        var parts = Message?.Role == "tool" ? ToolMessageContent.Split(text) : (Summary: text, Output: "");
         var end = text.IndexOf('\n');
         var preview = text[..Math.Min(101, end < 0 ? text.Length : end)];
         if (preview.Length > 100) preview = preview[..100] + "…";
@@ -105,9 +125,22 @@ public sealed class MessageView : UserControl
         if (details.IsVisible && attached)
         {
             if (body is null || body.SessionNotice != sessionNotice || body.Muted != IsOutput) body = new ChatMarkdown { Muted = IsOutput, SessionNotice = sessionNotice };
-            details.Content = body;
-            body.Text = legacyResume ? "Chat auto-resumed after unexpected restart" : Message?.Text ?? "";
+            body.Text = legacyResume ? "Chat auto-resumed after unexpected restart" : parts.Summary;
+            if (Message?.Role == "tool")
+            {
+                if (details.Content == body) details.Content = null;
+                toolBody.Content = body; details.Content = toolDetails;
+                outputText.Text = parts.Output;
+                outputHeader.IsVisible = parts.Output.Length > 0;
+                outputFrame.IsVisible = parts.Output.Length > 0 && Message.ToolOutputExpanded;
+                var lineEnd = parts.Output.IndexOf('\n');
+                var lineLength = lineEnd < 0 ? parts.Output.Length : lineEnd;
+                var firstLine = parts.Output[..Math.Min(lineLength, 80)].Trim();
+                if (lineLength > 80) firstLine += "…";
+                outputLabel.Text = (Message.ToolOutputExpanded ? "▾ Output" : "▸ Output") + (firstLine.Length > 0 ? " · " + firstLine : "");
+            }
+            else { toolBody.Content = null; details.Content = body; }
         }
-        else { details.Content = null; body = null; }
+        else { details.Content = null; toolBody.Content = null; outputText.Text = ""; body = null; }
     }
 }

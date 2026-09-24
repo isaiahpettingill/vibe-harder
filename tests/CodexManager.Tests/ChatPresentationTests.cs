@@ -147,4 +147,37 @@ public class ChatPresentationTests
             view.Collapse(); Assert.False(view.IsExpandedOutput); window.Close();
         }
     }
+    [AvaloniaFact]
+    public async Task CommandOutputOpensSeparatelyScrollsAndCopiesAllText()
+    {
+        var output = string.Join('\n', Enumerable.Range(0, 100).Select(i => $"result line {i:D3}"));
+        var message = new Message { Role = "tool", Text = "Run command\n\n*completed*\n\n```\necho results\n```\n\n" + output };
+        var view = new MessageView { Message = message };
+        var window = new Window { Content = view, Width = 500, Height = 700 }; window.Show();
+        try
+        {
+            var command = view.GetVisualDescendants().OfType<Button>().First();
+            command.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
+            var toggle = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleCommandOutput");
+            var scroll = view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Name == "CommandOutputScroll");
+            var text = Assert.IsType<SelectableTextBlock>(scroll.Content);
+            Assert.True(toggle.IsVisible); Assert.False(scroll.IsEffectivelyVisible);
+            Assert.Equal(output, text.Text);
+            toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
+            Assert.True(scroll.IsEffectivelyVisible);
+            Assert.Equal(240, scroll.MaxHeight);
+            Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
+            var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyCommandOutput");
+            copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+            using var data = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal(output, await data!.TryGetTextAsync());
+            message.ToolOutputExpanded = false; view.Collapse(); view.Expand(); window.UpdateLayout();
+            Assert.False(scroll.IsEffectivelyVisible);
+            view.Message = new Message { Role = "tool", Text = "Run command\n\n*completed*\n\n```\necho quiet\n```" };
+            command.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
+            Assert.False(toggle.IsEffectivelyVisible);
+        }
+        finally { window.Close(); }
+    }
 }
