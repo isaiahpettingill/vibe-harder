@@ -117,6 +117,29 @@ public class IdleAgentTests
         }
         finally { window.Close(); }
     }
+    [AvaloniaFact]
+    public async Task QuestionWarningClearsAfterAnswerAndCancellation()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "idle-agent", Guid.NewGuid().ToString("N"));
+        using var store = new Store(directory);
+        var workspace = new Workspace("w", "Test", directory); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, Fixture);
+        var response = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        runtime.Elicitation = (_, token) => response.Task.WaitAsync(token);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var send = runtime.Send("question", []);
+        while (!chat.NeedsPermission) await Task.Delay(10, timeout.Token);
+        Assert.Equal("Needs input", chat.Status);
+        response.SetResult(ElicitationForm.Accept(new JsonObject { ["approach"] = "simple" }));
+        await send.WaitAsync(timeout.Token);
+        Assert.False(chat.NeedsPermission);
+        response = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        send = runtime.Send("question", []);
+        while (!chat.NeedsPermission) await Task.Delay(10, timeout.Token);
+        await runtime.Stop(); await send.WaitAsync(timeout.Token);
+        Assert.False(chat.NeedsPermission);
+    }
     [Fact]
     public void CacheRestoresIdleStatusAndDoesNotRestorePendingPermission()
     {

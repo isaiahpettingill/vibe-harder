@@ -51,7 +51,7 @@ public sealed class ChatActivityIndicator : Grid
         spinner.IsVisible = chat.Busy && !chat.NeedsPermission && !connecting.IsVisible;
         unread.IsVisible = !chat.NeedsPermission && !chat.Busy && chat.HasUnreadCompletion;
         provider.IsVisible = !chat.NeedsPermission && !chat.Busy && !chat.HasUnreadCompletion;
-        ToolTip.SetTip(this, chat.NeedsPermission ? "Needs permission" : connecting.IsVisible ? "Connecting" : chat.Busy ? "Chat in progress" : chat.HasUnreadCompletion ? "New completed reply" : chat.ProviderLabel);
+        ToolTip.SetTip(this, chat.NeedsPermission ? chat.Status == "Needs input" ? "Needs input" : "Needs permission" : connecting.IsVisible ? "Connecting" : chat.Busy ? "Chat in progress" : chat.HasUnreadCompletion ? "New completed reply" : chat.ProviderLabel);
         animation.Enabled = spinner.IsVisible;
     }
 }

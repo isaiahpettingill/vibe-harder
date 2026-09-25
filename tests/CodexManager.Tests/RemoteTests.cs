@@ -2,12 +2,45 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Text.Json.Nodes;
+using System.Text.Json;
 using Avalonia.Headless.XUnit;
 
 namespace CodexManager.Tests;
 
 public class RemoteTests
 {
+    [Fact]
+    public async Task RemoteQuestionAppearsAboveComposerAndAnswerIsValidated()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "vibe-question-test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
+        using var store = new Store(directory);
+        var workspace = new Workspace("w", "Test", directory);
+        var chat = new Chat { WorkspaceId = "w" };
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node");
+        using var service = new SessionService(store, new List<Workspace> { workspace }, new List<Chat> { chat }, (_, _) => runtime);
+        using var document = JsonDocument.Parse("""
+            {"mode":"form","message":"Choose","requestedSchema":{"type":"object","properties":{"option":{"type":"string","enum":["one","two"]}},"required":["option"]}}
+            """);
+        var pending = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = service.RegisterElicitation(chat, document.RootElement, pending);
+        var snapshot = await service.Handle(new JsonObject { ["method"] = "chat", ["chatId"] = chat.Id, ["activate"] = false });
+        Assert.Equal(id, snapshot!["elicitations"]!.AsArray().Single()!["id"]!.GetValue<string>());
+        await Assert.ThrowsAsync<IOException>(() => service.Handle(new JsonObject
+        {
+            ["method"] = "elicitation/respond",
+            ["elicitationId"] = id,
+            ["response"] = ElicitationForm.Accept(new JsonObject { ["option"] = "bad" })
+        }));
+        Assert.False(pending.Task.IsCompleted);
+        await service.Handle(new JsonObject
+        {
+            ["method"] = "elicitation/respond",
+            ["elicitationId"] = id,
+            ["response"] = ElicitationForm.Accept(new JsonObject { ["option"] = "two" })
+        });
+        Assert.Equal("two", (await pending.Task)["content"]!["option"]!.GetValue<string>());
+        service.ForgetElicitation(id);
+    }
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]

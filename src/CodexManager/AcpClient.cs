@@ -27,6 +27,7 @@ public sealed class AcpClient : IAsyncDisposable
     public Func<JsonElement, Task>? UpdateAsync { get; set; }
     public Func<string?, JsonElement, Task>? SessionUpdateAsync { get; set; }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? PermissionRequested { get; set; }
+    public Func<JsonElement, CancellationToken, Task<JsonObject>>? ElicitationRequested { get; set; }
     public AcpClient(ProcessStartInfo start)
     {
         process = Process.Start(start) ?? throw new IOException("Could not start the agent.");
@@ -106,6 +107,11 @@ public sealed class AcpClient : IAsyncDisposable
         {
             JsonObject result;
             if (method == "session/request_permission") result = PermissionRequested is null ? RpcJson.Permission() : await PermissionRequested(parameters, lifetime.Token);
+            else if (method == "elicitation/create" && ElicitationRequested is { } elicit)
+            {
+                ElicitationForm.Schema(JsonNode.Parse(parameters.GetRawText())!.AsObject());
+                result = await elicit(parameters, lifetime.Token);
+            }
             else if (method == "fs/read_text_file" && ReadTextFile is { } read) result = await read(parameters, lifetime.Token);
             else if (method == "fs/write_text_file" && WriteTextFile is { } write) result = await write(parameters, lifetime.Token);
             else
@@ -123,6 +129,7 @@ public sealed class AcpClient : IAsyncDisposable
     {
         var capabilities = RpcJson.Object(("fs", RpcJson.Object(("readTextFile", ReadTextFile is not null), ("writeTextFile", WriteTextFile is not null))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject()))))));
         if (SessionUpdateAsync is not null) capabilities["subagents"] = new JsonObject();
+        if (ElicitationRequested is not null) capabilities["elicitation"] = RpcJson.Object(("form", new JsonObject()));
         return Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", capabilities)), token);
     }
     public async ValueTask DisposeAsync()

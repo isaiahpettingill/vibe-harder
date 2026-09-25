@@ -29,6 +29,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     public Func<Workspace, Task>? CloseWorkspace { get; set; }
     public Func<Workspace, string, Task>? RenameWorkspace { get; set; }
     private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> permissions = [];
+    private readonly Dictionary<string, (JsonObject Request, TaskCompletionSource<JsonObject> Completion)> elicitations = [];
     public string RegisterPermission(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
     {
         var id = Guid.NewGuid().ToString("N");
@@ -36,6 +37,20 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         permissions[id] = (value, completion); return id;
     }
     public void ForgetPermission(string id) => permissions.Remove(id);
+    public string RegisterElicitation(Chat chat, JsonElement request, TaskCompletionSource<JsonObject> completion)
+    {
+        var id = Guid.NewGuid().ToString("N");
+        var value = JsonNode.Parse(request.GetRawText())!.AsObject(); value["chatId"] = chat.Id; value["chatTitle"] = chat.Title; value["id"] = id;
+        elicitations[id] = (value, completion); return id;
+    }
+    public void ForgetElicitation(string id) => elicitations.Remove(id);
+    public async Task<JsonObject> Elicit(Chat chat, JsonElement request, CancellationToken token)
+    {
+        var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = RegisterElicitation(chat, request, completion);
+        using var cancel = token.Register(() => completion.TrySetResult(ElicitationForm.Cancel()));
+        try { return await completion.Task; } finally { elicitations.Remove(id); }
+    }
     public async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token)
     {
         var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -80,6 +95,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             {
                 ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
                 ["permissions"] = new JsonArray(permissions.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
+                ["elicitations"] = new JsonArray(elicitations.Values.Select(p => (JsonNode)p.Request.DeepClone()).ToArray()),
                 ["platform"] = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "apple" : "linux",
                 ["workspaces"] = new JsonArray(orderedWorkspaces.Select(w => (JsonNode)new JsonObject { ["id"] = w.Id, ["name"] = w.Name, ["path"] = w.Path, ["distro"] = w.Distro }).ToArray()),
                 ["chats"] = new JsonArray(orderedChats.Select(c => (JsonNode)Summary(c)).ToArray())
@@ -156,6 +172,19 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (!pending.Request["options"]!.AsArray().Any(o => o?["optionId"]?.GetValue<string>() == option)) throw new IOException("Unknown approval option.");
             pending.Completion.TrySetResult(RpcJson.Permission(option)); return JsonValue.Create(true);
         }
+        if (method == "elicitation/respond")
+        {
+            if (!elicitations.TryGetValue(Text("elicitationId"), out var pending)) throw new IOException("This question is no longer pending.");
+            var answer = request["response"] as JsonObject ?? throw new IOException("A response is required.");
+            var action = answer["action"]?.GetValue<string>();
+            if (action == "accept")
+            {
+                if (answer["content"] is not JsonObject content) throw new IOException("The answer is missing.");
+                if (ElicitationForm.Validate(pending.Request, content) is { } error) throw new IOException(error);
+            }
+            else if (action is not ("decline" or "cancel")) throw new IOException("Unknown question response.");
+            pending.Completion.TrySetResult((JsonObject)answer.DeepClone()); return JsonValue.Create(true);
+        }
         var chat = chats.Single(c => c.Id == Text("chatId")); var workspaceOwner = workspaces.Single(w => w.Id == chat.WorkspaceId);
         if (chat.IsDeleting) throw new IOException("This chat is being deleted.");
         if (method == "delete")
@@ -204,8 +233,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             active.KeepAlive();
             Message[] page;
-            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: 50);
-            else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: 50, newer: true);
+            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: HistoryWindow.PageSize);
+            else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: HistoryWindow.PageSize, newer: true);
             else if (!chat.RetainHistory)
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);
@@ -229,6 +258,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (known?.Count > Chat.HistoryPageSize) throw new IOException("Too many message revisions.");
             result["messages"] = new JsonArray(page.Select(m => MessageRow(m, known)).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
+            result["elicitations"] = new JsonArray(elicitations.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["commands"] = new JsonArray(chat.Commands.Select(c => (JsonNode)JsonValue.Create("/" + c.Name)!).ToArray());
             result["commandOptions"] = new JsonArray(chat.Commands.Select(c => (JsonNode)new JsonObject { ["name"] = c.Name, ["description"] = c.Description, ["hint"] = c.Hint }).ToArray());
             result["config"] = new JsonArray(chat.ConfigOptions.Select(c => (JsonNode)new JsonObject { ["id"] = c.Id, ["name"] = c.Name, ["current"] = c.Current, ["values"] = new JsonArray(c.Values.Select(v => (JsonNode)new JsonObject { ["value"] = v.Value, ["name"] = v.Name }).ToArray()) }).ToArray());

@@ -725,6 +725,7 @@ public partial class MainView : UserControl
             runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
+            runtime.Elicitation = (request, token) => Elicit(chat, request, token);
             runtime.Changed += () =>
             {
                 if (closing) return;
@@ -895,10 +896,12 @@ public partial class MainView : UserControl
         store.Save(target);
     }
     private readonly Dictionary<string, (Chat Chat, PermissionCard Card)> permissionCards = [];
+    private readonly Dictionary<string, (Chat Chat, ElicitationCard Card)> elicitationCards = [];
     private void UpdatePermissions()
     {
         InlinePermissions.Children.Clear();
         foreach (var pending in permissionCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
+        foreach (var pending in elicitationCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
         PermissionScroll.IsVisible = InlinePermissions.Children.Count > 0;
     }
     private async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token)
@@ -921,6 +924,28 @@ public partial class MainView : UserControl
         finally
         {
             await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetPermission(id); permissionCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); UpdateControls(); });
+        }
+    }
+    private async Task<JsonObject> Elicit(Chat chat, JsonElement request, CancellationToken token)
+    {
+        var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var id = remoteSessions.RegisterElicitation(chat, request, completion);
+        using var cancellation = token.Register(() => completion.TrySetResult(ElicitationForm.Cancel()));
+        try
+        {
+            await Dispatcher.UIThread.InvokeAsync(() =>
+            {
+                if (completion.Task.IsCompleted) return;
+                elicitationCards[id] = (chat, new ElicitationCard(JsonNode.Parse(request.GetRawText())!.AsObject(), answer =>
+                { completion.TrySetResult(answer); return Task.CompletedTask; }));
+                UpdateControls(); UpdatePermissions();
+                PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }, "Question from agent");
+            });
+            return await completion.Task;
+        }
+        finally
+        {
+            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetElicitation(id); elicitationCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); UpdateControls(); });
         }
     }
     private async void ImportChatsClick(object? sender, RoutedEventArgs e)
@@ -1305,7 +1330,7 @@ public partial class MainView : UserControl
         var visible = MessageList.Items.OfType<Message>().ToArray(); if (visible.Length == 0) return;
         try
         {
-            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: 50, token: cancellation.Token, newer: newer);
+            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
             var merged = HistoryWindow.Navigate(visible, page, newer);
             viewingHistory = true;

@@ -18,7 +18,9 @@ public sealed class TranscriptNavigation
         list.AddHandler(ScrollViewer.ScrollChangedEvent, Changed, RoutingStrategies.Bubble);
         list.AddHandler(InputElement.PointerWheelChangedEvent, async (_, e) =>
         {
-            if (e.Delta.Y > 0 && list.Scroll is { Offset.Y: < 64 }) await Load(false);
+            if (list.Scroll is not { } scroll) return;
+            if (e.Delta.Y > 0 && scroll.Offset.Y < 64) await Load(false);
+            else if (e.Delta.Y < 0 && history() && scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y < 64) await Load(true);
         }, RoutingStrategies.Tunnel);
     }
     public void Update()
@@ -33,8 +35,7 @@ public sealed class TranscriptNavigation
         // Measuring markdown and resizing the composer also change the offset.
         // Those adjustments must never turn a live transcript into a history page.
         if (paging || list.Scroll is not { } scroll || e.OffsetDelta.Y == 0 || e.ExtentDelta != default || e.ViewportDelta != default) return;
-        if (list.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true }) return;
-        var older = e.OffsetDelta.Y < 0 && scroll.Offset.Y < 64;
+        var older = e.OffsetDelta.Y < 0 && scroll.Offset.Y < 64 && list.ItemsPanelRoot is not TranscriptPanel { IsFollowingEnd: true };
         var newer = history() && e.OffsetDelta.Y > 0 && scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y < 64;
         if (!older && !newer) return;
         await Load(newer);

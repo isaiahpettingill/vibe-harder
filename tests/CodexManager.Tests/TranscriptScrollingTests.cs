@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
+using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.VisualTree;
 
@@ -80,6 +81,28 @@ public class TranscriptScrollingTests
     }
 
     [AvaloniaFact]
+    public async Task ScrollingToBottomOfHistoryRequestsNewerMessages()
+    {
+        var list = Create(Enumerable.Range(0, 64).Select(i => new Message { Sequence = i, Text = "Message " + i }));
+        var requested = new List<bool>();
+        _ = new TranscriptNavigation(list, new IconButton(), () => true, newer => { requested.Add(newer); return Task.CompletedTask; });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            var scroll = list.Scroll!;
+            scroll.Offset = new Vector(0, Math.Max(0, scroll.Extent.Height - scroll.Viewport.Height - 120));
+            window.UpdateLayout(); requested.Clear();
+            scroll.Offset = new Vector(0, scroll.Extent.Height - scroll.Viewport.Height);
+            window.UpdateLayout(); await Task.Delay(30);
+            window.MouseWheel(new Point(300, 200), new Vector(0, -1));
+            await Task.Delay(30);
+            Assert.Contains(true, requested);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public void BringingAnAlreadyVisibleMessageIntoViewDoesNotChangeTheReadingPosition()
     {
         var list = Create(Enumerable.Range(0, 100).Select(i => new Message { Sequence = i, Text = "Message " + i }));
@@ -97,7 +120,7 @@ public class TranscriptScrollingTests
     }
 
     [AvaloniaFact]
-    public async Task BrowsingHistoryRetainsAllLoadedPages()
+    public async Task BrowsingHistorySlidesBackAndForwardWithoutLosingRecentMessages()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vibe-scroll-history", Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
@@ -119,9 +142,17 @@ public class TranscriptScrollingTests
             {
                 await (Task)browse.Invoke(window.View, [false])!;
                 window.UpdateLayout();
-                Assert.Equal(Chat.HistoryPageSize + 50 * i, list.ItemCount);
+                Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
+                Assert.Equal(336 - HistoryWindow.PageSize * i, ((Message)list.Items[0]!).Sequence);
             }
-            Assert.Equal(36, ((Message)list.Items[0]!).Sequence);
+            for (var i = 5; i >= 0; i--)
+            {
+                await (Task)browse.Invoke(window.View, [true])!;
+                window.UpdateLayout();
+                Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
+                Assert.Equal(336 - HistoryWindow.PageSize * i, ((Message)list.Items[0]!).Sequence);
+            }
+            Assert.Equal(399, ((Message)list.Items[^1]!).Sequence);
         }
         finally { window.RequestExit(); await Task.Delay(200); }
     }

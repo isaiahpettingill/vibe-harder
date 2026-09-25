@@ -3,6 +3,7 @@ namespace CodexManager;
 public static class HistoryWindow
 {
     public const int TurnLimit = 12;
+    public const int PageSize = 20;
 
     // Keep the current side of the transcript when a page is extended in
     // either direction. The message cap also bounds tool-heavy turns.
@@ -27,9 +28,7 @@ public static class HistoryWindow
 
     public static Message[] Navigate(IReadOnlyList<Message> visible, IReadOnlyList<Message> page, bool newer)
     {
-        const int overlap = 4;
-        return newer
-            ? Bound(visible.TakeLast(overlap).Concat(page), newer: false)
-            : Bound(page.Concat(visible.Take(overlap)), newer: true);
+        var ordered = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.Last()).OrderBy(m => m.Sequence).ToArray();
+        return ordered.Length <= Chat.HistoryPageSize ? ordered : newer ? ordered[^Chat.HistoryPageSize..] : ordered[..Chat.HistoryPageSize];
     }
 }

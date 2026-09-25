@@ -37,6 +37,34 @@ public class AcpTests
         var response = await client.Request("session/prompt", RpcJson.Object(("sessionId", "fixture-session"), ("prompt", new JsonArray(RpcJson.Object(("type", "text"), ("text", "permission"))))), timeout.Token);
         Assert.True(asked); Assert.Equal("end_turn", response.GetProperty("stopReason").GetString());
     }
+    [Fact]
+    public async Task FormElicitationAdvertisesCapabilityAndReturnsStructuredAnswer()
+    {
+        await using var client = new AcpClient(Hosts.Info("node", Fixture));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        client.ElicitationRequested = (request, _) =>
+        {
+            Assert.Equal("form", request.GetProperty("mode").GetString());
+            return Task.FromResult(ElicitationForm.Accept(new JsonObject { ["approach"] = "broad", ["note"] = "Keep tests" }));
+        };
+        await client.Initialize(timeout.Token);
+        var capabilities = await client.Request("fixture/capabilities", new JsonObject(), timeout.Token);
+        Assert.Equal(JsonValueKind.Object, capabilities.GetProperty("elicitation").GetProperty("form").ValueKind);
+        Assert.False(capabilities.GetProperty("elicitation").TryGetProperty("url", out _));
+        var chunks = new List<string>(); client.Update += update => { if (update.TryGetProperty("content", out var content)) chunks.Add(content.GetProperty("text").GetString()!); };
+        var result = await client.Request("session/prompt", RpcJson.Object(("sessionId", "fixture-session"), ("prompt", new JsonArray(RpcJson.Object(("type", "text"), ("text", "question"))))), timeout.Token);
+        Assert.Equal("end_turn", result.GetProperty("stopReason").GetString());
+        Assert.Contains(chunks, text => text.Contains("\"action\":\"accept\"") && text.Contains("\"approach\":\"broad\""));
+    }
+    [Fact]
+    public async Task FormElicitationIsNotAdvertisedWithoutAHandler()
+    {
+        await using var client = new AcpClient(Hosts.Info("node", Fixture));
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        await client.Initialize(timeout.Token);
+        var capabilities = await client.Request("fixture/capabilities", new JsonObject(), timeout.Token);
+        Assert.False(capabilities.TryGetProperty("elicitation", out _));
+    }
     [AvaloniaFact]
     public async Task RuntimeStreamsResumesWithoutReplayAndInterrupts()
     {

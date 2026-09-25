@@ -25,7 +25,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev xvfb imagemagick
-      - run: dotnet test tests/CodexManager.Tests --filter "FullyQualifiedName~StoreTests|FullyQualifiedName~AcpTests|FullyQualifiedName~UiTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~WorkspaceHistoryTests|FullyQualifiedName~SessionConfigTests|FullyQualifiedName~ChatPresentationTests|FullyQualifiedName~SettingsUiTests|FullyQualifiedName~RecoveryTests|FullyQualifiedName~RemoteTests|FullyQualifiedName~TerminalAppearanceTests|FullyQualifiedName~LifecycleTests|FullyQualifiedName~ResponsivenessTests|FullyQualifiedName~ViewMemoryTests|FullyQualifiedName~PresentationSleepTests"
+      - run: dotnet test tests/CodexManager.Tests --filter "FullyQualifiedName~StoreTests|FullyQualifiedName~AcpTests|FullyQualifiedName~UiTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~WorkspaceHistoryTests|FullyQualifiedName~SessionConfigTests|FullyQualifiedName~ChatPresentationTests|FullyQualifiedName~SettingsUiTests|FullyQualifiedName~RecoveryTests|FullyQualifiedName~RemoteTests|FullyQualifiedName~TerminalAppearanceTests|FullyQualifiedName~LifecycleTests|FullyQualifiedName~ResponsivenessTests|FullyQualifiedName~ViewMemoryTests|FullyQualifiedName~PresentationSleepTests|FullyQualifiedName~ElicitationFormTests|FullyQualifiedName~IdleAgentTests|FullyQualifiedName~HistoryWindowTests|FullyQualifiedName~TranscriptScrollingTests"
       - if: runner.os == 'Windows'
         run: choco install nsis --no-progress -y
       - if: runner.os == 'Windows'

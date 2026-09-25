@@ -22,6 +22,7 @@ public static class HeadlessHost
                 runtime.BackendMaintenance = backendMaintenance;
                 runtime.ResolveCommand = () => AgentProviders.Command(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
+                runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);
             }
             return runtime;
         }

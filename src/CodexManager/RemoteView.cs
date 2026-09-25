@@ -371,9 +371,9 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (result is null || id != chatId) return;
             var page = result["messages"]!.AsArray().Select(row => ReadMessage(row!)).ToArray();
             if (page.Length == 0) return;
-            var merged = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.First()).OrderBy(m => m.Sequence);
+            var merged = HistoryWindow.Navigate(visible, page, newer);
             viewingHistory = true;
-            TranscriptNavigation.ReplacePage(output, merged.ToArray());
+            TranscriptNavigation.ReplacePage(output, merged);
             UpdateSendAction();
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; UpdateSendAction(); if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
@@ -564,7 +564,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 if (firstPage && !viewingHistory && messages.Count > 0) output.ScrollIntoView(messages[^1]);
                 if (DateTimeOffset.UtcNow >= nextCatalogRefresh) { nextCatalogRefresh = DateTimeOffset.UtcNow.AddSeconds(2); await RefreshList(); }
                 if (lifetime.IsCancellationRequested || id != chatId) return;
-                var permissionText = result["permissions"]!.ToJsonString();
+                var permissionText = result["permissions"]!.ToJsonString() + (result["elicitations"]?.ToJsonString() ?? "[]");
                 if (permissionsJson != permissionText)
                 {
                     permissionsJson = permissionText; approvals.Children.Clear();
@@ -576,6 +576,16 @@ public sealed partial class RemoteView : UserControl, IDisposable
                             if (await Call(new() { ["method"] = "approve", ["permissionId"] = permissionId, ["optionId"] = option }) is null) throw new IOException("Reconnect and try again.");
                         }));
                     }
+                    if (result["elicitations"] is JsonArray questions)
+                        foreach (var question in questions.OfType<JsonObject>())
+                        {
+                            var questionId = question["id"]!.GetValue<string>();
+                            approvals.Children.Add(new ElicitationCard(question, async answer =>
+                            {
+                                if (await Call(new() { ["method"] = "elicitation/respond", ["elicitationId"] = questionId, ["response"] = answer }) is null)
+                                    throw new IOException("Reconnect and try again.");
+                            }));
+                        }
                 }
             }
             catch (Exception error)
@@ -760,6 +770,15 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 if (notifiedPermissions.Add(permissionId)) PermissionNotifications.Show(host.Address + permissionId, permission["chatTitle"]?.GetValue<string>() ?? "Remote chat", () => { activate?.Invoke(); SelectChat(permissionChat); });
             }
             var activePermissions = pending.Select(p => p!["id"]!.GetValue<string>()).ToHashSet();
+            if (result["elicitations"] is JsonArray questions)
+                foreach (var question in questions.OfType<JsonObject>())
+                {
+                    var questionId = question["id"]!.GetValue<string>();
+                    activePermissions.Add(questionId);
+                    var questionChat = question["chatId"]!.GetValue<string>();
+                    if (notifiedPermissions.Add(questionId)) PermissionNotifications.Show(host.Address + questionId,
+                        question["chatTitle"]?.GetValue<string>() ?? "Remote chat", () => { activate?.Invoke(); SelectChat(questionChat); }, "Question from agent");
+                }
             foreach (var resolved in notifiedPermissions.Except(activePermissions)) PermissionNotifications.Dismiss(host.Address + resolved);
             notifiedPermissions.IntersectWith(activePermissions);
         }

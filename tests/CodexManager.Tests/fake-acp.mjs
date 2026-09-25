@@ -10,6 +10,8 @@ let activeSession = 'fixture-session';
 const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}}});
 let turn;
 let permissionTurn;
+let questionTurn;
+let clientCapabilities;
 const configOptions=[{id:'model',name:'Model',type:'select',currentValue:'small',options:[{value:'small',name:'Small'},{value:'large',name:'Large'}]},{id:'reasoning',name:'Thinking',type:'select',currentValue:'low',options:[{value:'low',name:'Low'},{value:'high',name:'High'}]},{id:'fast',name:'Fast mode',type:'boolean',currentValue:false}];
 if(process.argv.includes('--dirac-defaults')) configOptions.push(...['yolo','auto_approve'].map(id=>({id,name:id,type:'boolean',currentValue:false})));
 if(process.argv.includes('--access')) configOptions.push({id:'mode',name:'Access',type:'select',currentValue:'ask',options:[{value:'ask',name:'Approve'},{value:'full-access',name:'Full access'}]});
@@ -19,7 +21,8 @@ createInterface({input:process.stdin}).on('line',line=>{
  const promptLog=process.argv.find(a=>a.startsWith('--prompt-log='))?.slice(13);
  if(m.method==='session/prompt' && promptLog) appendFileSync(promptLog,JSON.stringify(m.params.prompt)+'\n');
  switch(m.method){
-  case 'initialize': response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
+  case 'initialize': clientCapabilities=m.params.clientCapabilities;response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
+  case 'fixture/capabilities': response(m.id,clientCapabilities);break;
   case '_dev.dirac/whisper':
    if(turn) emit({jsonrpc:'2.0',method:'_dev.dirac/steering_status',params:{sessionId:m.params.sessionId,steeringMessageId:'s1',status:'queued'}});break;
   case '_dev.dirac/checkpoints.list': response(m.id,{checkpoints:[{id:'checkpoint-1',createdAt:'2026-09-15T12:00:00Z',commitHash:'123456789',messageId:'message-1'}]});break;
@@ -98,10 +101,12 @@ createInterface({input:process.stdin}).on('line',line=>{
    if(m.params.prompt[0]?.text==='idle-exit'){update('Done');response(m.id,{stopReason:'end_turn'});setTimeout(()=>process.exit(3),150);break;}
    if(m.params.prompt[0]?.text==='hang'){turn=m.id;update('Working');break;}
    if(m.params.prompt[0]?.text==='permission'){permissionTurn=m.id;emit({jsonrpc:'2.0',id:'permission-id',method:'session/request_permission',params:{sessionId:'fixture-session',toolCall:{title:'Test command',toolCallId:'t'},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}});break;}
+   if(m.params.prompt[0]?.text==='question'){questionTurn=m.id;emit({jsonrpc:'2.0',id:'question-id',method:'elicitation/create',params:{sessionId:'fixture-session',mode:'form',message:'Which approach?',requestedSchema:{type:'object',properties:{approach:{type:'string',oneOf:[{const:'simple',title:'Simple'},{const:'broad',title:'Broad'}]},note:{type:'string',title:'Additional note'}},required:['approach']}}});break;}
    update('Hello **');update('world**');response(m.id,{stopReason:'end_turn'});break;
   case 'session/cancel': if(turn){response(turn,{stopReason:'cancelled'});turn=null;}break;
   case 'crash': process.exit(3);break;
   case 'echo':response(m.id,m.params);break;
   default: if(m.id==='permission-id'){update(m.result.outcome.optionId??'cancelled');response(permissionTurn,{stopReason:'end_turn'});}
+   else if(m.id==='question-id'){update(JSON.stringify(m.result));response(questionTurn,{stopReason:'end_turn'});}
  }
 });

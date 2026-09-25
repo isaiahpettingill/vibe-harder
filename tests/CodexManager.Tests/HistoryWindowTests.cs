@@ -47,15 +47,19 @@ public class HistoryWindowTests
     [Fact]
     public void NavigationKeepsTheVisibleEdgeWhilePagingInEitherDirection()
     {
-        var messages = Enumerable.Range(0, 60).Select(turn => new Message { Sequence = turn, Role = "user", Text = $"Turn {turn}" }).ToArray();
-        var visible = messages[24..36];
-        var older = HistoryWindow.Navigate(visible, messages[..24], newer: false);
-        Assert.Contains(older, m => m.Id == visible[0].Id);
-        Assert.True(older[0].Sequence < visible[0].Sequence);
-        Assert.True(older.Length <= HistoryWindow.TurnLimit);
-        var newer = HistoryWindow.Navigate(visible, messages[36..], newer: true);
-        Assert.Contains(newer, m => m.Id == visible[^1].Id);
-        Assert.True(newer[^1].Sequence > visible[^1].Sequence);
-        Assert.True(newer.Length <= HistoryWindow.TurnLimit);
+        var messages = Enumerable.Range(0, 200).Select(i => new Message { Sequence = i, Role = "user", Text = $"Turn {i}" }).ToArray();
+        var initial = messages[136..];
+        var older = HistoryWindow.Navigate(initial, messages[116..136], newer: false);
+        Assert.Equal(64, older.Length);
+        Assert.Equal(116, older[0].Sequence);
+        Assert.Equal(179, older[^1].Sequence);
+        Assert.Equal(44, older.Count(m => initial.Contains(m)));
+        var restored = HistoryWindow.Navigate(older, messages[180..200], newer: true);
+        Assert.Equal(initial.Select(m => m.Id), restored.Select(m => m.Id));
+        for (var first = 96; first >= 0; first -= 20)
+        {
+            older = HistoryWindow.Navigate(older, messages[first..(first + 20)], newer: false);
+            Assert.True(older.Length <= Chat.HistoryPageSize);
+        }
     }
 }

@@ -41,6 +41,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private DispatcherTimer? idleTimer;
     private Task? idleShutdown;
     private int pendingPermissions;
+    private int pendingQuestions;
     public void KeepAlive() { remoteViewUntil = DateTimeOffset.UtcNow.AddSeconds(15); idleSince = null; }
     public async Task ReleaseIfIdle(DateTimeOffset now)
     {
@@ -69,6 +70,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         idleSince = null; idleTimer.Start();
     }
     public Func<JsonElement, CancellationToken, Task<JsonObject>>? Permission { get; set; }
+    public Func<JsonElement, CancellationToken, Task<JsonObject>>? Elicitation { get; set; }
+    private void UpdatePendingInput()
+    {
+        chat.NeedsPermission = pendingPermissions + pendingQuestions > 0;
+        chat.Status = pendingQuestions > 0 ? "Needs input" : pendingPermissions > 0 ? "Needs permission" : chat.Busy ? "Working…" : "Ready";
+        Changed?.Invoke();
+    }
     public event Action? Changed;
     public bool IsLoadingHistory { get; private set; }
     public bool IsReconnecting => reconnecting;
@@ -354,17 +362,25 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             linked.Token.ThrowIfCancellationRequested();
             if (PermissionPolicy.AutoApprove(store, request) is { } approved) return approved;
             if (Permission is null) return RpcJson.Permission();
-            await Dispatcher.UIThread.InvokeAsync(() => { pendingPermissions++; chat.NeedsPermission = true; chat.Status = "Needs permission"; Changed?.Invoke(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { pendingPermissions++; UpdatePendingInput(); });
             try { return await Dispatcher.UIThread.InvokeAsync(() => Permission(request, linked.Token).WaitAsync(linked.Token)); }
             finally
             {
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    chat.NeedsPermission = --pendingPermissions > 0;
-                    if (!chat.NeedsPermission && chat.Status == "Needs permission") chat.Status = chat.Busy ? "Working…" : "Ready";
-                    Changed?.Invoke();
+                    pendingPermissions--; UpdatePendingInput();
                 });
             }
+        };
+        client.ElicitationRequested = async (request, token) =>
+        {
+            using var linked = CancellationTokenSource.CreateLinkedTokenSource(token, turn?.Token ?? lifetime.Token);
+            linked.Token.ThrowIfCancellationRequested();
+            if (Elicitation is null) return ElicitationForm.Cancel();
+            await Dispatcher.UIThread.InvokeAsync(() => { pendingQuestions++; UpdatePendingInput(); });
+            try { return await Dispatcher.UIThread.InvokeAsync(() => Elicitation(request, linked.Token).WaitAsync(linked.Token)); }
+            catch (OperationCanceledException) when (!lifetime.IsCancellationRequested) { return ElicitationForm.Cancel(); }
+            finally { await Dispatcher.UIThread.InvokeAsync(() => { pendingQuestions--; UpdatePendingInput(); }); }
         };
         var init = await client.Initialize(timeout.Token);
         ReadHistoryCapabilities(init);
