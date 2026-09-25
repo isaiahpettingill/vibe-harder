@@ -76,7 +76,9 @@ public class PresentationSleepTests
             await Wait(() => chat.HistoryLoaded);
             // Set up an older page through the same action as scroll pagination.
             // This test covers preserving that page across sleep, independently of layout timing.
-            await (Task)typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window.View, [false])!;
+            var browse = typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            for (var page = 0; page < 4 && list.Items.OfType<Message>().FirstOrDefault()?.Sequence > 0; page++)
+                await (Task)browse.Invoke(window.View, [false])!;
             await Wait(() => list.Items.OfType<Message>().FirstOrDefault()?.Sequence == 0);
             var pageEnd = list.Items.OfType<Message>().Last().Sequence;
             var pageCount = list.ItemCount;
