@@ -65,7 +65,7 @@ public partial class MainView : UserControl
         refreshingChats = true;
         try { foreach (var list in workspaceLists.Values) list.SelectedItem = null; }
         finally { refreshingChats = false; }
-        if (current is not null) { current.Draft = Composer.Text ?? ""; DeferHistoryEviction(current); }
+        if (current is not null) { current.Draft = Composer.Text ?? ""; pendingSaves.Add(current); DeferHistoryEviction(current); }
         MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
         if (remoteViews.TryGetValue(host, out var existing))
         {
@@ -87,6 +87,8 @@ public partial class MainView : UserControl
     private readonly Dictionary<string, ChatRuntime> runtimes = [];
     private readonly Dictionary<string, List<(TabItem Tab, TerminalSession Session)>> terminals = [];
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromSeconds(2) };
+    private readonly HashSet<Chat> pendingSaves = [];
+    private bool savingPending;
     private Workspace? workspace;
     private Chat? current;
     private bool switching;
@@ -170,7 +172,14 @@ public partial class MainView : UserControl
             if (e.Key == Key.P && e.KeyModifiers.HasFlag(KeyModifiers.Shift) && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
             { e.Handled = true; PaletteClick(this, new()); }
         }, RoutingStrategies.Tunnel);
-        saveTimer.Tick += async (_, _) => { try { SaveAll(); await store.FlushAsync(); } catch (Exception error) { StatusText.Text = "Could not save: " + error.Message; } }; saveTimer.Start();
+        saveTimer.Tick += async (_, _) =>
+        {
+            if (savingPending || pendingSaves.Count == 0) return;
+            savingPending = true;
+            try { await SavePendingAsync(); await store.FlushAsync(); }
+            catch (Exception error) { StatusText.Text = "Could not save: " + error.Message; }
+            finally { savingPending = false; }
+        }; saveTimer.Start();
         ChatPane.SizeChanged += (_, _) => PermissionScroll.MaxHeight = Math.Clamp(ChatPane.Bounds.Height * .35, 64, 280);
         InitializeLayout();
         if (workspaces.Count > 0) SelectWorkspace(workspaces.FirstOrDefault(w => w.Id == store.Setting("workspace")) ?? workspaces[0]);
@@ -401,7 +410,7 @@ public partial class MainView : UserControl
     }
     private async Task CloseWorkspace(Workspace owner)
     {
-        SaveAll(); store.Setting("closed:" + owner.Id, "1");
+        await SaveAllAsync(); store.Setting("closed:" + owner.Id, "1");
         if (workspace?.Id == owner.Id) { ClearChat(); workspace = null; }
         workspaces.Remove(owner);
         if (terminals.Remove(owner.Id, out var shells)) foreach (var shell in shells) shell.Session.Dispose();
@@ -409,7 +418,7 @@ public partial class MainView : UserControl
         { loginSessions[key].Session.Dispose(); loginSessions.Remove(key); }
         foreach (var chat in chats.Where(c => c.WorkspaceId == owner.Id).ToArray())
             if (runtimes.Remove(chat.Id, out var runtime)) await runtime.DisposeAsync();
-        SaveAll();
+        await SaveAllAsync();
         if (closing) return;
         BuildWorkspaceTree();
         if (workspace is not null) SelectWorkspace(workspace);
@@ -489,7 +498,7 @@ public partial class MainView : UserControl
         else if (chat.SessionId is not null && workspace is not null && Runtime(chat, workspace) is { IsConnected: false, IsReconnecting: false } runtime)
             await runtime.Reconnect();
     }
-    private void DraftChanged(object? sender, TextChangedEventArgs e) { if (!switching && current is not null) current.Draft = Composer.Text ?? ""; UpdateSlashCommands(); UpdateComposerAction(); }
+    private void DraftChanged(object? sender, TextChangedEventArgs e) { if (!switching && current is not null) { current.Draft = Composer.Text ?? ""; pendingSaves.Add(current); } UpdateSlashCommands(); UpdateComposerAction(); }
     private void UpdateSlashCommands()
     {
         var matches = SlashCommand.Match(current?.Commands ?? [], Composer.Text ?? "");
@@ -719,6 +728,7 @@ public partial class MainView : UserControl
             runtime.Changed += () =>
             {
                 if (closing) return;
+                pendingSaves.Add(chat);
                 store.TrimHistory(chat);
                 if ((!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) && !chat.RetainHistory) store.ReleaseHistory(chat);
                 if (!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) { UpdateTray(); return; }
@@ -811,7 +821,7 @@ public partial class MainView : UserControl
         {
             var files = e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
             if (files.Length > 0) await AddFiles(files, target);
-            else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) target.Attachments.Add(image);
+            else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) { target.Attachments.Add(image); pendingSaves.Add(target); }
         }
         catch (Exception error) { StatusText.Text = "Drop failed: " + error.Message; }
     }
@@ -826,6 +836,7 @@ public partial class MainView : UserControl
                 var attachment = await AttachmentFiles.Read(storageFile, discoveryLifetime.Token);
                 if (closing || !chats.Contains(target)) return;
                 target.Attachments.Add(attachment);
+                pendingSaves.Add(target);
             }
             catch (Exception ex) { StatusText.Text = file.Name + ": " + ex.Message; }
         }
@@ -834,6 +845,7 @@ public partial class MainView : UserControl
     {
         if (sender is not Button { Tag: Attachment attachment } || current is null) return;
         current.Attachments.Remove(attachment);
+        pendingSaves.Add(current);
         if (attachment.Reference is { } reference) Composer.Text = (Composer.Text ?? "").Replace(reference, "", StringComparison.Ordinal);
     }
     private async Task PasteClipboard(bool textOnly)
@@ -854,6 +866,7 @@ public partial class MainView : UserControl
                     while (target.Attachments.Any(a => a.Reference == $"[Image #{index}]")) index++;
                     var reference = $"[Image #{index}]";
                     target.Attachments.Add(image with { Name = $"Pasted image {index}" + Path.GetExtension(image.Name), Reference = reference });
+                    pendingSaves.Add(target);
                     InsertPaste(target, draft, start, end, reference);
                     return;
                 }
@@ -1248,8 +1261,43 @@ public partial class MainView : UserControl
     private void TerminalResizeStart(object? sender, PointerPressedEventArgs e) { resizeY = e.GetPosition(this).X; resizeHeight = TerminalDrawer.Width; e.Pointer.Capture(sender as IInputElement); }
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }
     private void TerminalResizeEnd(object? sender, PointerReleasedEventArgs e) { resizeY = null; e.Pointer.Capture(null); }
-    private void SaveAll()
-    { store.Setting("sidebarWidth", (!compact && sidebarOpen ? RootPanes.ColumnDefinitions[0].ActualWidth : sidebarWidth).ToString(System.Globalization.CultureInfo.InvariantCulture)); store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture)); foreach (var c in chats) { if (runtimes.GetValueOrDefault(c.Id)?.IsLoadingHistory == true) continue; store.Save(c); foreach (var m in c.Messages) store.SaveMessage(c, m); } }
+    private async Task SaveAllAsync()
+    {
+        store.Setting("sidebarWidth", (!compact && sidebarOpen ? RootPanes.ColumnDefinitions[0].ActualWidth : sidebarWidth).ToString(System.Globalization.CultureInfo.InvariantCulture));
+        store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        foreach (var chat in chats.ToArray())
+        {
+            if (runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) continue;
+            store.Save(chat);
+            var messages = chat.Messages.ToArray();
+            for (var i = 0; i < messages.Length; i++)
+            {
+                store.SaveMessage(chat, messages[i]);
+                if (i % 8 == 7) await Task.Yield();
+            }
+            await Task.Yield();
+        }
+    }
+    private async Task SavePendingAsync()
+    {
+        var pending = pendingSaves.ToArray(); pendingSaves.Clear();
+        try
+        {
+            foreach (var chat in pending)
+            {
+                if (closing || !chats.Contains(chat) || runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) continue;
+                store.Save(chat);
+                var messages = chat.Messages.ToArray();
+                for (var i = 0; i < messages.Length; i++)
+                {
+                    store.SaveMessage(chat, messages[i]);
+                    if (i % 8 == 7) await Task.Yield();
+                }
+                await Task.Yield();
+            }
+        }
+        catch { pendingSaves.UnionWith(pending); throw; }
+    }
     private async Task BrowseHistory(bool newer)
     {
         if (current is not { } chat) return;
@@ -1259,9 +1307,9 @@ public partial class MainView : UserControl
         {
             var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: 50, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
-            var merged = visible.Concat(page).GroupBy(m => m.Id).Select(g => g.First()).OrderBy(m => m.Sequence);
+            var merged = HistoryWindow.Navigate(visible, page, newer);
             viewingHistory = true;
-            TranscriptNavigation.ReplacePage(MessageList, merged.ToArray()); UpdateHistoryNavigation(); UpdateComposerAction();
+            TranscriptNavigation.ReplacePage(MessageList, merged); UpdateHistoryNavigation(); UpdateComposerAction();
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; }
@@ -1509,7 +1557,12 @@ public partial class MainView : UserControl
     private async void OnClosing(object? sender, WindowClosingEventArgs e)
     {
         if (!closing && !exitRequested && e.CloseReason is WindowCloseReason.WindowClosing or WindowCloseReason.Undefined && store.Setting("runInTray") != "0" && TrayAvailable)
-        { e.Cancel = true; SaveAll(); desktopWindow?.Hide(); return; }
+        {
+            e.Cancel = true;
+            try { await SavePendingAsync(); await store.FlushAsync(); desktopWindow?.Hide(); }
+            catch (Exception error) { StatusText.Text = AppDiagnostics.Message("Could not save before hiding", error); }
+            return;
+        }
         if (closing) { e.Cancel = !shutdownComplete; return; }
         AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
@@ -1522,7 +1575,7 @@ public partial class MainView : UserControl
         }
         try
         {
-            await Cleanup(() => { SaveAll(); return Task.CompletedTask; });
+            await Cleanup(SaveAllAsync);
             await Cleanup(() => backendUpdates);
             CloseRemoteView();
             remoteSessions.Dispose();
@@ -1543,7 +1596,7 @@ public partial class MainView : UserControl
             await Cleanup(() => Task.WhenAll(discoveries.Values));
             await Cleanup(() => Task.WhenAll(workspaceClosures.ToArray()));
             if (historyOperation is not null) await Cleanup(() => historyOperation);
-            await Cleanup(async () => { SaveAll(); await store.FlushAsync(); });
+            await Cleanup(async () => { await SaveAllAsync(); await store.FlushAsync(); });
             await Cleanup(() => Task.Run(store.Dispose));
         }
         finally

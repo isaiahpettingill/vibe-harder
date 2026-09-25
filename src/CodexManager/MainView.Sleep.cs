@@ -65,7 +65,9 @@ public partial class MainView
         System.Diagnostics.Trace.WriteLine(sleeping ? "Presentation sleeping" : "Presentation awake");
         if (sleeping)
         {
-            SaveAll(); pageLoad?.Cancel();
+            await SaveAllAsync();
+            if (!uiSleeping || closing) return;
+            pageLoad?.Cancel();
             sleepingPageEnd = viewingHistory ? MessageList.Items.OfType<Message>().LastOrDefault()?.Sequence : null;
             sleepingPageCount = MessageList.ItemCount;
             sleepingAnchor = (MessageList.ItemsPanelRoot as TranscriptPanel)?.CaptureAnchor();
@@ -91,7 +93,7 @@ public partial class MainView
         if (remoteView is null && current is { } selected)
         {
             KeepHistory(selected); AttachmentList.ItemsSource = selected.Attachments;
-            MessageList.ItemsSource = selected.Messages;
+            if (sleepingPageEnd is null) MessageList.ItemsSource = selected.Messages;
             try
             {
                 if (sleepingPageEnd is { } end)
@@ -100,8 +102,9 @@ public partial class MainView
                     if (!uiSleeping && ReferenceEquals(current, selected))
                     {
                         MessageList.ItemsSource = page;
-                        var anchor = sleepingAnchor;
-                        Dispatcher.UIThread.Post(() => { if (!uiSleeping && ReferenceEquals(current, selected) && viewingHistory) (MessageList.ItemsPanelRoot as TranscriptPanel)?.RestoreAnchor(anchor); }, DispatcherPriority.Background);
+                        MessageList.UpdateLayout();
+                        (MessageList.ItemsPanelRoot as TranscriptPanel)?.RestoreAnchor(sleepingAnchor);
+                        MessageList.UpdateLayout();
                     }
                 }
                 else await RestoreVisibleHistory(selected, discoveryLifetime.Token);
@@ -120,7 +123,7 @@ public partial class MainView
         if (closing || uiSleeping || remoteView is not null || !ReferenceEquals(current, chat)) return;
         // Streaming may advance while disk IO is pending. Preserve the live tail.
         var nextSequence = chat.NextSequence;
-        var merged = page.Concat(chat.Messages).GroupBy(m => m.Id).Select(g => g.Last()).OrderBy(m => m.Sequence).TakeLast(Chat.HistoryPageSize).ToArray();
+        var merged = HistoryWindow.Bound(page.Concat(chat.Messages), newer: true);
         store.ApplyRecentPage(chat, merged); chat.NextSequence = Math.Max(nextSequence, chat.NextSequence);
         ScrollTranscriptToEnd();
     }

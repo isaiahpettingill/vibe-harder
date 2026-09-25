@@ -125,6 +125,7 @@ public sealed class Store : IDisposable
     {
         var id = chat.Id; var provider = chat.Provider; var connectionString = db.ConnectionString;
         await FlushAsync().WaitAsync(token);
+        // Microsoft.Data.Sqlite performs its async ADO.NET calls synchronously; isolate the page read from the UI thread.
         return await Task.Run(() =>
         {
             using var connection = new SqliteConnection(connectionString); connection.Open();
@@ -201,7 +202,7 @@ public sealed class Store : IDisposable
     }
     public void ApplyRecentPage(Chat chat, Message[] messages)
     {
-        chat.Messages.Clear(); foreach (var message in messages) { chat.Messages.Add(message); savedMessages[message.Id] = (new(message), message.Revision); }
+        chat.Messages.Clear(); foreach (var message in HistoryWindow.Bound(messages, newer: true)) { chat.Messages.Add(message); savedMessages[message.Id] = (new(message), message.Revision); }
         chat.HistoryLoaded = true; chat.NextSequence = messages.Length == 0 ? 0 : messages[^1].Sequence + 1;
     }
     public void ReleaseHistory(Chat chat)
@@ -215,6 +216,14 @@ public sealed class Store : IDisposable
         var limit = chat.RetainHistory ? Chat.HistoryPageSize : 1;
         if (!chat.RetainHistory) chat.HistoryLoaded = false;
         while (chat.Messages.Count > limit) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
+        if (!chat.RetainHistory) return;
+        var turns = 0;
+        for (var i = chat.Messages.Count - 1; i > 0; i--)
+            if (chat.Messages[i].Role == "user" && ++turns == HistoryWindow.TurnLimit)
+            {
+                while (i-- > 0) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
+                break;
+            }
     }
     public void Save(Chat c)
     {

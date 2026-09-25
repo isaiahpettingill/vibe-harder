@@ -27,14 +27,15 @@ public class ResponsivenessTests
             var chats = UiTests.Named<ListBox>(window, "Chats_w"); chats.SelectedItem = null; chats.SelectedItem = chat;
             var list = UiTests.Named<ListBox>(window, "MessageList");
             var deadline = DateTime.UtcNow.AddSeconds(15);
-            while (chat.Messages.Count < Chat.HistoryPageSize && DateTime.UtcNow < deadline) await Task.Delay(20);
+            while (chat.Messages.Count < 20 && DateTime.UtcNow < deadline) await Task.Delay(20);
             Assert.True(chat.Busy);
             Assert.NotSame(chat.Messages, list.ItemsSource);
             Assert.Empty(list.Items);
             deadline = DateTime.UtcNow.AddSeconds(45);
             while (chat.Busy && DateTime.UtcNow < deadline) await Task.Delay(20);
             Assert.False(chat.Busy); Assert.Same(chat.Messages, list.ItemsSource);
-            Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
+            Assert.InRange(list.ItemCount, 1, Chat.HistoryPageSize);
+            Assert.InRange(list.Items.OfType<Message>().Count(m => m.Role == "user"), 1, HistoryWindow.TurnLimit);
             for (var frame = 0; frame < 25; frame++) { window.UpdateLayout(); await Task.Delay(20); }
             var scroll = list.GetVisualDescendants().OfType<ScrollViewer>().First();
             var offsets = new List<double>();

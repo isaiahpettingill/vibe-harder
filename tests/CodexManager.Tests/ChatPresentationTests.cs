@@ -162,9 +162,10 @@ public class ChatPresentationTests
             var scroll = view.GetVisualDescendants().OfType<ScrollViewer>().Single(s => s.Name == "CommandOutputScroll");
             var text = Assert.IsType<SelectableTextBlock>(scroll.Content);
             Assert.True(toggle.IsVisible); Assert.False(scroll.IsEffectivelyVisible);
-            Assert.Equal(output, text.Text);
+            Assert.Equal("", text.Text);
             toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
             Assert.True(scroll.IsEffectivelyVisible);
+            Assert.Equal(output, text.Text);
             Assert.Equal(240, scroll.MaxHeight);
             Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
             var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyCommandOutput");
@@ -177,6 +178,65 @@ public class ChatPresentationTests
             view.Message = new Message { Role = "tool", Text = "Run command\n\n*completed*\n\n```\necho quiet\n```" };
             command.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
             Assert.False(toggle.IsEffectivelyVisible);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task LargeCommandAndOutputLoadInChunksOnlyWhenOpened()
+    {
+        var command = new string('c', 40000);
+        var output = new string('o', 40000);
+        var message = new Message { Role = "tool", Text = "Read file\n\n*completed*\n\n```\n" + command + "\n```\n\n" + output };
+        var view = new MessageView { Message = message };
+        var window = new Window { Content = view, Width = 500, Height = 700 }; window.Show();
+        try
+        {
+            Assert.Empty(view.GetVisualDescendants().OfType<ChatMarkdown>());
+            view.Expand(); window.UpdateLayout();
+            var commandText = (SelectableTextBlock)typeof(MessageView).GetField("commandText", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!;
+            var outputText = (SelectableTextBlock)typeof(MessageView).GetField("outputText", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!;
+            Assert.Equal("", commandText.Text);
+            Assert.Equal("", outputText.Text);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleCommandContents").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(16 * 1024, commandText.Text!.Length);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "MoreCommandContents").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(32 * 1024, commandText.Text!.Length);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleCommandOutput").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(16 * 1024, outputText.Text!.Length);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyCommandOutput").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+            using var copied = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal(output, await copied!.TryGetTextAsync());
+            view.Collapse();
+            Assert.Equal("", commandText.Text);
+            Assert.Equal("", outputText.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task LargeRegularMessageLoadsInChunksAndReleasesTextOnCollapse()
+    {
+        var content = new string('m', 100000);
+        var message = new Message { Role = "user", Text = content };
+        var view = new MessageView { Message = message };
+        var window = new Window { Content = view, Width = 500, Height = 700 }; window.Show();
+        try
+        {
+            var longText = view.GetVisualDescendants().OfType<SelectableTextBlock>().Single(b => b.Name == "LargeMessageText");
+            Assert.Empty(view.GetVisualDescendants().OfType<ChatMarkdown>());
+            Assert.Equal("", longText.Text);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleLargeMessage").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(16 * 1024, longText.Text!.Length);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "MoreLargeMessage").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(32 * 1024, longText.Text!.Length);
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyLargeMessage").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+            using var copied = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal(content, await copied!.TryGetTextAsync());
+            view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleLargeMessage").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal("", longText.Text);
         }
         finally { window.Close(); }
     }

@@ -86,6 +86,8 @@ public sealed class Message : Observable
     public int Revision { get; private set; }
     public bool OutputExpanded { get; set; }
     public bool ToolOutputExpanded { get; set; }
+    public bool ToolCommandExpanded { get; set; }
+    public bool LargeTextExpanded { get; set; }
     public bool ActionGroupExpanded { get; set; }
     public AgentProvider? Provider { get; init; }
     public ObservableCollection<Attachment> Attachments { get; } = [];

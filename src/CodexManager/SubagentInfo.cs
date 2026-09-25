@@ -29,6 +29,8 @@ public sealed record SubagentInfo(string Title, string Agent, string Prompt, str
         if (start < 0) return null;
         var end = text.IndexOf("\n```", start + 4, StringComparison.Ordinal);
         if (end < 0 || end - start > 1_000_000) return null;
+        var fenced = text.AsSpan(start + 4, end - start - 4);
+        if (!fenced.Contains("\"subagent_type\"", StringComparison.Ordinal) && !fenced.Contains("\"agent_type\"", StringComparison.Ordinal)) return null;
         try
         {
             using var input = JsonDocument.Parse(text[(start + 4)..end]);
