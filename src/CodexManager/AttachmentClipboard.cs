@@ -1,5 +1,6 @@
 using Avalonia.Input;
 using Avalonia.Media.Imaging;
+using System.Text;
 
 namespace CodexManager;
 
@@ -22,6 +23,18 @@ public static class AttachmentClipboard
                 return Bytes(bytes, extension);
         using var bitmap = data.TryGetBitmap();
         return bitmap is null ? null : Bitmap(bitmap);
+    }
+    public const int LongPasteCharacters = 5000, LongPasteLines = 100;
+    // Large pastes become a text file attachment with a marker in the draft, so the
+    // composer never has to lay out (or the user scroll past) the whole block.
+    public static Attachment? LongText(string text, IEnumerable<Attachment> existing)
+    {
+        if (text.Length < LongPasteCharacters && text.AsSpan().Count('\n') < LongPasteLines) return null;
+        if (Encoding.UTF8.GetByteCount(text) > AttachmentFiles.MaximumBytes) throw new IOException("Paste less than 20 MB of text.");
+        var index = 1;
+        while (existing.Any(a => a.Reference == $"[Pasted text #{index}]")) index++;
+        var name = $"Pasted text {index}.txt";
+        return new(name, "text/plain", text, "file:///" + Uri.EscapeDataString(name), $"[Pasted text #{index}]");
     }
     private static Attachment Bytes(byte[] bytes, string extension)
     {

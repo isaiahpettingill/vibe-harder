@@ -176,7 +176,7 @@ public sealed class Store : IDisposable
             var pipeline = new Markdig.MarkdownPipelineBuilder().UseAdvancedExtensions().DisableHtml().Build();
             while (rows.Read())
             {
-                var role = rows.GetString(0); var text = rows.GetString(1); var label = role == "assistant" ? AgentProviders.Get(provider).Name : role.ToUpperInvariant();
+                var role = rows.GetString(0); var text = ToolMessageContent.ExportText(role, rows.GetString(1)); var label = role == "assistant" ? AgentProviders.Get(provider).Name : role.ToUpperInvariant();
                 plain.Append(label).Append('\n').Append(text).Append("\n\n");
                 html.Append("<h3>").Append(System.Net.WebUtility.HtmlEncode(label)).Append("</h3>").Append(Markdig.Markdown.ToHtml(text, pipeline));
             }

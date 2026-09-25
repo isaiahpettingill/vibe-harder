@@ -11,7 +11,7 @@ namespace CodexManager;
 
 public sealed class SlashCommandOverlay : Popup
 {
-    public SlashCommandOverlay(TextBox composer, ListBox commands)
+    public SlashCommandOverlay(ComposerEditor composer, ListBox commands)
     {
         PlacementTarget = composer; Placement = PlacementMode.TopEdgeAlignedLeft;
         VerticalOffset = -6; IsLightDismissEnabled = true;

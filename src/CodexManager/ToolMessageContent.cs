@@ -37,4 +37,7 @@ internal static class ToolMessageContent
         var sections = Locate(text);
         return sections.HasOutput(text.Length) ? (text[..sections.SummaryEnd], text[sections.OutputStart..]) : (text, "");
     }
+
+    // Copied chats keep the commands that ran but not their (often huge) output.
+    public static string ExportText(string role, string text) => role == "tool" ? Split(text).Summary : text;
 }

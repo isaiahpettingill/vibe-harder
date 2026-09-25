@@ -498,7 +498,7 @@ public partial class MainView : UserControl
         else if (chat.SessionId is not null && workspace is not null && Runtime(chat, workspace) is { IsConnected: false, IsReconnecting: false } runtime)
             await runtime.Reconnect();
     }
-    private void DraftChanged(object? sender, TextChangedEventArgs e) { if (!switching && current is not null) { current.Draft = Composer.Text ?? ""; pendingSaves.Add(current); } UpdateSlashCommands(); UpdateComposerAction(); }
+    private void DraftChanged(object? sender, EventArgs e) { if (!switching && current is not null) { current.Draft = Composer.Text ?? ""; pendingSaves.Add(current); } UpdateSlashCommands(); UpdateComposerAction(); }
     private void UpdateSlashCommands()
     {
         var matches = SlashCommand.Match(current?.Commands ?? [], Composer.Text ?? "");
@@ -788,7 +788,7 @@ public partial class MainView : UserControl
                 await Runtime(chat, owner).AdvanceQueued();
             else await Send();
         }
-        else if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
+        else if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)) || e.Key == Key.Insert && e.KeyModifiers == KeyModifiers.Shift)
         {
             e.Handled = true;
             await PasteClipboard(e.KeyModifiers.HasFlag(KeyModifiers.Shift));
@@ -877,7 +877,13 @@ public partial class MainView : UserControl
             var text = await data.TryGetTextAsync();
             // Browser/desktop link drags sometimes publish only a URI list.
             text ??= await data.TryGetValueAsync(DataFormat.CreateStringPlatformFormat("text/uri-list"));
-            if (text is not null) InsertPaste(target, draft, start, end, text);
+            if (text is null) return;
+            if (AttachmentClipboard.LongText(text, target.Attachments) is { } pasted)
+            {
+                target.Attachments.Add(pasted); pendingSaves.Add(target);
+                text = pasted.Reference!;
+            }
+            InsertPaste(target, draft, start, end, text);
         }
         catch (Exception error) { StatusText.Text = "Paste failed: " + error.Message; }
     }
@@ -891,7 +897,7 @@ public partial class MainView : UserControl
         {
             Composer.Text = updated;
             Composer.CaretIndex = updated.Length == draft.Length - (end - start) + text.Length ? start + text.Length : updated.Length;
-            Composer.SelectionStart = Composer.SelectionEnd = Composer.CaretIndex;
+            Composer.SelectionLength = 0;
         }
         store.Save(target);
     }

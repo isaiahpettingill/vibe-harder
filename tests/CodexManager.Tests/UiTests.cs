@@ -61,7 +61,7 @@ public class UiTests
         var window = new MainWindow(); window.Show();
         Assert.Equal(2, Named<ListBox>(window, "Chats_one").ItemCount);
         Assert.Equal(1, Named<ListBox>(window, "Chats_two").ItemCount);
-        window.FindControl<TextBox>("Composer")!.Text = "Saved before closing";
+        window.FindControl<ComposerEditor>("Composer")!.Text = "Saved before closing";
         Named<Button>(window, "CloseWorkspace_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await WaitUntil(() => window.FindControl<StackPanel>("WorkspaceTree")!.Children.Count == 1);
         using (var store = new Store(directory)) { Assert.Equal(3, store.Chats().Count); Assert.Equal("1", store.Setting("closed:one")); }
@@ -78,9 +78,9 @@ public class UiTests
         controls.OfType<Button>().Single(c => c.Name == "OpenFolderButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await WaitUntil(() => window.FindControl<StackPanel>("WorkspaceTree")!.Children.Count == 2);
         Assert.Equal(2, Named<ListBox>(window, "Chats_one").ItemCount);
-        Assert.Equal("Saved before closing", window.FindControl<TextBox>("Composer")!.Text);
+        Assert.Equal("Saved before closing", window.FindControl<ComposerEditor>("Composer")!.Text);
         var active = Assert.IsType<Chat>(Named<ListBox>(window, "Chats_one").SelectedItem);
-        window.FindControl<TextBox>("Composer")!.Text = "hang";
+        window.FindControl<ComposerEditor>("Composer")!.Text = "hang";
         window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await WaitUntil(() => active.Busy && active.Messages.Any(m => m.Text == "Working"));
         Named<Button>(window, "CloseWorkspace_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -104,7 +104,7 @@ public class UiTests
             store.Setting("Codex:localLoginCommand", "node fake-login.mjs");
         }
         var window = new MainWindow(); window.Show(); await NewChat(window, "w");
-        var composer = window.FindControl<TextBox>("Composer")!;
+        var composer = window.FindControl<ComposerEditor>("Composer")!;
         const string url = "https://example.com/a%20b?q=one&redirect=%2Fchat#section";
         composer.Text = "before REPLACE after"; composer.SelectionStart = 7; composer.SelectionEnd = 14;
         await window.Clipboard!.SetTextAsync(url);
@@ -159,7 +159,7 @@ public class UiTests
         }
         var window = new MainWindow(); window.Show();
         await NewChat(window, "w");
-        var composer = window.FindControl<TextBox>("Composer")!;
+        var composer = window.FindControl<ComposerEditor>("Composer")!;
         composer.Text = "disconnect";
         window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         composer.Text = "My next unsent thought";
@@ -298,7 +298,7 @@ public class UiTests
         }
         var window = new MainWindow(); window.Show();
         await Task.Delay(150);
-        var composer = window.FindControl<TextBox>("Composer")!;
+        var composer = window.FindControl<ComposerEditor>("Composer")!;
         composer.Text = "Keep this draft";
         await NewChat(window, "native");
         Assert.Equal("", composer.Text);
@@ -389,7 +389,7 @@ public class UiTests
             store.Save(new Chat { Id = "terminal-shortcut", WorkspaceId = "one" });
         }
         var window = new MainWindow(); window.Show();
-        var composer = window.FindControl<TextBox>("Composer")!;
+        var composer = window.FindControl<ComposerEditor>("Composer")!;
         composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Oem3, KeyModifiers = KeyModifiers.Control });
         await Task.Delay(1000);
         window.FindControl<Button>("NewTerminalButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

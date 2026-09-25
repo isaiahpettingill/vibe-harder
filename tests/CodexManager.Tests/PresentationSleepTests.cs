@@ -106,7 +106,7 @@ public class PresentationSleepTests
         {
             var tabs = UiTests.Named<ListBox>(window, "Chats_w");
             var chat = (Chat)tabs.SelectedItem!; await Wait(() => chat.HistoryLoaded);
-            window.FindControl<TextBox>("Composer")!.Text = "hang";
+            window.FindControl<ComposerEditor>("Composer")!.Text = "hang";
             window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
             var spinner = window.GetVisualDescendants().OfType<ChatActivityIndicator>()

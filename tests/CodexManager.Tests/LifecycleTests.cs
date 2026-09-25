@@ -23,7 +23,7 @@ public class LifecycleTests
         async Task Wait(Func<bool> check) { var until = DateTime.UtcNow.AddSeconds(10); while (!check() && DateTime.UtcNow < until) await Task.Delay(20); Assert.True(check()); }
         var window = new MainWindow(); window.Show();
         var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
-        window.FindControl<TextBox>("Composer")!.Text = "hang";
+        window.FindControl<ComposerEditor>("Composer")!.Text = "hang";
         window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
         var closed = false; window.Closed += (_, _) => closed = true;

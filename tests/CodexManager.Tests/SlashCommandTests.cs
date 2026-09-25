@@ -25,7 +25,7 @@ public class SlashCommandTests
             await Task.Delay(500);
             var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
             chat.Commands = [new("goal", "Set objective", "objective")];
-            var composer = window.FindControl<TextBox>("Composer")!; composer.Text = "/go";
+            var composer = window.FindControl<ComposerEditor>("Composer")!; composer.Text = "/go";
             await Task.Delay(50);
             Assert.True(window.FindControl<ListBox>("SlashCommands")!.IsVisible);
             Assert.True(window.View.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);

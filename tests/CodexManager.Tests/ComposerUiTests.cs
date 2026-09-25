@@ -24,7 +24,7 @@ public class ComposerUiTests
         }
         var window = new MainWindow(); window.Show();
         var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
-        var composer = window.FindControl<TextBox>("Composer")!;
+        var composer = window.FindControl<ComposerEditor>("Composer")!;
         async Task Wait(Func<bool> check) { var until = DateTime.UtcNow.AddSeconds(10); while (!check() && DateTime.UtcNow < until) await Task.Delay(20); Assert.True(check()); }
         try
         {
