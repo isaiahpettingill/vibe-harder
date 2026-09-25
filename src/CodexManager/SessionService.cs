@@ -208,7 +208,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             foreach (var message in chat.Messages) store.SaveMessage(chat, message);
             var page = await store.ReadPageAsync(chat, request["after"]?.GetValue<int>() ?? -1, limit: 50, newer: true);
-            return new JsonObject { ["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["label"] = m.Label, ["text"] = m.Text }).ToArray()), ["after"] = page.Length == 0 ? null : JsonValue.Create(page[^1].Sequence) };
+            return new JsonObject { ["messages"] = new JsonArray(page.Select(m => (JsonNode)new JsonObject { ["label"] = m.Label, ["text"] = ToolMessageContent.ExportText(m.Role, m.Text) }).ToArray()), ["after"] = page.Length == 0 ? null : JsonValue.Create(page[^1].Sequence) };
         }
         if (method == "chat/search")
         {

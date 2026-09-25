@@ -20,7 +20,7 @@ public class PresentationRecoveryTests
         try
         {
             var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
-            var composer = window.FindControl<TextBox>("Composer")!; composer.Text = "hang";
+            var composer = window.FindControl<ComposerEditor>("Composer")!; composer.Text = "hang";
             window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
             composer.Text = "Keep my unsent draft";

@@ -130,6 +130,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             }
             var text = await data.TryGetTextAsync();
             if (text is null || lifetime.IsCancellationRequested || chatId != selectedChat) return;
+            if (AttachmentClipboard.LongText(text, attachments) is { } pasted) { attachments.Add(pasted); RefreshAttachments(); text = pasted.Reference!; }
             composer.Text = composer.Text == draft ? draft[..start] + text + draft[end..] : composer.Text + text;
             composer.CaretIndex = composer.Text.Length;
         }
@@ -150,7 +151,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private RemoteConnection? connection;
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-    private readonly TextBox composer = new() { Name = "RemoteComposer", AcceptsReturn = true, TextWrapping = Avalonia.Media.TextWrapping.Wrap, MinHeight = 56, MaxHeight = 140, PlaceholderText = "Message the agent…" };
+    private readonly ComposerEditor composer = new() { Name = "RemoteComposer", MinHeight = 56, MaxHeight = 140, Padding = new Thickness(8, 6), Background = Avalonia.Media.Brushes.Transparent, PlaceholderText = "Message the agent…" };
     private readonly StackPanel approvals = new();
     private readonly ListBox chats = new();
     private readonly ComboBox workspaces = new();
@@ -422,7 +423,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         send.Click += async (_, _) => await SendOrStop();
         composer.AddHandler(KeyDownEvent, async (_, e) =>
         {
-            if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
+            if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)) || e.Key == Key.Insert && e.KeyModifiers == KeyModifiers.Shift)
             { e.Handled = true; await PasteClipboard(e.KeyModifiers.HasFlag(KeyModifiers.Shift)); return; }
             if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
             { e.Handled = true; composer.SelectedText = "\n"; return; }
@@ -838,7 +839,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             var chip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 0, 6, 4) };
             chip.Children.Add(new TextBlock { Text = attachment.Name, MaxWidth = 220, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
             var remove = new IconButton { Icon = "remove", IconSize = 10, Label = "Remove " + attachment.Name };
-            remove.Click += (_, _) => { attachments.Remove(attachment); RefreshAttachments(); };
+            remove.Click += (_, _) => { attachments.Remove(attachment); if (attachment.Reference is { } reference) composer.Text = composer.Text.Replace(reference, "", StringComparison.Ordinal); RefreshAttachments(); };
             chip.Children.Add(remove);
             attachmentChips.Children.Add(chip);
         }

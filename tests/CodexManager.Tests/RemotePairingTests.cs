@@ -359,7 +359,7 @@ public class RemotePairingTests
             window.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Remote · Test host (localhost)")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => window.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == "Chats_remote_remote"));
             var remote = window.GetLogicalDescendants().OfType<RemoteView>().Single();
-            remote.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "RemoteComposer").Text = "Remote draft";
+            remote.GetLogicalDescendants().OfType<ComposerEditor>().Single(t => t.Name == "RemoteComposer").Text = "Remote draft";
             for (var i = 0; i < 3; i++)
             {
                 var local = UiTests.Named<ListBox>(window, "Chats_local"); local.SelectedItem = local.Items[0];
@@ -367,7 +367,7 @@ public class RemotePairingTests
                 var remoteList = UiTests.Named<ListBox>(window, "Chats_remote_remote"); Assert.Single(remoteList.Items);
                 remoteList.SelectedItem = remoteList.Items[0];
                 Assert.True(remote.IsVisible); Assert.Equal("remote-chat", remote.SelectedChatId);
-                Assert.Equal("Remote draft", remote.GetLogicalDescendants().OfType<TextBox>().Single(t => t.Name == "RemoteComposer").Text);
+                Assert.Equal("Remote draft", remote.GetLogicalDescendants().OfType<ComposerEditor>().Single(t => t.Name == "RemoteComposer").Text);
                 Assert.Same(remote, window.GetLogicalDescendants().OfType<RemoteView>().Single());
             }
         }

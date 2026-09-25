@@ -31,7 +31,7 @@ public class MobileChatLayoutTests
             var deadline = DateTime.UtcNow.AddSeconds(5);
             while (list.ItemCount < Chat.HistoryPageSize && DateTime.UtcNow < deadline) await Task.Delay(20);
             await (Task)typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window.View, [false])!;
-            var input = UiTests.Named<TextBox>(window, "Composer"); input.Text = "hello\nwith\nseveral\nlines"; window.UpdateLayout();
+            var input = UiTests.Named<ComposerEditor>(window, "Composer"); input.Text = "hello\nwith\nseveral\nlines"; window.UpdateLayout();
             var panel = (TranscriptPanel)list.ItemsPanelRoot!; panel.Offset = new(0, 100); window.UpdateLayout();
             await (Task)typeof(MainView).GetMethod("Send", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(window.View, null)!;
             await Task.Delay(100); window.UpdateLayout();

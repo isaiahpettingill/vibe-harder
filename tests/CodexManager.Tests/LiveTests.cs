@@ -21,7 +21,7 @@ public class LiveTests
             using (var store = new Store(directory)) store.Save(new Workspace("live", "Live smoke", distro is null ? directory : "/tmp/codex-manager-smoke", distro));
             var window = new MainWindow(); window.Show();
             await UiTests.NewChat(window, "live");
-            var composer = window.FindControl<TextBox>("Composer")!;
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
             var draftChat = Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_live").SelectedItem);
             using var image = new RenderTargetBitmap(new PixelSize(64, 64));
             using (var drawing = image.CreateDrawingContext()) drawing.FillRectangle(Brushes.Blue, new Rect(0, 0, 64, 64));
@@ -38,13 +38,13 @@ public class LiveTests
             var sessionId = chat.SessionId;
             window.Close(); await Task.Delay(300);
             var reopened = new MainWindow(); reopened.Show();
-            reopened.FindControl<TextBox>("Composer")!.Text = "What was the test word? Reply only with that word. Do not use tools.";
+            reopened.FindControl<ComposerEditor>("Composer")!.Text = "What was the test word? Reply only with that word. Do not use tools.";
             reopened.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await WaitForTurn(reopened);
             var resumed = Assert.IsType<Chat>(UiTests.Named<ListBox>(reopened, "Chats_live").SelectedItem);
             Assert.Equal(sessionId, resumed.SessionId); Assert.Equal("Ready", resumed.Status);
             Assert.Equal(2, resumed.Messages.Count(m => m.Role == "assistant" && m.Text.Contains("MARIGOLD")));
-            reopened.FindControl<TextBox>("Composer")!.Text = "Write every integer from 1 to 2000, one per line. Do not use tools.";
+            reopened.FindControl<ComposerEditor>("Composer")!.Text = "Write every integer from 1 to 2000, one per line. Do not use tools.";
             var previousCount = resumed.Messages.Count;
             reopened.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var stopDeadline = DateTime.UtcNow.AddSeconds(40);
