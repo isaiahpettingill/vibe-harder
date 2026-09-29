@@ -16,6 +16,17 @@ public class AcpTests
             RpcJson.Object(("text", new string('x', 4 * 1024 * 1024))), timeout.Token).WaitAsync(TimeSpan.FromSeconds(5)));
     }
     [Fact]
+    public async Task UncancellableWritesToAStuckAgentFailInsteadOfHanging()
+    {
+        // Notify (used by Stop) has no token; a stuck agent must not hang it or the caller.
+        var client = new AcpClient(Hosts.Info("node", "-e", "setInterval(() => {}, 1000)")) { WriteTimeout = TimeSpan.FromMilliseconds(500) };
+        var error = await Assert.ThrowsAsync<IOException>(() => client.Notify("session/cancel", RpcJson.Object(("text", new string('x', 4 * 1024 * 1024)))).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains("stopped reading", error.Message);
+        Assert.False(client.Alive);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.Request("echo", new JsonObject()).WaitAsync(TimeSpan.FromSeconds(5)));
+        await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+    }
+    [Fact]
     public async Task RpcCorrelatesConcurrentRequestsAndPropagatesExit()
     {
         await using var client = new AcpClient(Hosts.Info("node", Fixture));

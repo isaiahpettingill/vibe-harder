@@ -5,7 +5,9 @@ namespace CodexManager;
 
 public static class Hosts
 {
-    public const string DefaultAdapter = "npx -y @agentclientprotocol/codex-acp@latest";
+    // codex-acp pins @openai/codex ^0.x, which npm treats as patch-only, so its bundled Codex
+    // falls behind and the server omits newer models. Install the latest Codex beside it.
+    public const string DefaultAdapter = "npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- codex-acp";
     public static string ResourceDirectory => OperatingSystem.IsMacOS() && Path.GetFileName(Path.TrimEndingDirectorySeparator(AppContext.BaseDirectory)) == "MacOS" && Directory.Exists(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) ? Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "Resources")) : AppContext.BaseDirectory;
     public static string WindowsShellCommand(string command)
     {

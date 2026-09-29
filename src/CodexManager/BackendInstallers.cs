@@ -3,10 +3,9 @@ namespace CodexManager;
 public static class BackendInstallers
 {
     public sealed record Installer(string? Probe, string Command);
+    // Only agents whose adapter launches the installed CLI; bundled ones need no install.
     public static Installer[] For(AgentProvider provider, bool windows) => provider switch
     {
-        AgentProvider.Codex => [new(null, windows ? "irm https://chatgpt.com/codex/install.ps1 | iex" : "curl -fsSL https://chatgpt.com/codex/install.sh | sh")],
-        AgentProvider.Claude => [new(null, windows ? "irm https://claude.ai/install.ps1 | iex" : "curl -fsSL https://claude.ai/install.sh | bash")],
         AgentProvider.VTCode => [new(null, windows ? "irm https://raw.githubusercontent.com/vinhnx/vtcode/main/scripts/install.ps1 | iex" : "curl -fsSL https://raw.githubusercontent.com/vinhnx/vtcode/main/scripts/install.sh | bash")],
         AgentProvider.OpenCode => [
             // Windows' legacy bash.exe can be a WSL launcher. A local install
@@ -16,7 +15,6 @@ public static class BackendInstallers
             new("npm --version", "npm install -g @opencode/cli@latest"),
             new("bun --version", "bun install -g --trust @opencode/cli@latest"),
             new("brew --version", "brew install anomalyco/tap/opencode-v2")],
-        AgentProvider.Dirac => [new("npm --version", "npm install -g dirac-cli@latest")],
         AgentProvider.Pi => [new("npm --version", "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest")],
         AgentProvider.Cline => [new("npm --version", "npm install -g cline@latest")],
         _ => throw new ArgumentOutOfRangeException(nameof(provider))

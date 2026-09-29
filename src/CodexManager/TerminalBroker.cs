@@ -98,28 +98,49 @@ public static class TerminalBroker
     public static async Task Serve(string profile, CancellationToken token)
     {
         var shells = new Dictionary<string, Shell>();
+        var serial = new SemaphoreSlim(1);
+        // On Unix a pipe is a socket whose listener closes with its last server instance, so
+        // recreating a single instance per request reset every queued client ("Broken pipe").
+        // Keep an instance listening while earlier connections are answered.
+        var pipe = Listen(profile);
         try
         {
             while (!token.IsCancellationRequested)
             {
-                await using var pipe = new NamedPipeServerStream(PipeName(profile), PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
-                if (shells.Values.All(s => s.Exited)) idle.CancelAfter(TimeSpan.FromMinutes(1));
+                if (await Dispatcher.UIThread.InvokeAsync(() => shells.Values.All(s => s.Exited))) idle.CancelAfter(TimeSpan.FromMinutes(1));
                 try { await pipe.WaitForConnectionAsync(idle.Token); }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested) { return; }
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
-                try
-                {
-                    var request = await Read(pipe, timeout.Token);
-                    JsonNode result;
-                    try { result = await Dispatcher.UIThread.InvokeAsync(() => Handle(request, profile, shells)); }
-                    catch (Exception error) { result = new JsonObject { ["error"] = error.Message }; }
-                    await Write(pipe, result, timeout.Token);
-                }
-                catch (Exception error) when (error is IOException or OperationCanceledException or System.Text.Json.JsonException) { Trace.WriteLine(error.Message); }
+                var connected = pipe; pipe = Listen(profile);
+                _ = Respond(connected, profile, shells, serial, token);
             }
         }
-        finally { await Dispatcher.UIThread.InvokeAsync(() => { foreach (var shell in shells.Values) shell.Session.Dispose(); }); }
+        finally
+        {
+            await pipe.DisposeAsync();
+            await Dispatcher.UIThread.InvokeAsync(() => { foreach (var shell in shells.Values) shell.Session.Dispose(); });
+        }
+    }
+    private static NamedPipeServerStream Listen(string profile) =>
+        new(PipeName(profile), PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+    private static async Task Respond(NamedPipeServerStream pipe, string profile, Dictionary<string, Shell> shells, SemaphoreSlim serial, CancellationToken token)
+    {
+        await using (pipe)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(token); timeout.CancelAfter(TimeSpan.FromSeconds(15));
+            try
+            {
+                var request = await Read(pipe, timeout.Token);
+                JsonNode result;
+                // Requests were handled one at a time before; opening a shell awaits, so keep that order.
+                await serial.WaitAsync(timeout.Token);
+                try { result = await Dispatcher.UIThread.InvokeAsync(() => Handle(request, profile, shells)); }
+                catch (Exception error) { result = new JsonObject { ["error"] = error.Message }; }
+                finally { serial.Release(); }
+                await Write(pipe, result, timeout.Token);
+            }
+            catch (Exception error) when (error is IOException or OperationCanceledException or System.Text.Json.JsonException) { Trace.WriteLine(error.Message); }
+        }
     }
     private sealed class Shell
     {

@@ -49,8 +49,25 @@ public sealed class AcpClient : IAsyncDisposable
     {
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellation, lifetime.Token);
         await writes.WaitAsync(linked.Token).ConfigureAwait(false);
-        try { await process.StandardInput.WriteLineAsync(message.ToJsonString().AsMemory(), linked.Token).ConfigureAwait(false); await process.StandardInput.FlushAsync(linked.Token).ConfigureAwait(false); }
+        try
+        {
+            // Pipe writes ignore cancellation once blocked. An agent that stops reading its
+            // input is treated as gone, so callers (and other chats awaiting them) never hang.
+            var write = WriteLine(message.ToJsonString());
+            try { await write.WaitAsync(WriteTimeout, linked.Token).ConfigureAwait(false); }
+            catch (TimeoutException)
+            {
+                DisconnectReason = "The agent stopped reading input.";
+                lifetime.Cancel(); throw new IOException(DisconnectReason);
+            }
+        }
         finally { writes.Release(); }
+    }
+    public TimeSpan WriteTimeout { get; init; } = TimeSpan.FromSeconds(30);
+    private async Task WriteLine(string line)
+    {
+        await process.StandardInput.WriteLineAsync(line.AsMemory(), lifetime.Token).ConfigureAwait(false);
+        await process.StandardInput.FlushAsync(lifetime.Token).ConfigureAwait(false);
     }
     private async Task ReadLoop()
     {
@@ -95,7 +112,7 @@ public sealed class AcpClient : IAsyncDisposable
         catch (Exception error) { failure = error; }
         finally
         {
-            DisconnectReason = failure?.Message ?? "Agent disconnected.";
+            DisconnectReason ??= failure?.Message ?? "Agent disconnected.";
             foreach (var item in pending.Values) item.TrySetException(failure ?? new IOException("Agent disconnected."));
             lifetime.Cancel();
             Disconnected?.Invoke();
@@ -134,11 +151,18 @@ public sealed class AcpClient : IAsyncDisposable
     }
     public async ValueTask DisposeAsync()
     {
-        if (Interlocked.Exchange(ref disposed, 1) != 0) { await reader; return; }
+        if (Interlocked.Exchange(ref disposed, 1) != 0) { await Drained(); return; }
         lifetime.Cancel();
-        await Task.Run(() => { try { process.StandardInput.Close(); if (!process.HasExited) process.Kill(true); } catch (InvalidOperationException) { } });
-        await reader;
+        await Task.Run(() => { try { process.StandardInput.Close(); if (!process.HasExited) process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception) { } }).WaitAsync(TimeSpan.FromSeconds(5)).ContinueWith(_ => { }, TaskScheduler.Default);
+        await Drained();
         process.Dispose();
+    }
+    // A killed agent's output can stay open (a surviving child holding the pipe); the reader
+    // is abandoned rather than blocking reconnects, workspace closes, or app shutdown.
+    private async Task Drained()
+    {
+        try { await reader.WaitAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false); }
+        catch (TimeoutException) { }
     }
 }
 

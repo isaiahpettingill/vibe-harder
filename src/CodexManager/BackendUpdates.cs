@@ -13,17 +13,24 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
     private readonly ConcurrentDictionary<string, DateTimeOffset> nextCheck = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
     public string LastSummary { get; private set; } = "";
-    public static (string Executable, string Update, string? Adapter) Plan(AgentProvider provider) => provider switch
+    // Update is null when the adapter bundles its agent: refreshing the npm package keeps it
+    // current, and the user's own installation is left alone because nothing launches it.
+    public static (string Executable, string? Update, string? Adapter) Plan(AgentProvider provider) => provider switch
     {
-        AgentProvider.Codex => ("codex", "codex update", "@agentclientprotocol/codex-acp"),
-        AgentProvider.Claude => ("claude", "claude update", "@agentclientprotocol/claude-agent-acp"),
+        AgentProvider.Codex => ("codex", null, "@agentclientprotocol/codex-acp"),
+        AgentProvider.Claude => ("claude", null, "@agentclientprotocol/claude-agent-acp"),
         AgentProvider.OpenCode => ("opencode", "opencode upgrade", null),
         AgentProvider.VTCode => ("vtcode", "vtcode update", null),
-        AgentProvider.Dirac => ("dirac", "npm update -g dirac-cli", "dirac-cli"),
+        AgentProvider.Dirac => ("dirac", null, "dirac-cli"),
+        // pi-acp runs the installed pi, so Pi still needs a system update.
         AgentProvider.Pi => ("pi", "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest", "pi-acp"),
         AgentProvider.Cline => ("cline", "npm install -g cline@latest", null),
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
+    // Must name the same packages as the launch command so npx refreshes that install.
+    public static string AdapterRefresh(AgentProvider provider) => provider == AgentProvider.Codex
+        ? "npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- node -e 0"
+        : "npx -y --package=" + Plan(provider).Adapter + "@latest -- node -e 0";
     public async Task Run(CancellationToken token)
     {
         try
@@ -45,15 +52,37 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
     public async Task BeforeStart(Workspace workspace, AgentProvider provider, Action start, CancellationToken token)
     {
         var gate = Gate(workspace, provider);
-        await gate.WaitAsync(token);
+        var checkedForLaunch = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var launched = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        // Updates are opportunistic. One that is slow or hung (network, npm lock, a busy
+        // environment) finishes in the background instead of stalling every chat that
+        // launches this provider; it is never killed mid-install on the launch's behalf.
+        _ = Task.Run(async () =>
+        {
+            var held = false;
+            try
+            {
+                await gate.WaitAsync(token); held = true;
+                if (Enabled(store)) await CheckCore(token, force: false, installProvider: null, workspace, provider, gateHeld: true);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+            catch (Exception error) { AppDiagnostics.Record("Backend update before launch", error); }
+            finally
+            {
+                checkedForLaunch.TrySetResult();
+                // Normally hold the gate through the launch so a background update cannot race it.
+                if (held) { await Task.WhenAny(launched.Task, Task.Delay(TimeSpan.FromSeconds(10), CancellationToken.None)); gate.Release(); }
+            }
+        }, CancellationToken.None);
         try
         {
-            if (Enabled(store)) await CheckCore(token, force: false, installProvider: null, workspace, provider, gateHeld: true);
+            await Task.WhenAny(checkedForLaunch.Task, Task.Delay(LaunchWait, token));
             token.ThrowIfCancellationRequested();
-            start(); // An update of this provider in this environment cannot race the launch.
+            start();
         }
-        finally { gate.Release(); }
+        finally { launched.TrySetResult(); }
     }
+    public TimeSpan LaunchWait { get; init; } = TimeSpan.FromSeconds(20);
     private string Key(Workspace workspace, AgentProvider provider) => (workspace.Distro ?? "local") + ":" + provider;
     private SemaphoreSlim Gate(Workspace workspace, AgentProvider provider) => gates.GetOrAdd(Key(workspace, provider), _ => new SemaphoreSlim(1, 1));
     private async Task CheckCore(CancellationToken token, bool force, AgentProvider? installProvider, Workspace? onlyWorkspace = null, AgentProvider? onlyProvider = null, bool gateHeld = false)
@@ -83,16 +112,19 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                     var failed = false;
                     if (await run(environment, ProcessProbe(provider.Provider, OperatingSystem.IsWindows() && !environment.IsWsl), token) != 0)
                     { deferred = true; nextCheck.TryRemove(key, out _); continue; }
-                    var installed = await run(environment, plan.Executable + " --version", token) == 0;
-                    if (installed && installProvider is null)
-                        failed = await run(environment, plan.Update, token) != 0;
-                    else if (!installed && (installProvider is not null || force))
-                        await BackendInstallers.Install(environment, provider.Provider, run, token);
+                    if (plan.Update is { } update)
+                    {
+                        var installed = await run(environment, plan.Executable + " --version", token) == 0;
+                        if (installed && installProvider is null)
+                            failed = await run(environment, update, token) != 0;
+                        else if (!installed && (installProvider is not null || force))
+                            await BackendInstallers.Install(environment, provider.Provider, run, token);
+                    }
                     // Resolve latest npm adapters without starting an agent or sending a prompt.
                     if (plan.Adapter is not null)
                     {
                         if (await run(environment, "npm --version", token) == 0)
-                            failed |= await run(environment, "npx -y --package=" + plan.Adapter + "@latest -- node -e 0", token) != 0;
+                            failed |= await run(environment, AdapterRefresh(provider.Provider), token) != 0;
                         else throw new IOException("Node.js and npm are required for this ACP adapter.");
                     }
                     store.Setting("backendUpdate:" + key, failed ? "Update failed; will retry." : "Checked " + DateTimeOffset.Now.ToString("g"));

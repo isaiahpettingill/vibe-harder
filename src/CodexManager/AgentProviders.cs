@@ -38,14 +38,21 @@ public static class AgentProviders
     }
     private static bool IsPreviousDefault(AgentProvider provider, string? command) => provider switch
     {
-        AgentProvider.Codex => command is "npx -y @agentclientprotocol/codex-acp@1.11.0" or "npx -y @agentclientprotocol/codex-acp@1.13.0",
+        AgentProvider.Codex => command is "npx -y @agentclientprotocol/codex-acp@1.11.0" or "npx -y @agentclientprotocol/codex-acp@1.13.0" or "npx -y @agentclientprotocol/codex-acp@latest",
         AgentProvider.Claude => command == "npx -y @agentclientprotocol/claude-agent-acp@0.76.0",
         AgentProvider.Dirac => command == "npx -y dirac-cli@0.5.13 --acp",
         AgentProvider.Pi => command == "npx -y pi-acp@0.0.33",
         _ => false
     };
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider) =>
-        Hosts.Agent(workspace, command, provider == AgentProvider.VTCode ? new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" } : null);
+        Hosts.Agent(workspace, command, provider switch
+        {
+            AgentProvider.VTCode => new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" },
+            // npx puts the command's own node_modules/.bin first on PATH, so "codex" is the
+            // @openai/codex installed with the adapter rather than its older nested copy.
+            AgentProvider.Codex when command.Contains("--package=@openai/codex@", StringComparison.Ordinal) => new Dictionary<string, string> { ["CODEX_PATH"] = "codex" },
+            _ => null
+        });
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
     public static string LoginCommand(Store store, Workspace workspace, AgentProvider provider) =>
         NormalizeLoginCommand(provider, store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand")) ?? (provider switch

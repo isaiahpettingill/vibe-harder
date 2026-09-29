@@ -416,8 +416,12 @@ public partial class MainView : UserControl
         if (terminals.Remove(owner.Id, out var shells)) foreach (var shell in shells) shell.Session.Dispose();
         foreach (var key in loginSessions.Keys.Where(k => k.StartsWith(owner.Id + ":", StringComparison.Ordinal)).ToArray())
         { loginSessions[key].Session.Dispose(); loginSessions.Remove(key); }
+        // Stop chats together: one stuck agent must not hold up the others.
+        var stopping = new List<Task>();
         foreach (var chat in chats.Where(c => c.WorkspaceId == owner.Id).ToArray())
-            if (runtimes.Remove(chat.Id, out var runtime)) await runtime.DisposeAsync();
+            if (runtimes.Remove(chat.Id, out var runtime)) stopping.Add(runtime.DisposeAsync().AsTask());
+        try { await Task.WhenAll(stopping); }
+        catch (Exception error) { AppDiagnostics.Record("Close workspace", error); }
         await SaveAllAsync();
         if (closing) return;
         BuildWorkspaceTree();
@@ -1211,12 +1215,15 @@ public partial class MainView : UserControl
     {
         if (closing) return;
         authentication[$"{owner.Distro}:{provider}"] = false;
+        var reconnecting = new List<Task>();
         foreach (var chat in chats.Where(c => c.Provider == provider && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)).ToArray())
         {
             chat.NeedsLogin = false;
-            if (runtimes.TryGetValue(chat.Id, out var runtime) && !chat.Busy) await runtime.Reconnect();
-            if (closing) return;
+            // Each chat reports its own failure; a slow one must not delay the rest.
+            if (runtimes.TryGetValue(chat.Id, out var runtime) && !chat.Busy) reconnecting.Add(runtime.Reconnect());
         }
+        await Task.WhenAll(reconnecting);
+        if (closing) return;
         await DiscoverHistory(owner, provider); if (!closing) UpdateControls();
     }
     private async void ToggleTerminal(object? sender, RoutedEventArgs e)

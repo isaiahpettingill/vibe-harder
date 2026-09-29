@@ -52,6 +52,29 @@ public class TerminalRecoveryTests
     }
 
     [AvaloniaFact]
+    public async Task BrokerAnswersConcurrentRequestsWithoutDroppingConnections()
+    {
+        // Each terminal polls and sends input on separate connections. On Unix the pipe is a
+        // socket, and queued clients used to get "Broken pipe" between server instances.
+        var profile = Directory.CreateTempSubdirectory("terminal-concurrent-").FullName;
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        var server = TerminalBroker.Serve(profile, lifetime.Token);
+        try
+        {
+            var requests = Enumerable.Range(0, 400).Select(async i =>
+            {
+                await Task.Yield();
+                try { await TerminalBroker.Request(profile, new JsonObject { ["method"] = "read", ["id"] = "missing-" + (i % 8), ["offset"] = 0L }, lifetime.Token); return "answered"; }
+                catch (IOException error) when (error.GetType().Name == "TerminalClosedException") { return "answered"; }
+                catch (Exception error) { return error.GetType().Name + ": " + error.Message; }
+            });
+            var results = await Task.WhenAll(requests);
+            Assert.All(results, result => Assert.Equal("answered", result));
+        }
+        finally { lifetime.Cancel(); try { await server; } catch (OperationCanceledException) { } }
+    }
+
+    [AvaloniaFact]
     public async Task RemoteTerminalRetriesTransientHostErrors()
     {
         var failing = true;

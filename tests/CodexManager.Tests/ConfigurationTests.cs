@@ -19,6 +19,22 @@ public class ConfigurationTests
     }
 
     [Fact]
+    public void CodexAdapterRunsTheLatestCodexInsteadOfItsPinnedCopy()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-latest-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        var key = AgentProviders.CommandKey(AgentProvider.Codex, false);
+        store.Setting(key, "npx -y @agentclientprotocol/codex-acp@latest");
+        Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+        Assert.Contains("--package=@openai/codex@latest", Hosts.DefaultAdapter);
+        Assert.Equal("codex", AgentProviders.Start(workspace, Hosts.DefaultAdapter, AgentProvider.Codex).Environment["CODEX_PATH"]);
+        // A custom launcher without its own Codex package must keep the adapter's bundled binary.
+        Assert.False(AgentProviders.Start(workspace, "my-wrapper codex-acp", AgentProvider.Codex).Environment.ContainsKey("CODEX_PATH"));
+        Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- node -e 0", BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+        Assert.StartsWith(Hosts.DefaultAdapter[..^"codex-acp".Length], BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+    }
+
+    [Fact]
     public void WindowsNpxUsesCmdWithoutChangingExecutionPolicyOrWslCommands()
     {
         if (!OperatingSystem.IsWindows()) return;

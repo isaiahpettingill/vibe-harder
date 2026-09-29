@@ -14,7 +14,7 @@ public class BackendUpdateTests
         await using var runtime = new ChatRuntime(chat, workspace, store, command);
         runtime.ResolveCommand = () => { resolutions++; return resolved; };
         runtime.BackendMaintenance = new BackendUpdates(store, () => [workspace], (_, _) => runtime.HasBackendProcess, (_, update, _) =>
-        { if (update == "codex update") { Assert.False(runtime.HasBackendProcess); updates++; } return Task.FromResult(0); });
+        { if (update == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) { Assert.False(runtime.HasBackendProcess); updates++; } return Task.FromResult(0); });
         await runtime.Connect();
         Assert.DoesNotContain(chat.ConfigOptions, c => c.Id == "mode");
         resolved += " --access";
@@ -53,13 +53,13 @@ public class BackendUpdateTests
             Assert.Equal("Debian", environment.Distro); commands.Add(command); return Task.FromResult(0);
         });
         await updater.BeforeStart(owner, AgentProvider.Codex, () => active = true, TestContext.Current.CancellationToken);
-        Assert.Single(commands, c => c == "codex update");
+        Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
         var startedSecond = false;
         await updater.BeforeStart(owner, AgentProvider.Codex, () => startedSecond = true, TestContext.Current.CancellationToken);
-        Assert.True(startedSecond); Assert.Single(commands, c => c == "codex update");
+        Assert.True(startedSecond); Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
         active = false;
         await updater.BeforeStart(owner, AgentProvider.Codex, () => { }, TestContext.Current.CancellationToken);
-        Assert.Single(commands, c => c == "codex update");
+        Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
     }
     [Fact]
     public async Task SlowUpdateOfAnotherProviderDoesNotDelayStartingAnAgent()
@@ -70,7 +70,7 @@ public class BackendUpdateTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var updater = new BackendUpdates(store, () => [], (_, _) => false, async (_, command, token) =>
         {
-            if (command == "codex update") { updating.SetResult(); await release.Task.WaitAsync(token); }
+            if (command == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) { updating.SetResult(); await release.Task.WaitAsync(token); }
             return 0;
         });
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
@@ -87,6 +87,30 @@ public class BackendUpdateTests
         finally { release.TrySetResult(); await check; }
     }
     [Fact]
+    public async Task HungUpdateDoesNotBlockChatsFromStarting()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("backend-hung-").FullName);
+        var hung = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updater = new BackendUpdates(store, () => [], (_, _) => false, async (_, command, token) =>
+        {
+            if (command == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) await hung.Task.WaitAsync(token);
+            return 0;
+        }) { LaunchWait = TimeSpan.FromMilliseconds(200) };
+        var owner = new Workspace("w", "Local", store.DirectoryPath);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(10));
+        try
+        {
+            // The first chat starts the stuck update; neither it nor later chats wait on it.
+            var started = 0;
+            await updater.BeforeStart(owner, AgentProvider.Codex, () => started++, timeout.Token);
+            await updater.BeforeStart(owner, AgentProvider.Codex, () => started++, timeout.Token);
+            await updater.BeforeStart(owner, AgentProvider.Codex, () => started++, timeout.Token);
+            Assert.Equal(3, started);
+        }
+        finally { hung.TrySetResult(); }
+    }
+    [Fact]
     public async Task ExternalProcessesPreventBackendUpdates()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("backend-external-").FullName);
@@ -96,7 +120,7 @@ public class BackendUpdateTests
         { commands.Add(command); return Task.FromResult(command == probe ? 1 : 0); });
         var started = false;
         await updater.BeforeStart(new("w", "Local", store.DirectoryPath), AgentProvider.Codex, () => started = true, TestContext.Current.CancellationToken);
-        Assert.True(started); Assert.DoesNotContain("codex update", commands);
+        Assert.True(started); Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
         Assert.Contains("when idle", updater.LastSummary);
     }
     [Fact]
@@ -115,17 +139,30 @@ public class BackendUpdateTests
         await updater.Check(TestContext.Current.CancellationToken, force: true, installProvider: AgentProvider.Pi);
         Assert.True(installed);
         Assert.Contains(commands, c => c.Contains("--package=pi-acp@latest"));
-        Assert.DoesNotContain("codex update", commands);
+        Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
+    }
+    [Fact]
+    public async Task BundledAgentsRefreshTheirPackagesWithoutTouchingSystemInstalls()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("backend-bundled-").FullName);
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.EnabledKey(provider.Provider), provider.Provider is AgentProvider.Codex or AgentProvider.Claude or AgentProvider.Dirac ? "1" : "0");
+        List<string> commands = [];
+        var updater = new BackendUpdates(store, () => [], (_, _) => false, (_, command, _) => { commands.Add(command); return Task.FromResult(command.EndsWith(" --version") && command != "npm --version" ? 1 : 0); });
+        await updater.Check(TestContext.Current.CancellationToken, force: true);
+        foreach (var provider in new[] { AgentProvider.Codex, AgentProvider.Claude, AgentProvider.Dirac })
+        {
+            await updater.Check(TestContext.Current.CancellationToken, force: true, installProvider: provider);
+            Assert.Contains(BackendUpdates.AdapterRefresh(provider), commands);
+        }
+        Assert.DoesNotContain(commands, c => c is "codex --version" or "claude --version" or "dirac --version" || c.Contains("update") || c.Contains("install"));
+        Assert.Equal("Enabled backend checks completed.", updater.LastSummary);
     }
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
     public void NativeInstallersUseTheirPlatformDefaults(bool windows)
     {
-        var codex = BackendInstallers.For(AgentProvider.Codex, windows).Single().Command;
-        var claude = BackendInstallers.For(AgentProvider.Claude, windows).Single().Command;
-        Assert.Contains(windows ? "install.ps1" : "install.sh", codex);
-        Assert.Contains(windows ? "install.ps1" : "install.sh", claude);
+        Assert.Contains(windows ? "install.ps1" : "install.sh", BackendInstallers.For(AgentProvider.VTCode, windows).Single().Command);
         var opencode = BackendInstallers.For(AgentProvider.OpenCode, windows);
         Assert.Contains("opencode.ai/v2/install", opencode[0].Command);
         Assert.Equal("npm install -g @opencode/cli@latest", opencode[1].Command);
@@ -152,16 +189,16 @@ public class BackendUpdateTests
         foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.EnabledKey(provider.Provider), "1");
         var busy = true; List<string> commands = [];
         var updater = new BackendUpdates(store, () => [], (_, p) => busy && p == AgentProvider.Codex, (_, command, _) =>
-        { commands.Add(command); return Task.FromResult(command == "claude update" ? 1 : 0); });
+        { commands.Add(command); return Task.FromResult(command == BackendUpdates.AdapterRefresh(AgentProvider.Claude) ? 1 : 0); });
         await updater.Check(TestContext.Current.CancellationToken);
-        Assert.DoesNotContain("codex update", commands);
+        Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
         Assert.Contains("opencode upgrade", commands); Assert.Contains("vtcode update", commands);
         Assert.Contains("npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest", commands);
         Assert.Contains("npm install -g cline@latest", commands);
         Assert.Contains(commands, c => c.Contains("--package=pi-acp@latest"));
         Assert.StartsWith("Update failed", store.Setting("backendUpdate:local:Claude"));
         busy = false; await updater.Check(TestContext.Current.CancellationToken);
-        Assert.Contains("codex update", commands);
+        Assert.Contains(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
         Assert.Single(commands, c => c == "opencode upgrade");
     }
     [Theory]
