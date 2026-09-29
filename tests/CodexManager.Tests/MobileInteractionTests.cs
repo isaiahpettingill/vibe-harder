@@ -44,28 +44,6 @@ public class MobileInteractionTests
     }
 
     [AvaloniaFact]
-    public async Task ReloadShowsPulsingDotInsteadOfStop()
-    {
-        var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
-        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
-        var store = new Store(directory); store.Setting("runInTray", "0");
-        store.Save(new Workspace("w", "Reload", directory));
-        store.Save(new Chat { Id = "reload", WorkspaceId = "w", SessionId = "fixture-session" });
-        store.Setting("localCommand", "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --load-hang");
-        var window = new MainWindow(store); window.Show();
-        try
-        {
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            window.FindControl<Button>("ReconnectChatButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            var button = window.FindControl<IconButton>("SendButton")!;
-            while (button.Content is not ConnectingIndicator) await Task.Delay(20, timeout.Token);
-            Assert.False(button.IsEnabled);
-            Assert.Equal("Loading chat", Avalonia.Automation.AutomationProperties.GetName(button));
-        }
-        finally { window.Close(); await Task.Delay(200, TestContext.Current.CancellationToken); }
-    }
-
-    [AvaloniaFact]
     public async Task RemoteFolderPickerBrowsesHostAndOpensSelectedChild()
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));

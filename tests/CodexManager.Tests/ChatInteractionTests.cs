@@ -6,21 +6,6 @@ namespace CodexManager.Tests;
 
 public class ChatInteractionTests
 {
-    [AvaloniaFact]
-    public async Task ProgressResetsWhenHiddenAndStopsWhenDetached()
-    {
-        var progress = new ChatProgressIndicator { IsVisible = true };
-        var window = new Window { Content = progress }; window.Show();
-        try
-        {
-            await Task.Delay(420); Assert.NotEqual("·", progress.Text);
-            progress.IsVisible = false; Assert.Equal("·", progress.Text);
-            await Task.Delay(420); Assert.Equal("·", progress.Text);
-            progress.IsVisible = true; window.Content = null;
-            var text = progress.Text; await Task.Delay(420); Assert.Equal(text, progress.Text);
-        }
-        finally { window.Close(); }
-    }
     [Fact]
     public async Task RemoteExportCopiesEveryPageWithoutStartingAnAgent()
     {

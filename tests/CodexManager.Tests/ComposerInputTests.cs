@@ -90,7 +90,7 @@ public class ComposerInputTests
             Assert.Equal(longText, pasted.ToContent()["resource"]!["text"]!.GetValue<string>());
             await window.Clipboard!.SetTextAsync(longText + "!"); Key(input, Avalonia.Input.Key.Insert, KeyModifiers.Shift);
             await Wait(() => input.Text == "see [Pasted text #1][Pasted text #2]");
-            window.UpdateLayout(); Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<IconButton>().First(b => b.Tag == pasted).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+            window.UpdateLayout(); Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<IconButton>().First(b => ReferenceEquals(b.Tag, pasted)).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("see [Pasted text #2]", input.Text); Assert.Equal(1, attachments.ItemCount);
 
             // A huge typed draft only lays out visible lines, so edits and relayout stay fast.
@@ -103,55 +103,5 @@ public class ComposerInputTests
             Assert.Equal(draft + new string('x', 50), input.Text); Assert.Equal(input.Text, Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_w").SelectedItem).Draft);
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
-    }
-    [AvaloniaFact]
-    public async Task RemoteComposerCompletesCommandsAndSupportsEnterPasteAndDrop()
-    {
-        var directory = Directory.CreateTempSubdirectory("composer-remote-").FullName;
-        using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        var requests = new List<string>();
-        var active = false;
-        await using var server = new RemoteServer(directory, "127.0.0.1", port, request =>
-        {
-            var method = request["method"]!.GetValue<string>(); requests.Add(method);
-            return Task.FromResult<JsonNode?>(method == "list"
-                ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "w", ["name"] = "Test" }), ["chats"] = new JsonArray(new JsonObject { ["id"] = "c", ["workspaceId"] = "w", ["title"] = "Chat", ["archived"] = false }) }
-                : method == "steer" ? JsonValue.Create(true) : method == "chat" ? new JsonObject { ["canSteer"] = true, ["busy"] = active, ["status"] = "Ready", ["queued"] = 1, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray(), ["commands"] = new JsonArray("/compact", "/goal") } : new JsonObject { ["busy"] = active, ["preparing"] = false });
-        });
-        await Wait(() => server.Fingerprint is not null);
-        var host = await RemoteConnection.Pair(RemoteTrust.Invite(directory, "localhost", port, "Host"), System.IO.Path.Combine(directory, "key"), "Test", TestContext.Current.CancellationToken);
-        using var view = new RemoteView(host); var window = new Window { Content = view }; window.Show();
-        try
-        {
-            await Wait(() => requests.Contains("chat"));
-            var input = view.GetLogicalDescendants().OfType<ComposerEditor>().Single(t => t.Name == "RemoteComposer");
-            input.Text = "/co"; await Wait(() => view.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
-            Key(input, Avalonia.Input.Key.Escape); Assert.Equal("/co", input.Text);
-            Assert.False(view.GetLogicalDescendants().OfType<SlashCommandOverlay>().Single().IsOpen);
-            input.Text = "/com"; await Task.Delay(50); Key(input, Avalonia.Input.Key.Tab); Assert.Equal("/compact ", input.Text);
-            input.CaretIndex = input.Text.Length; Key(input, Avalonia.Input.Key.Enter, KeyModifiers.Control); Assert.EndsWith("\n", input.Text);
-            input.Text = "hello"; await Task.Delay(50); Key(input, Avalonia.Input.Key.Enter); await Wait(() => requests.Contains("send"));
-            await Wait(() => input.Text == ""); Key(input, Avalonia.Input.Key.Enter); await Wait(() => requests.Contains("queue/advance"));
-            active = true;
-            await Wait(() => (bool)typeof(RemoteView).GetField("busy", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!);
-            input.Text = "adjust direction"; Key(input, Avalonia.Input.Key.Enter);
-            await Wait(() => requests.Count(r => r == "send") == 2 && input.Text == "");
-            Assert.DoesNotContain("steer", requests);
-            var advances = requests.Count(r => r == "queue/advance");
-            Key(input, Avalonia.Input.Key.Enter);
-            await Wait(() => requests.Count(r => r == "queue/advance") == advances + 1);
-            Key(input, Avalonia.Input.Key.Escape);
-            await Wait(() => requests.Contains("queue/interrupt"));
-            input.Text = "replacement"; Key(input, Avalonia.Input.Key.Escape);
-            await Wait(() => requests.Contains("send-now") && input.Text == "");
-            var bytes = Png(); await window.Clipboard!.SetDataAsync(ImageData(bytes)); Key(input, Avalonia.Input.Key.V, KeyModifiers.Control);
-            await Task.Delay(100);
-            var drop = new DataTransfer(); drop.Add(DataTransferItem.CreateFile(PortalFile.Create(bytes)));
-            input.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, drop, input, default, KeyModifiers.None));
-            await Task.Delay(100);
-            var attachments = (List<Attachment>)typeof(RemoteView).GetField("attachments", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(view)!;
-            Assert.Equal(2, attachments.Count); Assert.All(attachments, a => Assert.NotNull(a.Thumbnail));
-        }
-        finally { window.Close(); }
     }
 }

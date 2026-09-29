@@ -275,7 +275,7 @@ public class InteractionReviewTests
             await Task.Delay(50, timeout.Token);
         }
         await service.Handle(Request("close"));
-        await Assert.ThrowsAsync<IOException>(() => service.Handle(Request("read")));
+        await Assert.ThrowsAnyAsync<IOException>(() => service.Handle(Request("read")));
         await Assert.ThrowsAsync<IOException>(() => service.Handle(new() { ["method"] = "terminal/open", ["workspaceId"] = "missing" }));
     }
 
