@@ -66,7 +66,7 @@ public static class ChatHistory
                 await DeleteFromCodex(workspace, id, store.Setting(workspace.IsWsl ? "wslCodexCommand" : "localCodexCommand"));
             else
             {
-                var command = AgentProviders.Command(store, workspace, chat.Provider);
+                var command = AgentProviders.LaunchCommand(store, workspace, chat.Provider);
                 if (chat.Provider == AgentProvider.OpenCode && command.TrimEnd().EndsWith(" acp", StringComparison.Ordinal))
                 {
                     if (!System.Text.RegularExpressions.Regex.IsMatch(id, @"\Ases_[a-zA-Z0-9]+\z")) throw new IOException("Invalid OpenCode session ID.");

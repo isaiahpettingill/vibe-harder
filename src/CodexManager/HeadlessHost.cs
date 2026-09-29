@@ -18,9 +18,9 @@ public static class HeadlessHost
         {
             if (!runtimes.TryGetValue(chat.Id, out var runtime))
             {
-                runtime = new(chat, workspace, store, AgentProviders.Command(store, workspace, chat.Provider));
+                runtime = new(chat, workspace, store, AgentProviders.LaunchCommand(store, workspace, chat.Provider));
                 runtime.BackendMaintenance = backendMaintenance;
-                runtime.ResolveCommand = () => AgentProviders.Command(store, workspace, chat.Provider);
+                runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
                 runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);
             }

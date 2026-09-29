@@ -6,31 +6,31 @@ namespace CodexManager;
 // One loop per host process. Store and workspace access remain on the caller's
 // dispatcher; only subprocess work runs on the pool. No updates run in a browser.
 public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> workspaces, Func<Workspace, AgentProvider, bool> busy,
-    Func<Workspace, string, CancellationToken, Task<int>>? execute = null)
+    Func<Workspace, string, CancellationToken, Task<int>>? execute = null, Func<Workspace, string, CancellationToken, Task<string>>? resolve = null)
 {
+    // Injected executors (tests) get a fixed version rather than querying npm.
+    private readonly Func<Workspace, string, CancellationToken, Task<string>> resolve = resolve ?? (execute is null
+        ? (workspace, command, token) => Hosts.Capture(Hosts.Agent(workspace, command), TimeSpan.FromMinutes(1)).WaitAsync(token)
+        : (_, _, _) => Task.FromResult("1.0.0"));
     public const string EnabledKey = "autoUpdateBackends";
     public static bool Enabled(Store store) => store.Setting(EnabledKey) != "0";
     private readonly ConcurrentDictionary<string, DateTimeOffset> nextCheck = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> gates = new();
     public string LastSummary { get; private set; } = "";
-    // Update is null when the adapter bundles its agent: refreshing the npm package keeps it
-    // current, and the user's own installation is left alone because nothing launches it.
-    public static (string Executable, string? Update, string? Adapter) Plan(AgentProvider provider) => provider switch
+    // Update is null when the adapter bundles its agent (see BundledPackages): the user's own
+    // installation is left alone because nothing launches it.
+    public static (string Executable, string? Update) Plan(AgentProvider provider) => provider switch
     {
-        AgentProvider.Codex => ("codex", null, "@agentclientprotocol/codex-acp"),
-        AgentProvider.Claude => ("claude", null, "@agentclientprotocol/claude-agent-acp"),
-        AgentProvider.OpenCode => ("opencode", "opencode upgrade", null),
-        AgentProvider.VTCode => ("vtcode", "vtcode update", null),
-        AgentProvider.Dirac => ("dirac", null, "dirac-cli"),
+        AgentProvider.Codex => ("codex", null),
+        AgentProvider.Claude => ("claude", null),
+        AgentProvider.OpenCode => ("opencode", "opencode upgrade"),
+        AgentProvider.VTCode => ("vtcode", "vtcode update"),
+        AgentProvider.Dirac => ("dirac", null),
         // pi-acp runs the installed pi, so Pi still needs a system update.
-        AgentProvider.Pi => ("pi", "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest", "pi-acp"),
-        AgentProvider.Cline => ("cline", "npm install -g cline@latest", null),
+        AgentProvider.Pi => ("pi", "npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest"),
+        AgentProvider.Cline => ("cline", "npm install -g cline@latest"),
         _ => throw new ArgumentOutOfRangeException(nameof(provider))
     };
-    // Must name the same packages as the launch command so npx refreshes that install.
-    public static string AdapterRefresh(AgentProvider provider) => provider == AgentProvider.Codex
-        ? "npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- node -e 0"
-        : "npx -y --package=" + Plan(provider).Adapter + "@latest -- node -e 0";
     public async Task Run(CancellationToken token)
     {
         try
@@ -57,7 +57,10 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
         // Updates are opportunistic. One that is slow or hung (network, npm lock, a busy
         // environment) finishes in the background instead of stalling every chat that
         // launches this provider; it is never killed mid-install on the launch's behalf.
-        _ = Task.Run(async () =>
+        // Not awaited: the check keeps running on this context (Store access stays on the
+        // dispatcher) while the launch waits for it only up to LaunchWait.
+        _ = CheckForLaunch();
+        async Task CheckForLaunch()
         {
             var held = false;
             try
@@ -73,7 +76,7 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                 // Normally hold the gate through the launch so a background update cannot race it.
                 if (held) { await Task.WhenAny(launched.Task, Task.Delay(TimeSpan.FromSeconds(10), CancellationToken.None)); gate.Release(); }
             }
-        }, CancellationToken.None);
+        }
         try
         {
             await Task.WhenAny(checkedForLaunch.Task, Task.Delay(LaunchWait, token));
@@ -104,13 +107,15 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                 if (gate is not null) await gate.WaitAsync(token);
                 try
                 {
-                    if (busy(environment, provider.Provider)) { deferred = true; continue; }
-                    if (!force && nextCheck.TryGetValue(key, out var next) && next > DateTimeOffset.UtcNow) continue;
-                    nextCheck[key] = DateTimeOffset.UtcNow.AddHours(6);
                     var plan = Plan(provider.Provider);
                     var run = execute ?? Execute;
                     var failed = false;
-                    if (await run(environment, ProcessProbe(provider.Provider, OperatingSystem.IsWindows() && !environment.IsWsl), token) != 0)
+                    // System installs are replaced in place, so wait until nothing runs them.
+                    // Bundled packages install side by side and can update while chats run.
+                    if (plan.Update is not null && busy(environment, provider.Provider)) { deferred = true; continue; }
+                    if (!force && nextCheck.TryGetValue(key, out var next) && next > DateTimeOffset.UtcNow) continue;
+                    nextCheck[key] = DateTimeOffset.UtcNow.AddHours(6);
+                    if (plan.Update is not null && await run(environment, ProcessProbe(provider.Provider, OperatingSystem.IsWindows() && !environment.IsWsl), token) != 0)
                     { deferred = true; nextCheck.TryRemove(key, out _); continue; }
                     if (plan.Update is { } update)
                     {
@@ -120,12 +125,10 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
                         else if (!installed && (installProvider is not null || force))
                             await BackendInstallers.Install(environment, provider.Provider, run, token);
                     }
-                    // Resolve latest npm adapters without starting an agent or sending a prompt.
-                    if (plan.Adapter is not null)
+                    if (BundledPackages.For(provider.Provider) is { Length: > 0 } packages)
                     {
-                        if (await run(environment, "npm --version", token) == 0)
-                            failed |= await run(environment, AdapterRefresh(provider.Provider), token) != 0;
-                        else throw new IOException("Node.js and npm are required for this ACP adapter.");
+                        if (await run(environment, "npm --version", token) != 0) throw new IOException("Node.js and npm are required for this ACP adapter.");
+                        failed |= !await InstallLatest(environment, provider.Provider, packages, run, token);
                     }
                     store.Setting("backendUpdate:" + key, failed ? "Update failed; will retry." : "Checked " + DateTimeOffset.Now.ToString("g"));
                     if (failed) { failures.Add(key); nextCheck[key] = DateTimeOffset.UtcNow.AddMinutes(30); }
@@ -142,6 +145,17 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
             }
         LastSummary = failures.Count > 0 ? "Backend updates need attention: " + string.Join(", ", failures) + ". See Agents settings."
             : deferred ? "Backend checks completed; busy agents will be checked when idle." : "Enabled backend checks completed.";
+    }
+    // Installs the newest versions as a fresh set and pins them only once that set runs, so a
+    // bad publish or interrupted install never replaces the working one. No agent is started.
+    private async Task<bool> InstallLatest(Workspace environment, AgentProvider provider, string[] packages, Func<Workspace, string, CancellationToken, Task<int>> run, CancellationToken token)
+    {
+        var versions = new Dictionary<string, string>();
+        foreach (var package in packages) versions[package] = BundledPackages.ParseVersion(await resolve(environment, BundledPackages.Lookup(package), token));
+        if (packages.All(package => BundledPackages.Pinned(store, environment, package) == versions[package])) return true;
+        if (await run(environment, BundledPackages.Install(provider, versions), token) != 0) return false;
+        BundledPackages.Pin(store, environment, versions);
+        return true;
     }
     public static string ProcessProbe(AgentProvider provider, bool windows)
     {

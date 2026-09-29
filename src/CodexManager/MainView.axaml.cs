@@ -278,7 +278,7 @@ public partial class MainView : UserControl
     {
         try
         {
-            var found = await ChatHistory.Discover(owner, AgentProviders.Command(store, owner, provider), discoveryLifetime.Token, provider, needsLogin => Dispatcher.UIThread.Post(() => { if (!closing) { authentication[$"{owner.Distro}:{provider}"] = needsLogin; UpdateControls(); } }));
+            var found = await ChatHistory.Discover(owner, AgentProviders.LaunchCommand(store, owner, provider), discoveryLifetime.Token, provider, needsLogin => Dispatcher.UIThread.Post(() => { if (!closing) { authentication[$"{owner.Distro}:{provider}"] = needsLogin; UpdateControls(); } }));
             if (closing) return "";
             var added = 0;
             foreach (var chat in found)
@@ -722,10 +722,10 @@ public partial class MainView : UserControl
     {
         if (!runtimes.TryGetValue(chat.Id, out var runtime))
         {
-            runtime = new(chat, owner, store, AgentProviders.Command(store, owner, chat.Provider));
+            runtime = new(chat, owner, store, AgentProviders.LaunchCommand(store, owner, chat.Provider));
             if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
                 runtime.BackendMaintenance = BackendMaintenance;
-            runtime.ResolveCommand = () => AgentProviders.Command(store, owner, chat.Provider);
+            runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, owner, chat.Provider);
             runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);

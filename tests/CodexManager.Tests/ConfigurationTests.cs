@@ -30,8 +30,18 @@ public class ConfigurationTests
         Assert.Equal("codex", AgentProviders.Start(workspace, Hosts.DefaultAdapter, AgentProvider.Codex).Environment["CODEX_PATH"]);
         // A custom launcher without its own Codex package must keep the adapter's bundled binary.
         Assert.False(AgentProviders.Start(workspace, "my-wrapper codex-acp", AgentProvider.Codex).Environment.ContainsKey("CODEX_PATH"));
-        Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- node -e 0", BackendUpdates.AdapterRefresh(AgentProvider.Codex));
-        Assert.StartsWith(Hosts.DefaultAdapter[..^"codex-acp".Length], BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+        // Launches run the pinned set once the updater has installed it; the settings field does not.
+        BundledPackages.Pin(store, workspace, new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.0.0", ["@openai/codex"] = "0.159.1" });
+        var pinned = AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex);
+        Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@2.0.0 --package=@openai/codex@0.159.1 -- codex-acp", pinned);
+        Assert.Equal("codex", AgentProviders.Start(workspace, pinned, AgentProvider.Codex).Environment["CODEX_PATH"]);
+        Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+        Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@2.0.0 --package=@openai/codex@0.159.1 -- codex --version",
+            BundledPackages.Install(AgentProvider.Codex, new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.0.0", ["@openai/codex"] = "0.159.1" }));
+        // Pins apply per environment and never to custom commands.
+        Assert.Equal(Hosts.DefaultAdapter, AgentProviders.LaunchCommand(store, new Workspace("d", "WSL", "/tmp", "Debian"), AgentProvider.Codex));
+        store.Setting(key, "my-wrapper codex-acp");
+        Assert.Equal("my-wrapper codex-acp", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
     }
 
     [Fact]

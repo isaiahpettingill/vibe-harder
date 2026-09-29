@@ -36,6 +36,9 @@ public static class AgentProviders
         if (IsPreviousDefault(provider, command?.Trim())) store.Setting(key, command = Get(provider).DefaultCommand);
         return command ?? Get(provider).DefaultCommand;
     }
+    // What actually runs: the configured command with bundled packages at their pinned versions.
+    public static string LaunchCommand(Store store, Workspace workspace, AgentProvider provider) =>
+        BundledPackages.Apply(store, workspace, provider, Command(store, workspace, provider));
     private static bool IsPreviousDefault(AgentProvider provider, string? command) => provider switch
     {
         AgentProvider.Codex => command is "npx -y @agentclientprotocol/codex-acp@1.11.0" or "npx -y @agentclientprotocol/codex-acp@1.13.0" or "npx -y @agentclientprotocol/codex-acp@latest",

@@ -153,7 +153,13 @@ public sealed class AcpClient : IAsyncDisposable
     {
         if (Interlocked.Exchange(ref disposed, 1) != 0) { await Drained(); return; }
         lifetime.Cancel();
-        await Task.Run(() => { try { process.StandardInput.Close(); if (!process.HasExited) process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or IOException or System.ComponentModel.Win32Exception) { } }).WaitAsync(TimeSpan.FromSeconds(5)).ContinueWith(_ => { }, TaskScheduler.Default);
+        // Kill before closing input: closing flushes, and a write already stuck on an agent that
+        // stopped reading would block the close forever and leave the agent running.
+        await Task.Run(() =>
+        {
+            try { if (!process.HasExited) process.Kill(true); } catch (Exception error) when (error is InvalidOperationException or System.ComponentModel.Win32Exception) { }
+            try { process.StandardInput.Close(); } catch (Exception error) when (error is InvalidOperationException or IOException or ObjectDisposedException) { }
+        }).WaitAsync(TimeSpan.FromSeconds(5)).ContinueWith(_ => { }, TaskScheduler.Default);
         await Drained();
         process.Dispose();
     }

@@ -2,6 +2,8 @@ namespace CodexManager.Tests;
 
 public class BackendUpdateTests
 {
+    // Injected executors resolve every bundled package to 1.0.0.
+    private static string Installed(AgentProvider provider) => BundledPackages.Install(provider, BundledPackages.For(provider).ToDictionary(p => p, _ => "1.0.0"));
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public async Task ReconnectResolvesCommandAgainWithoutRepeatingRecentUpdate()
     {
@@ -14,7 +16,7 @@ public class BackendUpdateTests
         await using var runtime = new ChatRuntime(chat, workspace, store, command);
         runtime.ResolveCommand = () => { resolutions++; return resolved; };
         runtime.BackendMaintenance = new BackendUpdates(store, () => [workspace], (_, _) => runtime.HasBackendProcess, (_, update, _) =>
-        { if (update == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) { Assert.False(runtime.HasBackendProcess); updates++; } return Task.FromResult(0); });
+        { if (update == Installed(AgentProvider.Codex)) { Assert.False(runtime.HasBackendProcess); updates++; } return Task.FromResult(0); });
         await runtime.Connect();
         Assert.DoesNotContain(chat.ConfigOptions, c => c.Id == "mode");
         resolved += " --access";
@@ -53,13 +55,13 @@ public class BackendUpdateTests
             Assert.Equal("Debian", environment.Distro); commands.Add(command); return Task.FromResult(0);
         });
         await updater.BeforeStart(owner, AgentProvider.Codex, () => active = true, TestContext.Current.CancellationToken);
-        Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+        Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
         var startedSecond = false;
         await updater.BeforeStart(owner, AgentProvider.Codex, () => startedSecond = true, TestContext.Current.CancellationToken);
-        Assert.True(startedSecond); Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+        Assert.True(startedSecond); Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
         active = false;
         await updater.BeforeStart(owner, AgentProvider.Codex, () => { }, TestContext.Current.CancellationToken);
-        Assert.Single(commands, c => c == BackendUpdates.AdapterRefresh(AgentProvider.Codex));
+        Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
     }
     [Fact]
     public async Task SlowUpdateOfAnotherProviderDoesNotDelayStartingAnAgent()
@@ -70,7 +72,7 @@ public class BackendUpdateTests
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var updater = new BackendUpdates(store, () => [], (_, _) => false, async (_, command, token) =>
         {
-            if (command == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) { updating.SetResult(); await release.Task.WaitAsync(token); }
+            if (command == Installed(AgentProvider.Codex)) { updating.SetResult(); await release.Task.WaitAsync(token); }
             return 0;
         });
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
@@ -93,7 +95,7 @@ public class BackendUpdateTests
         var hung = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var updater = new BackendUpdates(store, () => [], (_, _) => false, async (_, command, token) =>
         {
-            if (command == BackendUpdates.AdapterRefresh(AgentProvider.Codex)) await hung.Task.WaitAsync(token);
+            if (command == Installed(AgentProvider.Codex)) await hung.Task.WaitAsync(token);
             return 0;
         }) { LaunchWait = TimeSpan.FromMilliseconds(200) };
         var owner = new Workspace("w", "Local", store.DirectoryPath);
@@ -114,13 +116,14 @@ public class BackendUpdateTests
     public async Task ExternalProcessesPreventBackendUpdates()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("backend-external-").FullName);
-        var probe = BackendUpdates.ProcessProbe(AgentProvider.Codex, OperatingSystem.IsWindows());
+        store.Setting(AgentProviders.EnabledKey(AgentProvider.Pi), "1");
+        var probe = BackendUpdates.ProcessProbe(AgentProvider.Pi, OperatingSystem.IsWindows());
         List<string> commands = [];
         var updater = new BackendUpdates(store, () => [], (_, _) => false, (_, command, _) =>
         { commands.Add(command); return Task.FromResult(command == probe ? 1 : 0); });
         var started = false;
-        await updater.BeforeStart(new("w", "Local", store.DirectoryPath), AgentProvider.Codex, () => started = true, TestContext.Current.CancellationToken);
-        Assert.True(started); Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
+        await updater.BeforeStart(new("w", "Local", store.DirectoryPath), AgentProvider.Pi, () => started = true, TestContext.Current.CancellationToken);
+        Assert.True(started); Assert.DoesNotContain(BackendUpdates.Plan(AgentProvider.Pi).Update!, commands);
         Assert.Contains("when idle", updater.LastSummary);
     }
     [Fact]
@@ -138,8 +141,8 @@ public class BackendUpdateTests
         });
         await updater.Check(TestContext.Current.CancellationToken, force: true, installProvider: AgentProvider.Pi);
         Assert.True(installed);
-        Assert.Contains(commands, c => c.Contains("--package=pi-acp@latest"));
-        Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
+        Assert.Contains(commands, c => c.Contains("--package=pi-acp@1.0.0"));
+        Assert.DoesNotContain(Installed(AgentProvider.Codex), commands);
     }
     [Fact]
     public async Task BundledAgentsRefreshTheirPackagesWithoutTouchingSystemInstalls()
@@ -152,7 +155,7 @@ public class BackendUpdateTests
         foreach (var provider in new[] { AgentProvider.Codex, AgentProvider.Claude, AgentProvider.Dirac })
         {
             await updater.Check(TestContext.Current.CancellationToken, force: true, installProvider: provider);
-            Assert.Contains(BackendUpdates.AdapterRefresh(provider), commands);
+            Assert.Contains(Installed(provider), commands);
         }
         Assert.DoesNotContain(commands, c => c is "codex --version" or "claude --version" or "dirac --version" || c.Contains("update") || c.Contains("install"));
         Assert.Equal("Enabled backend checks completed.", updater.LastSummary);
@@ -189,16 +192,16 @@ public class BackendUpdateTests
         foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.EnabledKey(provider.Provider), "1");
         var busy = true; List<string> commands = [];
         var updater = new BackendUpdates(store, () => [], (_, p) => busy && p == AgentProvider.Codex, (_, command, _) =>
-        { commands.Add(command); return Task.FromResult(command == BackendUpdates.AdapterRefresh(AgentProvider.Claude) ? 1 : 0); });
+        { commands.Add(command); return Task.FromResult(command == Installed(AgentProvider.Claude) ? 1 : 0); });
         await updater.Check(TestContext.Current.CancellationToken);
-        Assert.DoesNotContain(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
+        Assert.Contains(Installed(AgentProvider.Codex), commands);
         Assert.Contains("opencode upgrade", commands); Assert.Contains("vtcode update", commands);
         Assert.Contains("npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest", commands);
         Assert.Contains("npm install -g cline@latest", commands);
-        Assert.Contains(commands, c => c.Contains("--package=pi-acp@latest"));
+        Assert.Contains(commands, c => c.Contains("--package=pi-acp@1.0.0"));
         Assert.StartsWith("Update failed", store.Setting("backendUpdate:local:Claude"));
         busy = false; await updater.Check(TestContext.Current.CancellationToken);
-        Assert.Contains(BackendUpdates.AdapterRefresh(AgentProvider.Codex), commands);
+        Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
         Assert.Single(commands, c => c == "opencode upgrade");
     }
     [Theory]

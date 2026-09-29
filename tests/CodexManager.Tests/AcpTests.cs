@@ -24,7 +24,13 @@ public class AcpTests
         Assert.Contains("stopped reading", error.Message);
         Assert.False(client.Alive);
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => client.Request("echo", new JsonObject()).WaitAsync(TimeSpan.FromSeconds(5)));
+        var id = ((System.Diagnostics.Process)typeof(AcpClient).GetField("process", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(client)!).Id;
         await client.DisposeAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(15));
+        // The stuck agent must actually be killed, not left running with its pipe held open.
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        bool Running() { try { using var agent = System.Diagnostics.Process.GetProcessById(id); return !agent.HasExited; } catch (ArgumentException) { return false; } }
+        while (Running() && DateTime.UtcNow < deadline) await Task.Delay(50);
+        Assert.False(Running());
     }
     [Fact]
     public async Task RpcCorrelatesConcurrentRequestsAndPropagatesExit()
