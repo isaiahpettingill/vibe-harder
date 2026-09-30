@@ -17,8 +17,18 @@ public sealed class WorkspaceHistory(Store store)
         try
         {
             if (!workspace.IsWsl)
+            {
+                // A disconnected drive is unknown, not proof that the folder was deleted.
+                var root = Path.GetPathRoot(workspace.Path);
+                if (!string.IsNullOrEmpty(root) && !await Task.Run(() => Directory.Exists(root))) return null;
                 return await Task.Run(() => File.GetAttributes(workspace.Path).HasFlag(FileAttributes.Directory));
-            // A failed WSL launch is unknown, not proof that its folder disappeared.
+            }
+            if (!OperatingSystem.IsWindows()) return null;
+            // An uninstalled distro takes the folder with it. If WSL cannot even list
+            // distros, or a launch fails, the answer is unknown rather than deleted.
+            string[] distros;
+            try { distros = await Hosts.Distros(); } catch { return null; }
+            if (!distros.Contains(workspace.Distro, StringComparer.OrdinalIgnoreCase)) return false;
             var result = await Hosts.Capture(Hosts.Info("wsl.exe", "-d", workspace.Distro!, "--exec", "sh", "-c",
                 "if test -d \"$1\"; then printf present; elif test -e \"$1\"; then printf missing; else p=$(dirname \"$1\"); while ! test -e \"$p\"; do n=$(dirname \"$p\"); test \"$n\" = \"$p\" && break; p=$n; done; if test -d \"$p\" && test -x \"$p\"; then printf missing; else printf unknown; fi; fi", "sh", workspace.Path));
             return result.Trim() switch { "present" => true, "missing" => false, _ => null };

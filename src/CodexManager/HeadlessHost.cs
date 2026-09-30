@@ -74,7 +74,7 @@ public static class HeadlessHost
         using var signal = OperatingSystem.IsWindows() ? null : System.Runtime.InteropServices.PosixSignalRegistration.Create(System.Runtime.InteropServices.PosixSignal.SIGTERM, context => { context.Cancel = true; Dispatcher.UIThread.Post(Stop); });
         if (store.Setting("autoResume") == "1")
             foreach (var chat in chats.Where(c => c.InterruptedInput is not null))
-                if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner)
+                if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId && store.Setting("closed:" + w.Id) != "1") is { } owner)
                 { var input = chat.InterruptedInput!; chat.InterruptedInput = null; _ = Runtime(chat, owner).Send(" ", [], autoResume: true); }
         Dispatcher.UIThread.MainLoop(stopped.Token);
     }

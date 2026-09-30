@@ -20,22 +20,34 @@ public static class Hosts
     public static string LocalShellCommand(string command)
     {
         if (OperatingSystem.IsWindows()) return command;
-        var paths = new List<string>();
-        // Finder does not inherit an interactive shell's PATH.
-        var user = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        paths.Add(Path.Combine(user, ".local", "bin"));
-        paths.Add(Path.Combine(user, ".opencode", "bin"));
-        paths.Add(Path.Combine(user, ".bun", "bin"));
-        if (OperatingSystem.IsMacOS()) { paths.Add("/opt/homebrew/bin"); paths.Add("/usr/local/bin"); }
-        return "export PATH=" + Quote(string.Join(':', paths)) + ":\"$PATH\"; " + command;
+        // Finder and desktop launchers do not inherit an interactive shell's PATH.
+        var brew = OperatingSystem.IsMacOS() ? "export PATH=\"/opt/homebrew/bin:/usr/local/bin:$PATH\"\n" : "";
+        return brew + MinimalPath + command;
     }
     public static string Quote(string value) => "'" + value.Replace("'", "'\"'\"'") + "'";
-    public static string WslShellCommand(string command) =>
-        // Login bash does not load zsh/nvm/fnm PATH setup. Read only PATH from
-        // the user's interactive shell; startup banners must never reach ACP stdout.
-        "vibe_agent_path=$(timeout 10s \"${SHELL:-/bin/bash}\" -ilc 'command printenv PATH >&3' 3>&1 >/dev/null 2>/dev/null </dev/null); " +
-        "if [ -n \"$vibe_agent_path\" ]; then export PATH=\"$vibe_agent_path\"; fi; " +
-        "export PATH=\"$HOME/.opencode/bin:$HOME/.local/bin:$HOME/.bun/bin:$PATH\"; exec " + command;
+    // Agents start from the login shell's PATH plus common per-user tool directories
+    // (nvm's default Node, fnm, volta, mise, pnpm, bun, ...). The user's interactive
+    // shell is never run: its startup (nvm, compinit, Windows PATH entries on /mnt/c)
+    // can stall for minutes, ignores SIGTERM, and a stuck launch blocks every chat.
+    // Normalized: a CRLF checkout would otherwise put carriage returns into the shell script.
+    private static readonly string MinimalPath = """
+        vibe_add() { [ -d "$1" ] && case ":$PATH:" in *":$1:"*) ;; *) PATH="$1:$PATH" ;; esac; }
+        vibe_nvm="${NVM_DIR:-$HOME/.nvm}"
+        if [ -d "$vibe_nvm/versions/node" ]; then
+          vibe_default=$(cat "$vibe_nvm/alias/default" 2>/dev/null); vibe_default=${vibe_default#v}
+          vibe_node=$(ls -1 "$vibe_nvm/versions/node" | grep -E "^v${vibe_default}([.]|$)" | sort -V | tail -n 1)
+          [ -n "$vibe_node" ] || vibe_node=$(ls -1 "$vibe_nvm/versions/node" | sort -V | tail -n 1)
+          [ -n "$vibe_node" ] && vibe_add "$vibe_nvm/versions/node/$vibe_node/bin"
+        fi
+        for vibe_dir in /home/linuxbrew/.linuxbrew/bin "$HOME/.cargo/bin" "$HOME/go/bin" "$HOME/.deno/bin" "$HOME/.asdf/shims" \
+          "$HOME/.local/share/mise/shims" "$HOME/.volta/bin" "${FNM_DIR:-$HOME/.local/share/fnm}/aliases/default/bin" \
+          "${PNPM_HOME:-$HOME/.local/share/pnpm}" "${PNPM_HOME:-$HOME/.local/share/pnpm}/bin" "$HOME/.bun/bin" "$HOME/.opencode/bin" "$HOME/.local/bin"; do
+          vibe_add "$vibe_dir"
+        done
+        export PATH
+
+        """.ReplaceLineEndings("\n");
+    public static string WslShellCommand(string command) => MinimalPath + "exec " + command;
     public static string WindowsArgument(string value)
     {
         if (value.Length > 0 && !value.Any(c => char.IsWhiteSpace(c) || c == '"')) return value;

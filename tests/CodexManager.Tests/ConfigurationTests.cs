@@ -33,7 +33,7 @@ public class ConfigurationTests
         // Launches run the pinned set once the updater has installed it; the settings field does not.
         BundledPackages.Pin(store, workspace, new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.0.0", ["@openai/codex"] = "0.159.1" });
         var pinned = AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex);
-        Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@2.0.0 --package=@openai/codex@0.159.1 -- codex-acp", pinned);
+        Assert.Equal("npx -y --prefer-offline --package=@agentclientprotocol/codex-acp@2.0.0 --package=@openai/codex@0.159.1 -- codex-acp", pinned);
         Assert.Equal("codex", AgentProviders.Start(workspace, pinned, AgentProvider.Codex).Environment["CODEX_PATH"]);
         Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
         Assert.Equal("npx -y --package=@agentclientprotocol/codex-acp@2.0.0 --package=@openai/codex@0.159.1 -- codex --version",

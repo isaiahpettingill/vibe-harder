@@ -27,8 +27,12 @@ public static partial class BundledPackages
     public static string Apply(Store store, Workspace workspace, AgentProvider provider, string command)
     {
         if (command != AgentProviders.Get(provider).DefaultCommand) return command;
-        foreach (var package in For(provider))
+        var packages = For(provider);
+        foreach (var package in packages)
             if (Pinned(store, workspace, package) is { } version) command = command.Replace(package + "@latest", package + "@" + version, StringComparison.Ordinal);
+        // A fully pinned set is already installed; launching must not wait on the registry.
+        if (packages.Length > 0 && packages.All(package => Pinned(store, workspace, package) is not null) && command.StartsWith("npx -y ", StringComparison.Ordinal))
+            command = "npx -y --prefer-offline " + command["npx -y ".Length..];
         return command;
     }
     // Installs the exact set (a new npx directory) and runs it; Codex must start its binary.

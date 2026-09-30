@@ -410,7 +410,9 @@ public partial class MainView : UserControl
     }
     private async Task CloseWorkspace(Workspace owner)
     {
-        await SaveAllAsync(); store.Setting("closed:" + owner.Id, "1");
+        store.Setting("closed:" + owner.Id, "1");
+        foreach (var chat in chats.Where(c => c.WorkspaceId == owner.Id && c.InterruptedInput is not null).ToArray()) KeepInterruptedAsDraft(chat);
+        await SaveAllAsync();
         if (workspace?.Id == owner.Id) { ClearChat(); workspace = null; }
         workspaces.Remove(owner);
         if (terminals.Remove(owner.Id, out var shells)) foreach (var shell in shells) shell.Session.Dispose();
@@ -1530,10 +1532,36 @@ public partial class MainView : UserControl
         finally { quitConfirmation = null; }
     }
     public void RequestExit() { exitRequested = true; desktopWindow?.Close(); }
+    // A workspace whose folder or WSL distro was deleted can never connect. Close it
+    // (its chats are kept) instead of retrying its agents on every launch.
+    private async Task ArchiveMissingWorkspaces()
+    {
+        try
+        {
+            var open = workspaces.ToArray();
+            var checks = await Task.WhenAll(open.Select(async owner => (Owner: owner, Exists: await WorkspaceHistory.Exists(owner))));
+            var history = new WorkspaceHistory(store);
+            string[] distros = [];
+            if (open.Any(w => w.IsWsl)) try { distros = await Hosts.Distros(); } catch (Exception error) when (error is IOException or OperationCanceledException or InvalidOperationException) { }
+            foreach (var (owner, exists) in checks)
+            {
+                if (exists != false || closing || !workspaces.Contains(owner)) continue;
+                var operation = CloseWorkspace(owner); workspaceClosures.Add(operation);
+                try { await operation; } finally { workspaceClosures.Remove(operation); }
+                history.Remove(owner);
+                StatusText.Text = owner.IsWsl && !distros.Contains(owner.Distro, StringComparer.OrdinalIgnoreCase)
+                    ? $"Closed {owner.Name}: WSL distro {owner.Distro} is no longer installed."
+                    : $"Closed {owner.Name}: its folder no longer exists.";
+            }
+        }
+        catch (Exception error) when (!closing) { AppDiagnostics.Record("Archive missing workspaces", error); }
+    }
     private async Task OfferInterruptedChats()
     {
-        if (recoveryOffered) return; recoveryOffered = true;
+        if (recoveryOffered || closing) return; recoveryOffered = true;
         var updateResume = DesktopUpdater.ConsumeResumeChats(store, Environment.GetCommandLineArgs().Contains("--updated"));
+        // Never reopen a workspace the user closed: its interrupted requests become drafts.
+        foreach (var chat in chats.Where(c => c.InterruptedInput is not null && !workspaces.Any(w => w.Id == c.WorkspaceId)).ToArray()) KeepInterruptedAsDraft(chat);
         var interrupted = chats.Where(c => c.InterruptedInput is not null).ToArray();
         if (interrupted.Length == 0 || closing) return;
         if (store.Setting("autoResume") == "1" || updateResume.Count > 0)
@@ -1541,9 +1569,7 @@ public partial class MainView : UserControl
             foreach (var chat in interrupted)
             {
                 if (store.Setting("autoResume") != "1" && !updateResume.Contains(chat.Id)) continue;
-                var owner = store.Workspaces().FirstOrDefault(w => w.Id == chat.WorkspaceId);
-                if (owner is null) continue;
-                if (!workspaces.Any(w => w.Id == owner.Id)) { workspaces.Add(owner); store.Setting("closed:" + owner.Id, "0"); BuildWorkspaceTree(); }
+                if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is not { } owner) continue;
                 _ = ResumeInterrupted(chat, owner, chat.InterruptedInput!, updateResume.Contains(chat.Id), automatic: true);
             }
             return;
@@ -1563,25 +1589,36 @@ public partial class MainView : UserControl
             foreach (var (chat, check) in checks.Where(c => c.Check.IsChecked == true))
             {
                 var input = chat.InterruptedInput!;
-                var owner = store.Workspaces().FirstOrDefault(w => w.Id == chat.WorkspaceId);
-                if (owner is null) continue;
-                if (!workspaces.Any(w => w.Id == owner.Id)) { workspaces.Add(owner); store.Setting("closed:" + owner.Id, "0"); BuildWorkspaceTree(); }
+                if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is not { } owner) continue;
                 _ = ResumeInterrupted(chat, owner, input);
             }
         };
         await dialog.ShowDialog(desktopWindow!);
+    }
+    private const int MaxAutomaticResumeAttempts = 20;
+    private void KeepInterruptedAsDraft(Chat chat)
+    {
+        if (chat.InterruptedInput is not { } input) return;
+        chat.RecoverInput(input); chat.InterruptedInput = null;
+        store.Setting("interrupted:" + chat.Id, ""); store.Save(chat);
+        if (ReferenceEquals(current, chat)) Composer.Text = chat.Draft;
     }
     private async Task ResumeInterrupted(Chat chat, Workspace owner, PendingInput input, bool afterUpdate = false, bool automatic = false)
     {
         var runtime = Runtime(chat, owner);
         while (runtime.IsReconnecting || runtime.IsLoadingHistory) { if (closing) return; await Task.Delay(50); }
         if (chat.Busy || closing) return;
-        while (!runtime.IsConnected && !closing)
+        for (var attempt = 1; !runtime.IsConnected && !closing; attempt++)
         {
+            if (!workspaces.Any(w => w.Id == owner.Id)) return;
+            if (owner.IsWsl && attempt > 1 && !(await Hosts.Distros()).Contains(owner.Distro, StringComparer.OrdinalIgnoreCase))
+            { KeepInterruptedAsDraft(chat); chat.Status = $"Automatic resume stopped: WSL distro {owner.Distro} is not installed"; UpdateControls(); return; }
             await runtime.Reconnect();
             if (closing) return;
             if (runtime.IsConnected) break;
             if (chat.NeedsLogin || (!afterUpdate && store.Setting("autoResume") != "1")) return;
+            if (attempt >= MaxAutomaticResumeAttempts)
+            { chat.Status = "Automatic resume stopped after repeated connection failures — resume manually"; UpdateControls(); return; }
             chat.Status = "Waiting to reconnect before automatic resume…"; UpdateControls();
             try { await Task.Delay(TimeSpan.FromSeconds(15), discoveryLifetime.Token); } catch (OperationCanceledException) { return; }
         }

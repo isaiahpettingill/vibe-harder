@@ -81,6 +81,33 @@ public class AutomaticRecoveryTests
         Assert.Null(chat.InterruptedInput); Assert.False(chat.Busy); Assert.False(runtime.IsRecovering);
         Assert.Equal("", store.Setting("interrupted:" + chat.Id));
     }
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public async Task AutomaticResumeNeverReopensAClosedWorkspace()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "codex-closed-resume", Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        string chatId;
+        using (var store = new Store(directory))
+        {
+            store.Setting("autoResume", "1"); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+            store.Save(new Workspace("open", "Open", directory));
+            store.Save(new Workspace("gone", "Removed distro", "/home/me/repo", "RemovedDistro")); store.Setting("closed:gone", "1");
+            var chat = new Chat { WorkspaceId = "gone" }; store.Save(chat); chatId = chat.Id;
+            store.Setting("interrupted:" + chat.Id, "{\"Text\":\"finish the migration\",\"Attachments\":[]}");
+        }
+        var window = new MainWindow(); window.Show();
+        try
+        {
+            await Task.Delay(500, TestContext.Current.CancellationToken);
+            Assert.Single(UiTests.Named<Avalonia.Controls.StackPanel>(window, "WorkspaceTree").Children);
+        }
+        finally { window.Close(); await Task.Delay(300, TestContext.Current.CancellationToken); }
+        using var saved = new Store(directory);
+        Assert.Equal("1", saved.Setting("closed:gone"));
+        Assert.Equal("", saved.Setting("interrupted:" + chatId));
+        // The request is kept as the chat's draft rather than lost.
+        Assert.Equal("finish the migration", saved.Chats().Single(c => c.Id == chatId).Draft);
+    }
     [Fact]
     public void JournalRecoversMissingDatabaseMarkerAndDatabaseRecoversBrokenJournal()
     {

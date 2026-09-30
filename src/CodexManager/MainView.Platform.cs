@@ -80,10 +80,14 @@ public partial class MainView
         desktopStarted = true;
         if (startInTray && !foregroundRequested) window.Hide();
         StartUpdateChecks();
-        if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
-            backendUpdates = BackendMaintenance.Run(discoveryLifetime.Token);
+        var archiving = ArchiveMissingWorkspaces();
         await ConfigureRemoteServer();
         await ConfigureWebServer();
+        // Settle which workspaces still exist before updating or resuming their agents.
+        await archiving;
+        if (closing) return;
+        if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
+            backendUpdates = BackendMaintenance.Run(discoveryLifetime.Token);
         await OfferInterruptedChats();
     }
 
