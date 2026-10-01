@@ -25,7 +25,13 @@ public sealed record Workspace(string Id, string Name, string Path, string? Dist
         return folder.Length > 0 ? folder : path;
     }
     public bool IsWsl => !string.IsNullOrEmpty(Distro);
-    public string Host => IsWsl ? $"WSL · {Distro}" : OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "Linux";
+    // Set for a workspace on a paired computer. Its Id is scoped (remote:<address>:<port>:<id>);
+    // RemoteId is the host's own id. Such workspaces are never saved to the local store.
+    [System.Text.Json.Serialization.JsonIgnore] public RemoteHost? Remote { get; init; }
+    [System.Text.Json.Serialization.JsonIgnore] public string? RemoteId { get; init; }
+    public bool IsRemote => Remote is not null;
+    public string Host => Remote is { } remote ? (IsWsl ? $"{remote.Name} · WSL {Distro}" : remote.Name)
+        : IsWsl ? $"WSL · {Distro}" : OperatingSystem.IsWindows() ? "Windows" : OperatingSystem.IsMacOS() ? "macOS" : "Linux";
     public string Caption => $"{Name}  ·  {Host}";
     public override string ToString() => Caption;
 }
@@ -46,6 +52,10 @@ public sealed class Chat : Observable
     public bool NeedsLogin { get; set; }
     public string Id { get; init; } = Guid.NewGuid().ToString("N");
     public required string WorkspaceId { get; init; }
+    // Set for a chat on a paired computer; see Workspace.Remote. Never saved to the local store.
+    public RemoteHost? Remote { get; init; }
+    public string? RemoteId { get; init; }
+    public bool IsRemote => Remote is not null;
     public string? SessionId { get; set; }
     public AgentProvider Provider { get; init; }
     public string ProviderIcon => AgentProviders.Get(Provider).Icon;

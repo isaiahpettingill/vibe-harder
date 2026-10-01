@@ -9,6 +9,13 @@ public partial class MainView
     public Task ShowHistoryActions(Control anchor, Message? message)
     {
         if (current is not { } chat) return Task.CompletedTask;
+        if (RemoteSessionOf(chat) is { } remote)
+            return HistoryActions.Show(anchor, message, remote.Call, id =>
+            {
+                if (!ReferenceEquals(current, chat)) return;
+                if (id == chat.RemoteId) { remote.ResetMessages(); return; }
+                OpenRemoteChat(chat.Remote!, id);
+            });
         return HistoryActions.Show(anchor, message, request => { request["chatId"] = chat.Id; return remoteSessions.Handle(request); }, id =>
         {
             RefreshChats();

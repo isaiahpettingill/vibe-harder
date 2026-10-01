@@ -31,10 +31,24 @@ public static class AttachmentClipboard
     {
         if (text.Length < LongPasteCharacters && text.AsSpan().Count('\n') < LongPasteLines) return null;
         if (Encoding.UTF8.GetByteCount(text) > AttachmentFiles.MaximumBytes) throw new IOException("Paste less than 20 MB of text.");
+        var used = existing.ToArray();
         var index = 1;
-        while (existing.Any(a => a.Reference == $"[Pasted text #{index}]")) index++;
+        while (used.Any(a => a.Name == $"Pasted text {index}.txt")) index++;
         var name = $"Pasted text {index}.txt";
-        return new(name, "text/plain", text, "file:///" + Uri.EscapeDataString(name), $"[Pasted text #{index}]");
+        // The marker previews the paste so a draft with several of them stays readable.
+        var preview = Preview(text);
+        var reference = $"[\"{preview}\"]";
+        for (var n = 2; used.Any(a => a.Reference == reference); n++) reference = $"[\"{preview}\" #{n}]";
+        return new(name, "text/plain", text, "file:///" + Uri.EscapeDataString(name), reference);
+    }
+    private const int PreviewCharacters = 40;
+    public static string Preview(string text)
+    {
+        var line = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
+        var words = string.Join(' ', line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace('"', '\'');
+        if (words.Length <= PreviewCharacters) return words + (line.Length < text.Trim().Length ? "…" : "");
+        var cut = words.LastIndexOf(' ', PreviewCharacters);
+        return words[..(cut > PreviewCharacters / 2 ? cut : PreviewCharacters)].TrimEnd() + "…";
     }
     private static Attachment Bytes(byte[] bytes, string extension)
     {

@@ -9,6 +9,30 @@ namespace CodexManager.Tests;
 
 public class StreamingTests
 {
+    [Theory]
+    [InlineData(AgentProvider.Claude, 1)]
+    [InlineData(AgentProvider.Codex, 3)]
+    public async Task ClaudeChunksWithFlippingMessageIdsStayOneMessage(AgentProvider provider, int expected)
+    {
+        // Concurrent Claude subagents retag the main reply's chunks with their own message ids.
+        using var store = new Store(Directory.CreateTempSubdirectory("chunk-ids-").FullName);
+        var workspace = new Workspace("w", "Chunks", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w", Provider = provider }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "unused");
+        var update = typeof(ChatRuntime).GetMethod("Update", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, [typeof(System.Text.Json.JsonElement)])!;
+        foreach (var (id, text) in new[] { ("msg_main", "Here's where the "), ("msg_sub1", "Go tests stand: "), ("msg_sub2", "all pass.") })
+            await (Task)update.Invoke(runtime, [System.Text.Json.JsonSerializer.SerializeToElement(new System.Text.Json.Nodes.JsonObject
+            {
+                ["sessionUpdate"] = "agent_message_chunk", ["messageId"] = id,
+                ["content"] = new System.Text.Json.Nodes.JsonObject { ["type"] = "text", ["text"] = text }
+            })])!;
+        var replies = chat.Messages.Where(m => m.Role == "assistant").ToArray();
+        Assert.Equal(expected, replies.Length);
+        Assert.Equal("Here's where the Go tests stand: all pass.", string.Concat(replies.Select(m => m.Text)));
+        // The latest id is kept so history points still resolve.
+        Assert.Equal("msg_sub2", replies[^1].ProviderMessageId);
+    }
+
     [AvaloniaFact]
     public void IconButtonsUseRealButtonTemplateAndMouseHitArea()
     {
@@ -40,6 +64,8 @@ public class StreamingTests
             var until = DateTime.UtcNow.AddSeconds(10);
             while (!chat.Messages.Any(m => m.Text == "First partial answer") && DateTime.UtcNow < until) await Task.Delay(20);
             Assert.False(sending.IsCompleted); Assert.True(chat.Busy);
+            // ChatMarkdown renders on a short timer, so wait for the visual rather than racing it.
+            while (!messages.GetVisualDescendants().OfType<ChatMarkdown>().Any(m => m.Text == "First partial answer") && DateTime.UtcNow < until && !sending.IsCompleted) await Task.Delay(20);
             Assert.Contains(messages.GetVisualDescendants().OfType<ChatMarkdown>(), m => m.Text == "First partial answer");
             await sending; Assert.Equal("First partial answer and final answer", chat.Messages.Last().Text);
         }

@@ -11,13 +11,14 @@ public partial class MainView
         ChatSearch.Search = async (query, token) =>
         {
             if (current is not { } chat) return [];
+            if (RemoteSessionOf(chat) is { } remote) return await remote.Search(query);
             foreach (var message in chat.Messages) store.SaveMessage(chat, message);
             return await store.SearchMessagesAsync(chat, query, token);
         };
         ChatSearch.Navigate = async (hit, token) =>
         {
             if (current is not { } chat) return;
-            var page = await store.ReadPageAsync(chat, before: hit.Sequence + 25, token: token);
+            var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(hit.Sequence + 25, newer: false) : await store.ReadPageAsync(chat, before: hit.Sequence + 25, token: token);
             token.ThrowIfCancellationRequested();
             if (!ReferenceEquals(current, chat)) return;
             pageLoad?.Cancel(); viewingHistory = true;

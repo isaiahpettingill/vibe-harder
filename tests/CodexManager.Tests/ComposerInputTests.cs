@@ -65,9 +65,28 @@ public class ComposerInputTests
             var drop = new DataTransfer(); drop.Add(DataTransferItem.CreateFile(PortalFile.Create(bytes)));
             input.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, drop, input, default, KeyModifiers.None));
             await Wait(() => attachments.ItemCount == 2);
+            // Dropping onto the transcript attaches too, not only onto the composer.
+            var transcript = window.FindControl<ListBox>("MessageList")!;
+            var onTranscript = new DataTransfer(); onTranscript.Add(DataTransferItem.CreateFile(PortalFile.Create(bytes)));
+            transcript.RaiseEvent(new DragEventArgs(DragDrop.DropEvent, onTranscript, transcript, default, KeyModifiers.None));
+            await Wait(() => attachments.ItemCount == 3);
             Assert.All(attachments.Items.OfType<Attachment>(), a => Assert.NotNull(a.Thumbnail));
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+    [Fact]
+    public void PastePreviewUsesTheOpeningWordsAndEditedCopiesAreSent()
+    {
+        Assert.Equal("If I paste a super long amount of text…", AttachmentClipboard.Preview("\n  If I paste a super   long amount of text into a chat it should save\nmore"));
+        Assert.Equal("short line…", AttachmentClipboard.Preview("short line\nsecond line"));
+        var pasted = AttachmentClipboard.LongText(new string('x', 10) + "\n" + new string('y', 6000), [])!;
+        var path = AttachmentFiles.WriteCopy(pasted);
+        Assert.Equal(pasted.Data, File.ReadAllText(path));
+        Assert.Same(pasted, AttachmentFiles.WithSavedEdits(pasted));
+        File.WriteAllText(path, "edited in the text editor"); File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddSeconds(5));
+        var sent = AttachmentFiles.WithSavedEdits(pasted);
+        Assert.Equal("edited in the text editor", sent.Data);
+        Assert.Equal((pasted.Name, pasted.Reference), (sent.Name, sent.Reference));
     }
     [AvaloniaFact]
     public async Task LongPasteBecomesTextAttachmentAndLargeDraftsStayEditable()
@@ -84,14 +103,14 @@ public class ComposerInputTests
             await Wait(() => input.Text == "a short text"); Assert.Equal(0, attachments.ItemCount);
             var longText = string.Join('\n', Enumerable.Range(0, 400).Select(i => "pasted line " + i));
             await window.Clipboard!.SetTextAsync(longText); input.Text = "see "; Key(input, Avalonia.Input.Key.V, KeyModifiers.Control);
-            await Wait(() => input.Text == "see [Pasted text #1]");
+            await Wait(() => input.Text == "see [\"pasted line 0…\"]");
             var pasted = Assert.IsType<Attachment>(Assert.Single(attachments.Items));
-            Assert.Equal(("Pasted text 1.txt", "text/plain", longText, "[Pasted text #1]"), (pasted.Name, pasted.MimeType, pasted.Data, pasted.Reference));
+            Assert.Equal(("Pasted text 1.txt", "text/plain", longText, "[\"pasted line 0…\"]"), (pasted.Name, pasted.MimeType, pasted.Data, pasted.Reference));
             Assert.Equal(longText, pasted.ToContent()["resource"]!["text"]!.GetValue<string>());
             await window.Clipboard!.SetTextAsync(longText + "!"); Key(input, Avalonia.Input.Key.Insert, KeyModifiers.Shift);
-            await Wait(() => input.Text == "see [Pasted text #1][Pasted text #2]");
+            await Wait(() => input.Text == "see [\"pasted line 0…\"][\"pasted line 0…\" #2]");
             window.UpdateLayout(); Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(window).OfType<IconButton>().First(b => ReferenceEquals(b.Tag, pasted)).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            Assert.Equal("see [Pasted text #2]", input.Text); Assert.Equal(1, attachments.ItemCount);
+            Assert.Equal("see [\"pasted line 0…\" #2]", input.Text); Assert.Equal(1, attachments.ItemCount);
 
             // A huge typed draft only lays out visible lines, so edits and relayout stay fast.
             var draft = string.Join('\n', Enumerable.Range(0, 50_000).Select(i => "typed line " + i));

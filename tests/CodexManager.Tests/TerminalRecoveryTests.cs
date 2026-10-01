@@ -75,6 +75,20 @@ public class TerminalRecoveryTests
     }
 
     [AvaloniaFact]
+    public async Task BrokerExitsOnceIdleAfterItsLastRequest()
+    {
+        // The idle decision is re-armed after each request completes; handling requests
+        // concurrently once left the broker waiting for a connection forever.
+        var profile = Directory.CreateTempSubdirectory("terminal-idle-").FullName;
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var server = TerminalBroker.Serve(profile, lifetime.Token, idleExit: TimeSpan.FromMilliseconds(400));
+        for (var i = 0; i < 5; i++)
+            await Assert.ThrowsAnyAsync<IOException>(() => TerminalBroker.Request(profile, new JsonObject { ["method"] = "read", ["id"] = "missing", ["offset"] = 0L }, lifetime.Token));
+        await server.WaitAsync(TimeSpan.FromSeconds(10), TestContext.Current.CancellationToken);
+        Assert.False(lifetime.IsCancellationRequested);
+    }
+
+    [AvaloniaFact]
     public async Task RemoteTerminalRetriesTransientHostErrors()
     {
         var failing = true;

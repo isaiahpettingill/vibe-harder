@@ -323,19 +323,21 @@ public class RemotePairingTests
         var window = new MainWindow(store); window.Show();
         try
         {
-            window.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Remote · Test host (localhost)")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-            await Wait(() => window.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == "Chats_remote_remote"));
-            var remote = window.GetLogicalDescendants().OfType<RemoteView>().Single();
-            remote.GetLogicalDescendants().OfType<ComposerEditor>().Single(t => t.Name == "RemoteComposer").Text = "Remote draft";
+            // Desktop shows the host's chats in its own sidebar groups and chat pane.
+            var remoteListName = "Chats_remote:localhost:" + port + ":remote";
+            await Wait(() => window.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == remoteListName));
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
+            var first = UiTests.Named<ListBox>(window, remoteListName); first.SelectedItem = first.Items[0];
+            composer.Text = "Remote draft";
             for (var i = 0; i < 3; i++)
             {
                 var local = UiTests.Named<ListBox>(window, "Chats_local"); local.SelectedItem = local.Items[0];
-                Assert.False(remote.IsVisible);
-                var remoteList = UiTests.Named<ListBox>(window, "Chats_remote_remote"); Assert.Single(remoteList.Items);
+                Assert.Equal("", composer.Text);
+                var remoteList = UiTests.Named<ListBox>(window, remoteListName); Assert.Single(remoteList.Items);
+                Assert.Null(remoteList.SelectedItem);
                 remoteList.SelectedItem = remoteList.Items[0];
-                Assert.True(remote.IsVisible); Assert.Equal("remote-chat", remote.SelectedChatId);
-                Assert.Equal("Remote draft", remote.GetLogicalDescendants().OfType<ComposerEditor>().Single(t => t.Name == "RemoteComposer").Text);
-                Assert.Same(remote, window.GetLogicalDescendants().OfType<RemoteView>().Single());
+                Assert.Equal("Remote draft", composer.Text);
+                Assert.Empty(window.GetLogicalDescendants().OfType<RemoteView>());
             }
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }

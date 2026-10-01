@@ -4,7 +4,7 @@ using Avalonia.Threading;
 
 namespace CodexManager;
 
-public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IAsyncDisposable
+public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IChatSession
 {
     private AcpClient? client;
     public BackendUpdates? BackendMaintenance { get; set; }
@@ -694,7 +694,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (kind == "user_message_chunk") activePlan = null;
             var protocolId = update.TryGetProperty("messageId", out var messageId) && messageId.ValueKind == JsonValueKind.String ? messageId.GetString() : null;
             var last = chat.Messages.LastOrDefault();
-            if (last?.Role != role || protocolId is not null && last.ProviderMessageId is not null && last.ProviderMessageId != protocolId) { Add(role, ""); last = chat.Messages.Last(); }
+            // claude-agent-acp tags streamed chunks with whichever stream most recently started a
+            // message, so concurrent subagents flip the id mid-sentence. Its ids still identify
+            // history points, but they cannot delimit consecutive text from the same role.
+            var idDelimits = chat.Provider != AgentProvider.Claude;
+            if (last?.Role != role || idDelimits && protocolId is not null && last.ProviderMessageId is not null && last.ProviderMessageId != protocolId) { Add(role, ""); last = chat.Messages.Last(); }
             if (protocolId is not null) last.ProviderMessageId = protocolId;
             last.Text += content.GetProperty("text").GetString();
         }

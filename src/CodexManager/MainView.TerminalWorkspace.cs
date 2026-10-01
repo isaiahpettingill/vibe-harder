@@ -12,8 +12,9 @@ public partial class MainView
         if (terminalPaneWorkspace == id) return;
         if (terminalPaneWorkspace is { } previous)
             terminalPaneStates[previous] = (TerminalDrawer.IsVisible, TerminalTabs.SelectedItem, TerminalDrawer.Width);
+        if (terminalPaneWorkspace is { } hidden && remoteTerminalTabs.TryGetValue(hidden, out var hiddenTab)) (hiddenTab.Content as RemoteTerminalView)?.SetVisible(false);
         terminalPaneWorkspace = id;
-        var tabs = terminals.GetValueOrDefault(id)?.Select(t => t.Tab).ToArray() ?? [];
+        var tabs = terminals.GetValueOrDefault(id)?.Select(t => t.Tab).ToArray() ?? (remoteTerminalTabs.TryGetValue(id, out var remoteTab) ? [remoteTab] : []);
         TerminalTabs.ItemsSource = tabs;
         if (terminalPaneStates.TryGetValue(id, out var state))
         {

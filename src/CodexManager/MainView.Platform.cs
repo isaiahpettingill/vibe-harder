@@ -94,7 +94,7 @@ public partial class MainView
     private Task backendUpdates = Task.CompletedTask;
     private BackendUpdates? backendMaintenance;
     private BackendUpdates BackendMaintenance => backendMaintenance ??= new BackendUpdates(store, () => workspaces.ToArray(), (owner, provider) =>
-        chats.Any(c => c.Provider == provider && runtimes.TryGetValue(c.Id, out var runtime) && runtime.HasBackendProcess && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)));
+        chats.Any(c => c.Provider == provider && runtimes.TryGetValue(c.Id, out var runtime) && runtime is ChatRuntime { HasBackendProcess: true } && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)));
 
     private void InitializeLayout()
     {

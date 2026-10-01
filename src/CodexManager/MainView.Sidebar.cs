@@ -15,7 +15,7 @@ public partial class MainView
     private readonly Dictionary<string, (StackPanel Group, ListBox List, IconButton Collapse, string Signature)> remoteWorkspaceVisuals = [];
     private bool applyingRemoteSidebar;
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
-    private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null)
+    private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> archiveChat, string? scope = null, string? colorId = null, RemoteView? remote = null, Action<string, string, bool>? move = null)
     {
         var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
         row.Tapped += (_, e) =>
@@ -23,7 +23,7 @@ public partial class MainView
             if (!SidebarTouchSwipe && !chat.Archived && e.Source is Visual source && source is not Button && !source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) CollapseSidebar();
         };
         if (!chat.Archived) EnableHoldReorder(row, scope ?? "chats:" + chat.WorkspaceId, chat.Id, () => { RefreshChats(); RefreshRemoteSidebar(); },
-            move: remote is null ? null : (source, target, after) => _ = remote.Reorder("chats:" + chat.WorkspaceId, source, target, after));
+            move: move ?? (remote is null ? null : (source, target, after) => _ = remote.Reorder("chats:" + chat.WorkspaceId, source, target, after)));
         ColorMenu(row, "chatColor:" + (colorId ?? chat.Id), "Chat input border color", () => { ApplyChatColors(); foreach (var view in remoteViews.Values) view.ApplyColors(); });
         row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
         var details = new StackPanel { Spacing = 3 };

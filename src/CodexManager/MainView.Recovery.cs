@@ -50,7 +50,7 @@ public partial class MainView
                 {
                     var draft = Composer.Text;
                     MessageList.ItemsSource = null;
-                    if (!chat.Busy)
+                    if (!chat.Busy && !chat.IsRemote)
                     {
                         foreach (var message in chat.Messages) store.SaveMessage(chat, message);
                         await store.FlushAsync();

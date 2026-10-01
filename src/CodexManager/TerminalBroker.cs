@@ -95,10 +95,15 @@ public static class TerminalBroker
         var bytes = new byte[length]; await stream.ReadExactlyAsync(bytes, token);
         return JsonNode.Parse(bytes) ?? throw new IOException("Empty terminal request.");
     }
-    public static async Task Serve(string profile, CancellationToken token)
+    public static async Task Serve(string profile, CancellationToken token, TimeSpan? idleExit = null)
     {
         var shells = new Dictionary<string, Shell>();
         var serial = new SemaphoreSlim(1);
+        // Exit once every shell has ended and no request arrives for a while. Re-armed after each
+        // request completes: requests run concurrently, so the loop cannot decide this itself.
+        using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
+        void ArmIdle() => idle.CancelAfter(shells.Values.All(s => s.Exited) ? idleExit ?? TimeSpan.FromMinutes(1) : Timeout.InfiniteTimeSpan);
+        await Dispatcher.UIThread.InvokeAsync(ArmIdle);
         // On Unix a pipe is a socket whose listener closes with its last server instance, so
         // recreating a single instance per request reset every queued client ("Broken pipe").
         // Keep an instance listening while earlier connections are answered.
@@ -107,12 +112,11 @@ public static class TerminalBroker
         {
             while (!token.IsCancellationRequested)
             {
-                using var idle = CancellationTokenSource.CreateLinkedTokenSource(token);
-                if (await Dispatcher.UIThread.InvokeAsync(() => shells.Values.All(s => s.Exited))) idle.CancelAfter(TimeSpan.FromMinutes(1));
                 try { await pipe.WaitForConnectionAsync(idle.Token); }
                 catch (OperationCanceledException) when (!token.IsCancellationRequested) { return; }
+                idle.CancelAfter(Timeout.InfiniteTimeSpan);
                 var connected = pipe; pipe = Listen(profile);
-                _ = Respond(connected, profile, shells, serial, token);
+                _ = Respond(connected, profile, shells, serial, token, ArmIdle);
             }
         }
         finally
@@ -123,7 +127,7 @@ public static class TerminalBroker
     }
     private static NamedPipeServerStream Listen(string profile) =>
         new(PipeName(profile), PipeDirection.InOut, NamedPipeServerStream.MaxAllowedServerInstances, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-    private static async Task Respond(NamedPipeServerStream pipe, string profile, Dictionary<string, Shell> shells, SemaphoreSlim serial, CancellationToken token)
+    private static async Task Respond(NamedPipeServerStream pipe, string profile, Dictionary<string, Shell> shells, SemaphoreSlim serial, CancellationToken token, Action completed)
     {
         await using (pipe)
         {
@@ -141,6 +145,8 @@ public static class TerminalBroker
             }
             catch (Exception error) when (error is IOException or OperationCanceledException or System.Text.Json.JsonException) { Trace.WriteLine(error.Message); }
         }
+        try { await Dispatcher.UIThread.InvokeAsync(completed); }
+        catch (ObjectDisposedException) { /* The broker already exited. */ }
     }
     private sealed class Shell
     {

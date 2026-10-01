@@ -78,6 +78,7 @@ public sealed class Store : IDisposable
     }
     public void Save(Workspace w)
     {
+        if (w.IsRemote) return;
         if (workspaceCache is not null) { workspaceCache.RemoveAll(existing => existing.Id == w.Id); workspaceCache.Add(w); }
         Execute("INSERT INTO workspaces VALUES($id,$name,$path,$distro) ON CONFLICT(id) DO UPDATE SET name=$name,path=$path,distro=$distro", ("$id", w.Id), ("$name", w.Name), ("$path", w.Path), ("$distro", w.Distro));
     }
@@ -123,6 +124,7 @@ public sealed class Store : IDisposable
     }
     public async Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false)
     {
+        if (chat.IsRemote) return [];
         var id = chat.Id; var provider = chat.Provider; var connectionString = db.ConnectionString;
         await FlushAsync().WaitAsync(token);
         // Microsoft.Data.Sqlite performs its async ADO.NET calls synchronously; isolate the page read from the UI thread.
@@ -202,17 +204,19 @@ public sealed class Store : IDisposable
     }
     public void ApplyRecentPage(Chat chat, Message[] messages)
     {
+        if (chat.IsRemote) return;
         chat.Messages.Clear(); foreach (var message in HistoryWindow.Bound(messages, newer: true)) { chat.Messages.Add(message); savedMessages[message.Id] = (new(message), message.Revision); }
         chat.HistoryLoaded = true; chat.NextSequence = messages.Length == 0 ? 0 : messages[^1].Sequence + 1;
     }
     public void ReleaseHistory(Chat chat)
     {
-        if (chat.Busy) return;
+        if (chat.Busy || chat.IsRemote) return;
         foreach (var message in chat.Messages) { SaveMessage(chat, message); savedMessages.Remove(message.Id); savedAttachments.Remove(message.Id); }
         chat.Messages.Clear(); chat.HistoryLoaded = false;
     }
     public void TrimHistory(Chat chat)
     {
+        if (chat.IsRemote) return;
         var limit = chat.RetainHistory ? Chat.HistoryPageSize : 1;
         if (!chat.RetainHistory) chat.HistoryLoaded = false;
         while (chat.Messages.Count > limit) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
@@ -227,6 +231,8 @@ public sealed class Store : IDisposable
     }
     public void Save(Chat c)
     {
+        // A remote chat lives on its host. Only the local draft is kept here.
+        if (c.IsRemote) { Setting("remoteDraft:" + c.Id, c.Draft); return; }
         Setting("status:" + c.Id, c.NeedsPermission ? "Working…" : c.Status);
         Setting("busy:" + c.Id, c.Busy ? "1" : "0");
         Setting("unread:" + c.Id, c.HasUnreadCompletion ? "1" : "0");
@@ -239,6 +245,7 @@ public sealed class Store : IDisposable
     }
     public void SaveMessage(Chat c, Message m)
     {
+        if (c.IsRemote) return;
         if (m.ProviderMessageId is { } protocolId && Setting("providerMessage:" + m.Id) != protocolId) Setting("providerMessage:" + m.Id, protocolId);
         if (savedMessages.TryGetValue(m.Id, out var saved) && saved.Message.TryGetTarget(out var target) && ReferenceEquals(target, m) && saved.Revision == m.Revision) { SaveAttachments(m.Id, m.Attachments); return; }
         if (m.Sequence < 0) m.Sequence = c.NextSequence++;

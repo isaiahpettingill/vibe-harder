@@ -84,13 +84,19 @@ public partial class MainView
             Content = new Image { Source = sleepingFrame, Stretch = Stretch.Fill };
             MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
             remoteView?.SetPresentationSleeping(true);
+            RemoteSessionOf(current)?.Deactivate();
             foreach (var chat in chats)
             { chat.RetainHistory = false; store.TrimHistory(chat); store.ReleaseHistory(chat); }
             return;
         }
         Content = RootPanes; sleepingFrame?.Dispose(); sleepingFrame = null;
         remoteView?.SetPresentationSleeping(false);
-        if (remoteView is null && current is { } selected)
+        if (remoteView is null && current is { IsRemote: true } remoteChat)
+        {
+            AttachmentList.ItemsSource = remoteChat.Attachments; MessageList.ItemsSource = remoteChat.Messages;
+            RemoteSessionOf(remoteChat)?.Activate(userInitiated: false);
+        }
+        else if (remoteView is null && current is { } selected)
         {
             KeepHistory(selected); AttachmentList.ItemsSource = selected.Attachments;
             if (sleepingPageEnd is null) MessageList.ItemsSource = selected.Messages;
@@ -117,6 +123,7 @@ public partial class MainView
     }
     private async Task RestoreVisibleHistory(Chat chat, CancellationToken token)
     {
+        if (chat.IsRemote) return;
         if (runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) return;
         foreach (var message in chat.Messages) store.SaveMessage(chat, message);
         var page = await store.ReadPageAsync(chat, token: token);

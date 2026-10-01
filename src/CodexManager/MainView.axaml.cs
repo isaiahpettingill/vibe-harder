@@ -21,6 +21,7 @@ public partial class MainView : UserControl
 {
     public void OpenFileLink(string target)
     {
+        if (current is { IsRemote: true } remoteChat && RemoteSessionOf(remoteChat) is { } session) { _ = OpenRemoteFileLink(session, remoteChat, target); return; }
         if (workspace is null) throw new IOException("Select a workspace first.");
         FileLinks.Reveal(FileLinks.Resolve(target, workspace));
     }
@@ -49,6 +50,16 @@ public partial class MainView : UserControl
     private void CloseRemoteView()
     {
         if (remoteView is not null) { remoteView.SetPresentationSleeping(true); remoteView.IsVisible = false; }
+        // Deselect the closed host's chats directly. Pressing a sidebar row arms hold-to-reorder,
+        // so the refresh below is skipped for the very click that switched away; the remote chat
+        // then stayed highlighted and could not be reselected.
+        if (remoteView?.Host is { } closedHost)
+        {
+            var scope = "remote:" + closedHost.Address + ":" + closedHost.Port + ":";
+            applyingRemoteSidebar = true;
+            try { foreach (var (key, visual) in remoteWorkspaceVisuals) if (key.StartsWith(scope, StringComparison.Ordinal)) visual.List.SelectedItem = null; }
+            finally { applyingRemoteSidebar = false; }
+        }
         remoteView = null; MobileTerminalButton.IsEnabled = false;
         if (closing)
         {
@@ -59,6 +70,7 @@ public partial class MainView : UserControl
     }
     private void OpenRemoteHost(RemoteHost host, string? workspaceId = null)
     {
+        if (!remoteOnly) { OpenRemoteDesktop(host, workspaceId); return; }
         ClearRecoveryNotice();
         if (remoteView?.Host == host) { remoteView.SetPresentationSleeping(false); if (workspaceId is not null) remoteView.SelectWorkspaceId(workspaceId); CollapseSidebar(); return; }
         CollapseSidebar(); CloseRemoteView();
@@ -84,7 +96,7 @@ public partial class MainView : UserControl
 
     private readonly ObservableCollection<Workspace> workspaces;
     private readonly List<Chat> chats;
-    private readonly Dictionary<string, ChatRuntime> runtimes = [];
+    private readonly Dictionary<string, IChatSession> runtimes = [];
     private readonly Dictionary<string, List<(TabItem Tab, TerminalSession Session)>> terminals = [];
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromSeconds(2) };
     private readonly HashSet<Chat> pendingSaves = [];
@@ -138,6 +150,8 @@ public partial class MainView : UserControl
         TerminalDrawer.PropertyChanged += (_, e) =>
         {
             if (e.Property != IsVisibleProperty) return;
+            // A remote shell polls its host only while the drawer shows it.
+            if (terminalPaneWorkspace is { } shown && remoteTerminalTabs.TryGetValue(shown, out var remoteTab)) (remoteTab.Content as RemoteTerminalView)?.SetVisible(TerminalDrawer.IsVisible);
             ToggleTerminalButton.Icon = TerminalDrawer.IsVisible ? "chevron-left" : "terminal";
             ToggleTerminalButton.Label = TerminalDrawer.IsVisible ? "Hide terminal (Ctrl+`)" : "Show terminal (Ctrl+`)";
         };
@@ -149,12 +163,13 @@ public partial class MainView : UserControl
         workspaces = new((remoteOnly ? [] : loadedWorkspaces ?? store.Workspaces()).Where(w => store.Setting("closed:" + w.Id) != "1")); chats = remoteOnly ? [] : loadedChats ?? store.Chats();
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
-        remoteSessions = new SessionService(store, workspaces, chats, Runtime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
+        remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
-        DragDrop.SetAllowDrop(ComposerBorder, true);
-        ComposerBorder.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
-        ComposerBorder.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
+        // Files dropped anywhere on the chat (transcript or composer) attach to the open chat.
+        DragDrop.SetAllowDrop(ChatPane, true);
+        ChatPane.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = current is null ? DragDropEffects.None : DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
+        ChatPane.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
         {
@@ -263,14 +278,14 @@ public partial class MainView : UserControl
         CloseRemoteView();
         if (workspace?.Id != selected.Id) ClearChat();
         workspace = selected; store.Setting("workspace", selected.Id);
-        if (startChat) new WorkspaceHistory(store).Opened(selected);
+        if (startChat && !selected.IsRemote) new WorkspaceHistory(store).Opened(selected);
         WorkspaceHeading.Text = $"{selected.Host}  /  {selected.Path}";
         RefreshChats();
-        ChatList.SelectedItem = chats.FirstOrDefault(c => c.WorkspaceId == selected.Id && c.Archived == showArchived && c.Id == store.Setting("chat:" + selected.Id)) ?? ChatList.Items.FirstOrDefault();
+        ChatList.SelectedItem = ChatsFor(selected.Id).FirstOrDefault(c => c.Archived == showArchived && c.Id == store.Setting("chat:" + selected.Id)) ?? ChatList.Items.FirstOrDefault();
         if (ChatList.SelectedItem is null) ClearChat();
         SwitchTerminalWorkspace(selected.Id);
         UpdateControls();
-        if (startChat && !chats.Any(c => c.WorkspaceId == selected.Id && !c.Archived))
+        if (startChat && !ChatsFor(selected.Id).Any(c => !c.Archived))
             NewChat(Enum.TryParse<AgentProvider>(store.Setting("lastProvider"), out var provider) ? provider : AgentProvider.Codex);
         // Sidebar restoration uses cached metadata. Import is explicit and may start an adapter.
     }
@@ -320,6 +335,7 @@ public partial class MainView : UserControl
     {
         if (sidebarHolding || sidebarDragging) { sidebarRebuildPending = true; return; }
         var savedHosts = RemoteSettings.Hosts(store);
+        foreach (var host in remoteHosts.Keys.Where(host => !savedHosts.Contains(host)).ToArray()) ForgetRemoteHost(host);
         foreach (var host in remoteViews.Keys.Where(host => !savedHosts.Contains(host)).ToArray())
         {
             var view = remoteViews[host]; if (ReferenceEquals(remoteView, view)) { remoteView = null; MobileTerminalButton.IsEnabled = false; }
@@ -330,9 +346,43 @@ public partial class MainView : UserControl
         WorkspaceTree.Children.Clear(); workspaceLists.Clear(); remoteSections.Clear(); remoteWorkspaceVisuals.Clear();
         if (!remoteOnly && RemoteSettings.Hosts(store).Count > 0) WorkspaceTree.Children.Add(new TextBlock { Name = "LocalWorkspaceGroup", Text = "This computer", Margin = new Thickness(4, 6), Classes = { "muted" } });
         foreach (var owner in SidebarOrder.Apply(store, "workspaces", workspaces.Where(w => store.Setting("closed:" + w.Id) != "1"), w => w.Id))
+            WorkspaceTree.Children.Add(WorkspaceGroup(owner));
+        foreach (var host in RemoteSettings.Hosts(store))
         {
+            var collapsed = store.Setting(RemoteCollapsedKey(host)) == "1";
+            var header = new Grid { ColumnDefinitions = new("Auto,*") };
+            var collapse = new IconButton { Name = "CollapseConnection_" + host.Address + "_" + host.Port, Icon = collapsed ? "chevron-right" : "chevron-down", IconSize = 10, Label = collapsed ? "Expand connection" : "Collapse connection", ClickAllowed = () => !SidebarTouchSwipe };
+            var button = new Button { Content = "Remote · " + host.Name + " (" + host.Address + ")", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            var section = new StackPanel { IsVisible = !collapsed }; remoteSections[host.Address + ":" + host.Port] = section;
+            void SetCollapsed(bool value)
+            {
+                collapsed = value; store.Setting(RemoteCollapsedKey(host), value ? "1" : "0"); section.IsVisible = !value;
+                collapse.Icon = value ? "chevron-right" : "chevron-down"; collapse.Label = value ? "Expand connection" : "Collapse connection";
+                if (remoteViews.TryGetValue(host, out var view)) view.SetConnectionCollapsed(value);
+                if (!remoteOnly) RemoteHostFor(host).Collapsed = value;
+                if (!value) { if (!showArchived) OpenRemoteHost(host); RefreshRemoteSidebar(); }
+            }
+            collapse.Click += (_, _) => SetCollapsed(!collapsed);
+            button.Click += (_, _) => { if (SidebarTouchSwipe) return; if (showArchived) SetCollapsed(!collapsed); else if (collapsed) SetCollapsed(false); else OpenRemoteHost(host); };
+            Grid.SetColumn(button, 1); header.Children.Add(collapse); header.Children.Add(button); WorkspaceTree.Children.Add(header); WorkspaceTree.Children.Add(section);
+            if (remoteViews.TryGetValue(host, out var saved)) saved.SetConnectionCollapsed(collapsed);
+            if (remoteOnly) continue;
+            // Desktop: the host's workspaces are ordinary sidebar groups backed by the host.
+            var client = RemoteHostFor(host); client.Collapsed = collapsed;
+            var status = new TextBlock { Name = "RemoteStatus_" + host.Address + "_" + host.Port, TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(8, 2), Classes = { "muted" } };
+            remoteStatusTexts[host] = status; section.Children.Add(status); UpdateRemoteStatus(client);
+            foreach (var id in remoteWorkspaceOrder.GetValueOrDefault(host) ?? [])
+                if (remoteWorkspaces.TryGetValue(id, out var owner)) section.Children.Add(WorkspaceGroup(owner));
+        }
+        RefreshChats();
+        RefreshRemoteSidebar();
+    }
+    private Control WorkspaceGroup(Workspace owner)
+    {
+        {
+            var client = owner.Remote is { } remoteHost ? RemoteHostFor(remoteHost) : null;
             var header = new Grid { ColumnDefinitions = new("Auto,*,Auto,Auto,Auto") };
-            var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
+            var title = new Button { Name = "Workspace_" + owner.Id, Content = owner.Name + (owner.IsWsl ? " · " + owner.Distro + " (WSL)" : owner.Remote is { } files ? " · Files on " + files.Name : ""), HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
             ToolTip.SetTip(title, owner.Caption + " · " + owner.Path);
             title.Click += (_, _) => { if (SidebarTouchSwipe) return; if (showArchived) { SetWorkspaceExpanded(owner.Id, !WorkspaceExpanded(owner.Id)); BuildWorkspaceTree(); } else SelectWorkspace(owner, true); };
             var create = new IconButton { Name = "NewChat_" + owner.Id, Icon = "add", IconSize = 10, Label = "New chat", ClickAllowed = () => !SidebarTouchSwipe, Classes = { "rowAction" } };
@@ -356,41 +406,23 @@ public partial class MainView : UserControl
             var collapse = new IconButton { Name = "CollapseWorkspace_" + owner.Id, Icon = list.IsVisible ? "chevron-down" : "chevron-right", Label = list.IsVisible ? "Collapse workspace" : "Expand workspace", ClickAllowed = () => !SidebarTouchSwipe };
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; SetWorkspaceExpanded(owner.Id, list.IsVisible); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
-            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat)), false);
+            Action<string, string, bool>? moveChat = client is null ? null : (source, target, after) => RemoteReorder(owner, "chats:" + owner.RemoteId, source, target, after);
+            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat), move: moveChat), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
             var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
-            EnableHoldReorder(group, "workspaces", owner.Id, BuildWorkspaceTree, heading); heading.Children.Add(header);
+            if (client is null) EnableHoldReorder(group, "workspaces", owner.Id, BuildWorkspaceTree, heading);
+            else EnableHoldReorder(group, "workspaces:" + client.Scope, owner.Id, BuildWorkspaceTree, heading, (source, target, after) => RemoteReorder(owner, "workspaces", source, target, after));
+            heading.Children.Add(header);
             group.Children.Add(heading); group.Children.Add(list); group.Children.Add(WorkspaceDivider());
             ColorMenu(title, "workspaceColor:" + owner.Id, "Workspace background color", () => { BuildWorkspaceTree(); ApplyChatColors(); });
-            WorkspaceTree.Children.Add(group);
+            return group;
         }
-        foreach (var host in RemoteSettings.Hosts(store))
-        {
-            var collapsed = store.Setting(RemoteCollapsedKey(host)) == "1";
-            var header = new Grid { ColumnDefinitions = new("Auto,*") };
-            var collapse = new IconButton { Name = "CollapseConnection_" + host.Address + "_" + host.Port, Icon = collapsed ? "chevron-right" : "chevron-down", IconSize = 10, Label = collapsed ? "Expand connection" : "Collapse connection", ClickAllowed = () => !SidebarTouchSwipe };
-            var button = new Button { Content = "Remote · " + host.Name + " (" + host.Address + ")", HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left };
-            var section = new StackPanel { IsVisible = !collapsed }; remoteSections[host.Address + ":" + host.Port] = section;
-            void SetCollapsed(bool value)
-            {
-                collapsed = value; store.Setting(RemoteCollapsedKey(host), value ? "1" : "0"); section.IsVisible = !value;
-                collapse.Icon = value ? "chevron-right" : "chevron-down"; collapse.Label = value ? "Expand connection" : "Collapse connection";
-                if (remoteViews.TryGetValue(host, out var view)) view.SetConnectionCollapsed(value);
-                if (!value) { if (!showArchived) OpenRemoteHost(host); RefreshRemoteSidebar(); }
-            }
-            collapse.Click += (_, _) => SetCollapsed(!collapsed);
-            button.Click += (_, _) => { if (SidebarTouchSwipe) return; if (showArchived) SetCollapsed(!collapsed); else if (collapsed) SetCollapsed(false); else OpenRemoteHost(host); };
-            Grid.SetColumn(button, 1); header.Children.Add(collapse); header.Children.Add(button); WorkspaceTree.Children.Add(header); WorkspaceTree.Children.Add(section);
-            if (remoteViews.TryGetValue(host, out var saved)) saved.SetConnectionCollapsed(collapsed);
-        }
-        RefreshChats();
-        RefreshRemoteSidebar();
     }
     private MenuFlyout ProviderMenu(Workspace owner)
     {
         var menu = new MenuFlyout();
-        foreach (var provider in AgentProviders.Enabled(store).Select(p => p.Provider))
+        foreach (var provider in owner.Remote is { } host ? RemoteHostFor(host).Providers : AgentProviders.Enabled(store).Select(p => p.Provider))
         {
             var item = new MenuItem { Header = AgentProviders.Get(provider).Name, Icon = new Image { Source = BrandAssets.Provider(provider), Width = 16, Height = 16 } };
             item.Click += (_, _) => { SelectWorkspace(owner); NewChat(provider); };
@@ -400,6 +432,7 @@ public partial class MainView : UserControl
     }
     private Task RenameWorkspace(Workspace owner, string name)
     {
+        if (owner.IsRemote) return RemoteAction(owner.Remote!, new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.RemoteId, ["name"] = name }, "Could not rename the workspace.");
         var index = workspaces.ToList().FindIndex(w => w.Id == owner.Id);
         if (index < 0) throw new IOException("Workspace is no longer open.");
         var updated = workspaces[index] with { Name = name };
@@ -410,6 +443,7 @@ public partial class MainView : UserControl
     }
     private async Task CloseWorkspace(Workspace owner)
     {
+        if (owner.IsRemote) { await RemoteCloseWorkspace(owner); return; }
         store.Setting("closed:" + owner.Id, "1");
         foreach (var chat in chats.Where(c => c.WorkspaceId == owner.Id && c.InterruptedInput is not null).ToArray()) KeepInterruptedAsDraft(chat);
         await SaveAllAsync();
@@ -440,7 +474,8 @@ public partial class MainView : UserControl
         foreach (var (id, list) in workspaceLists)
         {
             var selected = list.SelectedItem ?? (remoteView is null && current?.WorkspaceId == id ? current : null);
-            IEnumerable<Chat> ordered = showArchived ? chats.Where(c => c.WorkspaceId == id).OrderByDescending(c => c.Updated).ThenBy(c => c.Id) : SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id);
+            IEnumerable<Chat> ordered = remoteWorkspaces.ContainsKey(id) ? ChatsFor(id)
+                : showArchived ? chats.Where(c => c.WorkspaceId == id).OrderByDescending(c => c.Updated).ThenBy(c => c.Id) : SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id);
             var rows = ordered.Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).ToArray();
             if (list.ItemsSource is not IEnumerable<Chat> previous || !previous.SequenceEqual(rows)) list.ItemsSource = rows;
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
@@ -450,6 +485,7 @@ public partial class MainView : UserControl
     private void NewChat(AgentProvider provider = AgentProvider.Codex)
     {
         if (workspace is null) return;
+        if (workspace.IsRemote) { _ = NewRemoteChat(workspace, provider); return; }
         if (!AgentProviders.IsEnabled(store, provider))
         {
             var available = AgentProviders.Enabled(store).FirstOrDefault();
@@ -479,8 +515,9 @@ public partial class MainView : UserControl
         foreach (var list in workspaceLists.Values.Where(l => l != sender)) list.SelectedItem = null;
         refreshingChats = false;
         if (current is not null) { current.Draft = Composer.Text ?? ""; store.Save(current); }
+        if (chat.IsRemote && chat.HasUnreadCompletion) _ = RemoteSession(chat, owner).MarkRead();
         chat.HasUnreadCompletion = false; store.Save(chat);
-        if (current is not null && !ReferenceEquals(current, chat)) DeferHistoryEviction(current);
+        if (current is not null && !ReferenceEquals(current, chat)) { DeferHistoryEviction(current); RemoteSessionOf(current)?.Deactivate(); }
         KeepHistory(chat);
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
@@ -489,6 +526,8 @@ public partial class MainView : UserControl
         UpdateControls(); Composer.Focus();
         ScrollTranscriptToEnd(force: true);
         viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
+        // A remote chat's history comes from its host while it is shown.
+        if (chat.IsRemote) { RemoteSession(chat, owner).Activate(connectAgent); return; }
         if (!chat.HistoryLoaded && runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory != true)
         {
             try
@@ -518,7 +557,12 @@ public partial class MainView : UserControl
         var dialog = new Window { Title = "Rename chat", Width = 420, Height = 145, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
         var input = new TextBox { Name = "ChatTitleInput", Text = chat.Title, MaxLength = 250 };
         var save = new IconButton { Icon = "send", Label = "Save title", HorizontalAlignment = HorizontalAlignment.Right };
-        void Apply() { if (string.IsNullOrWhiteSpace(input.Text)) return; chat.Title = input.Text.Trim(); store.Save(chat); UpdateControls(); dialog.Close(); }
+        void Apply()
+        {
+            if (string.IsNullOrWhiteSpace(input.Text)) return;
+            chat.Title = input.Text.Trim(); store.Save(chat); UpdateControls(); dialog.Close();
+            if (chat.IsRemote) _ = RemoteAction(chat.Remote!, new() { ["method"] = "rename", ["chatId"] = chat.RemoteId, ["title"] = chat.Title }, "Could not rename the chat.");
+        }
         save.Click += (_, _) => Apply(); input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Apply(); } };
         dialog.Content = new StackPanel { Margin = new Thickness(12), Spacing = 8, Children = { input, save } };
         dialog.Opened += (_, _) => { input.Focus(); input.SelectAll(); }; await dialog.ShowDialog(desktopWindow!);
@@ -550,7 +594,11 @@ public partial class MainView : UserControl
                 button.Click += async (_, _) => await action(); Grid.SetColumn(button, column); row.Children.Add(button);
             }
             Action(1, "remove", "Remove queued message", () => { Runtime(chat, owner).RemoveQueued(input); return Task.CompletedTask; });
-            Action(2, "edit", "Edit queued message", () => { Runtime(chat, owner).RemoveQueued(input); chat.RecoverInput(input); if (ReferenceEquals(chat, current)) { Composer.Text = chat.Draft; Composer.Focus(); } store.Save(chat); return Task.CompletedTask; });
+            Action(2, "edit", "Edit queued message", () =>
+            {
+                if (Runtime(chat, owner) is RemoteChatSession remote) { EditRemoteQueued(remote, input, row); return Task.CompletedTask; }
+                Runtime(chat, owner).RemoveQueued(input); chat.RecoverInput(input); if (ReferenceEquals(chat, current)) { Composer.Text = chat.Draft; Composer.Focus(); } store.Save(chat); return Task.CompletedTask;
+            });
             Action(3, "steer", "Steer current turn (when supported by ACP)", async () =>
             {
                 var runtime = Runtime(chat, owner);
@@ -561,11 +609,19 @@ public partial class MainView : UserControl
             QueueItems.Children.Add(row);
         }
     }
+    private static void EditRemoteQueued(RemoteChatSession remote, PendingInput input, Control anchor)
+    {
+        var popup = new Flyout();
+        var text = new TextBox { Text = input.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinWidth = 240, MaxWidth = 420, MaxHeight = 200 };
+        var save = new Button { Content = "Save" };
+        save.Click += async (_, _) => { save.IsEnabled = false; try { await remote.EditQueued(input, text.Text ?? ""); popup.Hide(); } finally { save.IsEnabled = true; } };
+        popup.Content = new StackPanel { Spacing = 8, Children = { text, save } }; popup.ShowAt(anchor); text.Focus();
+    }
     private async Task InterruptDraft()
     {
         if (current is not { } chat || workspace is not { } owner) return;
         var runtime = Runtime(chat, owner);
-        var text = Composer.Text ?? ""; var attachments = chat.Attachments.ToArray();
+        var text = Composer.Text ?? ""; var attachments = OutgoingAttachments(chat);
         if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0)
         {
             if (chat.QueuedInputs.Count > 0) await runtime.AdvanceQueued(interrupt: true); else await runtime.Stop();
@@ -582,7 +638,7 @@ public partial class MainView : UserControl
         if (current is not { } chat || workspace is not { } owner) return;
         var runtime = Runtime(chat, owner);
         if (!runtime.SupportsSteering) { await Send(); return; }
-        var text = Composer.Text ?? ""; var attachments = chat.Attachments.ToArray();
+        var text = Composer.Text ?? ""; var originals = chat.Attachments.ToArray(); var attachments = OutgoingAttachments(chat);
         if (string.IsNullOrWhiteSpace(text) && attachments.Length == 0)
         {
             if (chat.QueuedInputs.FirstOrDefault() is { } queued && await runtime.Steer(queued)) runtime.RemoveQueued(queued);
@@ -591,7 +647,7 @@ public partial class MainView : UserControl
         if (await runtime.Steer(new(text, attachments)))
         {
             if (ReferenceEquals(chat, current) && Composer.Text == text) { Composer.Text = ""; chat.Draft = ""; }
-            foreach (var attachment in attachments) chat.Attachments.Remove(attachment);
+            foreach (var attachment in originals) chat.Attachments.Remove(attachment);
             store.Save(chat); UpdateControls();
         }
     }
@@ -619,7 +675,7 @@ public partial class MainView : UserControl
                     ToolTip.SetTip(picker, option.Name);
                     if (configured.Provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
                     {
-                        picker.Flyout = ModelPicker.Create(option, ModelPicker.Recent(store, configured.Provider), value => Runtime(configured, owner).SetConfig(option, value), () => ModelPicker.Recent(store, configured.Provider), () => !compact && !OperatingSystem.IsAndroid());
+                        picker.Flyout = ModelPicker.Create(option, RecentModels(configured), value => Runtime(configured, owner).SetConfig(option, value), () => RecentModels(configured), () => !compact && !OperatingSystem.IsAndroid());
                         ConfigOptionsPanel.Children.Add(picker); continue;
                     }
                     var menu = new MenuFlyout();
@@ -646,7 +702,7 @@ public partial class MainView : UserControl
         var provider = current?.Provider ?? AgentProvider.Codex;
         LoginButton.Content = provider == AgentProvider.OpenCode ? "Add provider" : "Log in to " + AgentProviders.Get(provider).Name;
         var login = loginSessions.GetValueOrDefault($"{workspace?.Id}:{provider}");
-        LoginPanel.IsVisible = workspace is not null && (current?.NeedsLogin == true || authentication.GetValueOrDefault($"{workspace.Distro}:{provider}") || login.Control is not null);
+        LoginPanel.IsVisible = workspace is { IsRemote: false } && (current?.NeedsLogin == true || authentication.GetValueOrDefault($"{workspace.Distro}:{provider}") || login.Control is not null);
         LoginHeading.Text = $"Sign in to {AgentProviders.Get(provider).Name} in {workspace?.Host} to continue this chat.";
         LoginTerminalHost.Content = login.Control;
         LoginTerminalHost.IsVisible = login.Control is not null;
@@ -664,8 +720,12 @@ public partial class MainView : UserControl
         ArchiveChatButton.IsEnabled = current is not null;
         ArchiveChatButton.Label = current?.Archived == true ? "Restore chat" : "Archive chat";
         DeleteChatButton.IsEnabled = current is { Busy: false };
-        StatusText.Text = current is null ? "Ready — open a workspace to begin" : $"{workspace?.Host}  ·  {current.Status}";
+        StatusText.Text = current is null ? "Ready — open a workspace to begin"
+            : current.Remote is { } host && RemoteHostFor(host) is { Connected: false } offline ? $"{workspace?.Host}  ·  {offline.Status}"
+            : current is { IsRemote: true, NeedsLogin: true } ? $"{workspace?.Host}  ·  Sign in to {AgentProviders.Get(current.Provider).Name} on {current.Remote!.Name} to continue this chat."
+            : $"{workspace?.Host}  ·  {current.Status}";
     }
+    private string[] RecentModels(Chat chat) => RemoteSessionOf(chat) is { } remote ? remote.RecentModels : ModelPicker.Recent(store, chat.Provider).ToArray();
     private bool ComposerLoading => current is { } chat && (runtimes.GetValueOrDefault(chat.Id)?.IsRecovering == true || chat.Busy && (runtimes.GetValueOrDefault(chat.Id)?.IsPreparing ?? true));
     private bool ComposerShowsStop => current?.Busy == true && !ComposerLoading && string.IsNullOrWhiteSpace(Composer.Text) && current.Attachments.Count == 0;
     private void UpdateComposerAction()
@@ -691,8 +751,9 @@ public partial class MainView : UserControl
         var chat = current;
         try
         {
-            foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-            var content = await store.ExportChatAsync(chat);
+            (string Plain, string Html) content;
+            if (RemoteSessionOf(chat) is { } remote) content = await remote.Export();
+            else { foreach (var message in chat.Messages) store.SaveMessage(chat, message); content = await store.ExportChatAsync(chat); }
             await RichClipboard.Set(Clipboard, content.Plain, content.Html);
         }
         catch (Exception error) { StatusText.Text = "Could not copy chat: " + error.Message; }
@@ -700,7 +761,9 @@ public partial class MainView : UserControl
     private async Task Send()
     {
         if (current is not { } chat || workspace is null) return;
-        var text = Composer.Text?.Trim() ?? ""; var attachments = chat.Attachments.ToArray();
+        var text = Composer.Text?.Trim() ?? ""; Attachment[] attachments;
+        try { attachments = OutgoingAttachments(chat); }
+        catch (Exception error) { StatusText.Text = error.Message; return; }
         if (text.Length == 0 && attachments.Length == 0) return;
         if (chat.Title == "New chat") chat.Title = text.Length == 0 ? attachments[0].Name : text.Split('\n')[0][..Math.Min(70, text.Split('\n')[0].Length)];
         var runtime = Runtime(chat, workspace);
@@ -720,9 +783,10 @@ public partial class MainView : UserControl
         if (ReferenceEquals(chat, current)) Composer.Text = chat.Draft;
         UpdateControls();
     }
-    private ChatRuntime Runtime(Chat chat, Workspace owner)
+    private IChatSession Runtime(Chat chat, Workspace owner) => owner.IsRemote ? RemoteSession(chat, owner) : LocalRuntime(chat, owner);
+    private ChatRuntime LocalRuntime(Chat chat, Workspace owner)
     {
-        if (!runtimes.TryGetValue(chat.Id, out var runtime))
+        if (runtimes.GetValueOrDefault(chat.Id) is not ChatRuntime runtime)
         {
             runtime = new(chat, owner, store, AgentProviders.LaunchCommand(store, owner, chat.Provider));
             if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
@@ -738,35 +802,37 @@ public partial class MainView : UserControl
                 pendingSaves.Add(chat);
                 store.TrimHistory(chat);
                 if ((!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) && !chat.RetainHistory) store.ReleaseHistory(chat);
-                if (!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) { UpdateTray(); return; }
-                if (ReferenceEquals(chat, current) && runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
-                UpdateControls();
-                if (uiSleeping) return;
-                if (ReferenceEquals(chat, current) && remoteView is null && !viewingHistory)
-                {
-                    if (runtime.IsLoadingHistory)
-                    {
-                        // Replay can replace hundreds of rows a second. Keep the visible
-                        // page stable until replay finishes instead of laying out each chunk.
-                        if (ReferenceEquals(MessageList.ItemsSource, chat.Messages)) MessageList.ItemsSource = chat.Messages.ToArray();
-                    }
-                    else if (!ReferenceEquals(MessageList.ItemsSource, chat.Messages))
-                    {
-                        var follow = MessageList.ItemCount == 0 || MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true };
-                        MessageList.ItemsSource = chat.Messages;
-                        if (follow)
-                        {
-                            if (MessageList.ItemsPanelRoot is TranscriptPanel panel) panel.FollowEnd();
-                            ScrollTranscriptToEnd();
-                        }
-                    }
-                    else if (MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true })
-                        ScrollTranscriptToEnd();
-                }
+                ReflectSessionChange(chat, runtime);
             };
             runtimes[chat.Id] = runtime;
         }
         return runtime;
+    }
+    // Shared by local runtimes and remote sessions: refresh the pane for the chat on screen.
+    private void ReflectSessionChange(Chat chat, IChatSession runtime)
+    {
+        if (!ReferenceEquals(chat, current) || uiSleeping || remoteView is not null) { UpdateTray(); return; }
+        if (runtime.IsRecovering && Composer.Text != chat.Draft) Composer.Text = chat.Draft;
+        UpdateControls();
+        if (uiSleeping || viewingHistory) return;
+        if (runtime.IsLoadingHistory)
+        {
+            // Replay can replace hundreds of rows a second. Keep the visible
+            // page stable until replay finishes instead of laying out each chunk.
+            if (ReferenceEquals(MessageList.ItemsSource, chat.Messages)) MessageList.ItemsSource = chat.Messages.ToArray();
+        }
+        else if (!ReferenceEquals(MessageList.ItemsSource, chat.Messages))
+        {
+            var follow = MessageList.ItemCount == 0 || MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true };
+            MessageList.ItemsSource = chat.Messages;
+            if (follow)
+            {
+                if (MessageList.ItemsPanelRoot is TranscriptPanel panel) panel.FollowEnd();
+                ScrollTranscriptToEnd();
+            }
+        }
+        else if (MessageList.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true })
+            ScrollTranscriptToEnd();
     }
     private async void ReconnectChatClick(object? sender, RoutedEventArgs e)
     {
@@ -841,12 +907,25 @@ public partial class MainView : UserControl
             {
                 if (file is not IStorageFile storageFile) throw new IOException("Drop individual files, or use Open workspace for a folder.");
                 var attachment = await AttachmentFiles.Read(storageFile, discoveryLifetime.Token);
-                if (closing || !chats.Contains(target)) return;
+                if (closing || !chats.Contains(target) && !target.IsRemote) return;
                 target.Attachments.Add(attachment);
                 pendingSaves.Add(target);
             }
             catch (Exception ex) { StatusText.Text = file.Name + ": " + ex.Message; }
         }
+    }
+    // Send what the user saved if they edited an opened attachment (e.g. a long paste).
+    private static Attachment[] OutgoingAttachments(Chat chat) => chat.Attachments.Select(AttachmentFiles.WithSavedEdits).ToArray();
+    private async void OpenAttachment(object? sender, RoutedEventArgs e)
+    {
+        if (sender is not Control { Tag: Attachment attachment } || TopLevel.GetTopLevel(this) is not { } top) return;
+        try
+        {
+            var path = await Task.Run(() => AttachmentFiles.WriteCopy(attachment));
+            var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
+            if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open " + attachment.Name + ".");
+        }
+        catch (Exception error) { StatusText.Text = "Could not open attachment: " + error.Message; }
     }
     private void RemoveAttachment(object? sender, RoutedEventArgs e)
     {
@@ -916,10 +995,10 @@ public partial class MainView : UserControl
         foreach (var pending in elicitationCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
         PermissionScroll.IsVisible = InlinePermissions.Children.Count > 0;
     }
-    private async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token)
+    private async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token, bool remote = false)
     {
         var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var id = remoteSessions.RegisterPermission(chat, request, completion);
+        var id = remote ? "remote:" + Guid.NewGuid().ToString("N") : remoteSessions.RegisterPermission(chat, request, completion);
         using var cancellation = token.Register(() => completion.TrySetResult(RpcJson.Permission()));
         try
         {
@@ -929,19 +1008,19 @@ public partial class MainView : UserControl
                 permissionCards[id] = (chat, new PermissionCard(JsonNode.Parse(request.GetRawText())!.AsObject(), option =>
                 { completion.TrySetResult(RpcJson.Permission(option)); return Task.CompletedTask; }));
                 UpdateControls(); UpdatePermissions();
-                PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } });
+                if (!remote) PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } });
             });
             return await completion.Task;
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetPermission(id); permissionCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); UpdateControls(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { if (!remote) { remoteSessions.ForgetPermission(id); PermissionNotifications.Dismiss(id); } permissionCards.Remove(id); UpdatePermissions(); UpdateControls(); });
         }
     }
-    private async Task<JsonObject> Elicit(Chat chat, JsonElement request, CancellationToken token)
+    private async Task<JsonObject> Elicit(Chat chat, JsonElement request, CancellationToken token, bool remote = false)
     {
         var completion = new TaskCompletionSource<JsonObject>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var id = remoteSessions.RegisterElicitation(chat, request, completion);
+        var id = remote ? "remote:" + Guid.NewGuid().ToString("N") : remoteSessions.RegisterElicitation(chat, request, completion);
         using var cancellation = token.Register(() => completion.TrySetResult(ElicitationForm.Cancel()));
         try
         {
@@ -951,29 +1030,21 @@ public partial class MainView : UserControl
                 elicitationCards[id] = (chat, new ElicitationCard(JsonNode.Parse(request.GetRawText())!.AsObject(), answer =>
                 { completion.TrySetResult(answer); return Task.CompletedTask; }));
                 UpdateControls(); UpdatePermissions();
-                PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }, "Question from agent");
+                if (!remote) PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }, "Question from agent");
             });
             return await completion.Task;
         }
         finally
         {
-            await Dispatcher.UIThread.InvokeAsync(() => { remoteSessions.ForgetElicitation(id); elicitationCards.Remove(id); PermissionNotifications.Dismiss(id); UpdatePermissions(); UpdateControls(); });
+            await Dispatcher.UIThread.InvokeAsync(() => { if (!remote) { remoteSessions.ForgetElicitation(id); PermissionNotifications.Dismiss(id); } elicitationCards.Remove(id); UpdatePermissions(); UpdateControls(); });
         }
     }
     private async void ImportChatsClick(object? sender, RoutedEventArgs e)
     {
         if (remoteView is not null) { remoteView.ShowImport(ImportChatsButton); return; }
         if (workspace is not { } owner) return;
-        var dialog = new Window { Title = "Import chats", Width = 400, Height = 290, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
-        var options = AgentProviders.Enabled(store).Select(p => new CheckBox { Content = p.Label, Tag = p.Provider, IsChecked = p.Provider != AgentProvider.Codex }).ToArray();
-        var import = new Button { Name = "ConfirmImportButton", Content = "Import", HorizontalAlignment = HorizontalAlignment.Right, Classes = { "accent" } };
-        var panel = new StackPanel { Margin = new Thickness(14), Spacing = 6 };
-        panel.Children.Add(new TextBlock { Text = "Import previous chats for " + owner.Name, TextWrapping = TextWrapping.Wrap });
-        foreach (var option in options) panel.Children.Add(option);
-        panel.Children.Add(new TextBlock { Text = "Uses each agent’s history in " + owner.Host + ". Existing chats are skipped.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
-        panel.Children.Add(import); dialog.Content = panel;
-        import.Click += (_, _) => dialog.Close(options.Where(p => p.IsChecked == true).Select(p => (AgentProvider)p.Tag!).ToArray());
-        var providers = await dialog.ShowDialog<AgentProvider[]?>(desktopWindow!);
+        if (owner.IsRemote) { await RemoteImport(owner); return; }
+        var providers = await ChooseImportProviders(owner, AgentProviders.Enabled(store));
         if (providers is null || closing) return;
         var tasks = providers.Select(provider =>
         {
@@ -987,6 +1058,19 @@ public partial class MainView : UserControl
             StatusText.Text = string.Join(" · ", reports.Where(r => r.Length > 0));
             ToolTip.SetTip(StatusText, StatusText.Text);
         }
+    }
+    private async Task<AgentProvider[]?> ChooseImportProviders(Workspace owner, IEnumerable<AgentOption> available)
+    {
+        var dialog = new Window { Title = "Import chats", Width = 400, Height = 290, CanResize = false, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var options = available.Select(p => new CheckBox { Content = p.Label, Tag = p.Provider, IsChecked = p.Provider != AgentProvider.Codex }).ToArray();
+        var import = new Button { Name = "ConfirmImportButton", Content = "Import", HorizontalAlignment = HorizontalAlignment.Right, Classes = { "accent" } };
+        var panel = new StackPanel { Margin = new Thickness(14), Spacing = 6 };
+        panel.Children.Add(new TextBlock { Text = "Import previous chats for " + owner.Name, TextWrapping = TextWrapping.Wrap });
+        foreach (var option in options) panel.Children.Add(option);
+        panel.Children.Add(new TextBlock { Text = "Uses each agent’s history in " + owner.Host + ". Existing chats are skipped.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
+        panel.Children.Add(import); dialog.Content = panel;
+        import.Click += (_, _) => dialog.Close(options.Where(p => p.IsChecked == true).Select(p => (AgentProvider)p.Tag!).ToArray());
+        return await dialog.ShowDialog<AgentProvider[]?>(desktopWindow!);
     }
     private async void SettingsClick(object? sender, RoutedEventArgs e)
     {
@@ -1144,7 +1228,7 @@ public partial class MainView : UserControl
             foreach (var provider in AgentProviders.Enabled(store))
             {
                 commands.Add(new("New " + provider.Name + " chat", provider.Label, () => { SelectWorkspace(owner); NewChat(provider.Provider); return Task.CompletedTask; }));
-                commands.Add(new(provider.Provider == AgentProvider.OpenCode ? "OpenCode: add provider" : provider.Name + ": log in", owner.Host + " terminal", () => Login(owner, provider.Provider)));
+                if (!owner.IsRemote) commands.Add(new(provider.Provider == AgentProvider.OpenCode ? "OpenCode: add provider" : provider.Name + ": log in", owner.Host + " terminal", () => Login(owner, provider.Provider)));
             }
             if (current is { } chat) commands.Add(new("Reconnect current chat", chat.ProviderLabel, () => Runtime(chat, owner).Reconnect()));
         }
@@ -1160,11 +1244,14 @@ public partial class MainView : UserControl
     }
     private async void LoginClick(object? sender, RoutedEventArgs e)
     {
-        if (workspace is not { } owner) return;
+        if (workspace is not { IsRemote: false } owner) return;
         await Login(owner, current?.Provider ?? AgentProvider.Codex);
     }
     private async void ResumeChatClick(object? sender, RoutedEventArgs e)
-    { if (current is { InterruptedInput: { } input } chat && workspace is { } owner) await ResumeInterrupted(chat, owner, input); }
+    {
+        if (RemoteSessionOf(current) is { } remote) { await remote.Resume(); return; }
+        if (current is { InterruptedInput: { } input } chat && workspace is { } owner) await ResumeInterrupted(chat, owner, input);
+    }
     private async void CheckLoginClick(object? sender, RoutedEventArgs e)
     {
         if (workspace is not { } owner) return;
@@ -1233,7 +1320,8 @@ public partial class MainView : UserControl
         if (remoteOnly) return;
         TerminalDrawer.IsVisible = !TerminalDrawer.IsVisible;
         if (!TerminalDrawer.IsVisible) { Composer.Focus(); return; }
-        if (TerminalTabs.ItemCount == 0)
+        if (TerminalTabs.ItemCount == 0 && workspace is { IsRemote: true } remoteOwner) await OpenRemoteTerminal(remoteOwner);
+        else if (TerminalTabs.ItemCount == 0)
         {
             var saved = workspace is null ? [] : (store.Setting("terminalTabs:" + workspace.Id) ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
             foreach (var id in saved) await NewTerminal(durableId: id);
@@ -1246,6 +1334,7 @@ public partial class MainView : UserControl
         if (remoteOnly) return null;
         var owner = target ?? workspace;
         if (owner is null) return null;
+        if (owner.IsRemote) return await OpenRemoteTerminal(owner);
         durableId = command is null ? durableId ?? "desktop:" + Guid.NewGuid().ToString("N") : null;
         var session = new TerminalSession();
         if (completed is not null) session.Completed += completed;
@@ -1305,6 +1394,7 @@ public partial class MainView : UserControl
     {
         store.Setting("sidebarWidth", (!compact && sidebarOpen ? RootPanes.ColumnDefinitions[0].ActualWidth : sidebarWidth).ToString(System.Globalization.CultureInfo.InvariantCulture));
         store.Setting("terminalWidth", TerminalDrawer.Width.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        foreach (var chat in remoteChats.Values) store.Save(chat);
         foreach (var chat in chats.ToArray())
         {
             if (runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) continue;
@@ -1325,6 +1415,7 @@ public partial class MainView : UserControl
         {
             foreach (var chat in pending)
             {
+                if (chat.IsRemote) { store.Save(chat); continue; }
                 if (closing || !chats.Contains(chat) || runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) continue;
                 store.Save(chat);
                 var messages = chat.Messages.ToArray();
@@ -1345,7 +1436,8 @@ public partial class MainView : UserControl
         var visible = MessageList.Items.OfType<Message>().ToArray(); if (visible.Length == 0) return;
         try
         {
-            var page = await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
+            var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(newer ? visible[^1].Sequence : visible[0].Sequence, newer)
+                : await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
             var merged = HistoryWindow.Navigate(visible, page, newer);
             viewingHistory = true;
@@ -1384,8 +1476,8 @@ public partial class MainView : UserControl
     private void ClearChat()
     {
         ChatSearch.Close();
-        if (current is not null && chats.Contains(current)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
-        if (current is not null) DeferHistoryEviction(current);
+        if (current is not null && (chats.Contains(current) || current.IsRemote)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
+        if (current is not null) { DeferHistoryEviction(current); RemoteSessionOf(current)?.Deactivate(); }
         current = null; Composer.Text = ""; MessageList.ItemsSource = null; AttachmentList.ItemsSource = null; UpdateControls();
     }
     private void SelectNextChat()
@@ -1409,6 +1501,7 @@ public partial class MainView : UserControl
     }
     private async Task ArchiveChat(Chat chat)
     {
+        if (chat.IsRemote) { await RemoteArchiveChat(chat); return; }
         if (ReferenceEquals(current, chat)) pageLoad?.Cancel();
         chat.Archived = !chat.Archived; store.Save(chat);
         Task? cleanup = null;
@@ -1435,6 +1528,7 @@ public partial class MainView : UserControl
     }
     private async Task<string?> DeleteChatCore(Chat chat, Workspace owner)
     {
+        if (chat.IsRemote) return await RemoteDeleteChat(chat);
         if (chat.IsDeleting || chat.Busy) throw new IOException("Stop the chat before deleting it.");
         if (ReferenceEquals(current, chat)) { pageLoad?.Cancel(); ClearChat(); }
         try
@@ -1653,6 +1747,7 @@ public partial class MainView : UserControl
             await Cleanup(SaveAllAsync);
             await Cleanup(() => backendUpdates);
             CloseRemoteView();
+            DisposeRemoteHosts();
             remoteSessions.Dispose();
             // Cancel providers before waiting for operations that depend on them.
             var stoppingAgents = runtimes.Values.Select(runtime => Cleanup(() => runtime.DisposeAsync().AsTask())).ToArray();

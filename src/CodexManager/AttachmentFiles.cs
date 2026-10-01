@@ -39,4 +39,32 @@ public static class AttachmentFiles
         catch (DecoderFallbackException) { binary = true; mime = "application/octet-stream"; text = Convert.ToBase64String(bytes); }
         return new(name, mime, text, "file:///" + Uri.EscapeDataString(name), Binary: binary);
     }
+
+    // An attachment can be opened in the system's app for its type (a long paste opens in the
+    // text editor). Saved edits to a text copy replace the attachment's contents when it is sent.
+    private sealed record OpenedCopy(string Path, DateTime Written);
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Attachment, OpenedCopy> opened = new();
+    public static string WriteCopy(Attachment attachment)
+    {
+        if (opened.TryGetValue(attachment, out var existing) && File.Exists(existing.Path)) return existing.Path;
+        var directory = Path.Combine(Path.GetTempPath(), "VibeHarder", "attachments", Guid.NewGuid().ToString("N")[..12]);
+        Directory.CreateDirectory(directory);
+        var name = string.Concat(attachment.Name.Select(c => Path.GetInvalidFileNameChars().Contains(c) ? '_' : c)).Trim();
+        var path = Path.Combine(directory, name.Length > 0 ? name : "attachment");
+        if (attachment.Binary || attachment.IsImage) File.WriteAllBytes(path, Convert.FromBase64String(attachment.Data));
+        else File.WriteAllText(path, attachment.Data, new UTF8Encoding(false));
+        opened.AddOrUpdate(attachment, new(path, File.GetLastWriteTimeUtc(path)));
+        return path;
+    }
+    public static Attachment WithSavedEdits(Attachment attachment)
+    {
+        if (attachment.Binary || attachment.IsImage || !opened.TryGetValue(attachment, out var copy) || !File.Exists(copy.Path)) return attachment;
+        var written = File.GetLastWriteTimeUtc(copy.Path);
+        if (written == copy.Written) return attachment;
+        var bytes = File.ReadAllBytes(copy.Path);
+        if (bytes.Length > MaximumBytes) throw new IOException(attachment.Name + " is larger than 20 MB after editing.");
+        var updated = attachment with { Data = new UTF8Encoding(false).GetString(bytes) };
+        opened.AddOrUpdate(updated, copy with { Written = written });
+        return updated;
+    }
 }

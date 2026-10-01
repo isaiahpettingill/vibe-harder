@@ -52,9 +52,15 @@ public partial class MainView
         try
         {
             if (remote is not null) await remote.UnarchiveChat(chat.Id);
+            else if (chat.IsRemote)
+            {
+                if (await RemoteAction(chat.Remote!, new() { ["method"] = "archive", ["chatId"] = chat.RemoteId, ["archived"] = false }, "Could not restore the chat.") is null) return;
+                chat.Archived = false;
+            }
             else { chat.Archived = false; store.Save(chat); await store.FlushAsync(); }
             ShowArchiveView(false);
             if (remote is not null) { OpenRemoteHost(remote.Host); remote.SelectChat(chat.Id); }
+            else if (chat.IsRemote) OpenRemoteChat(chat.Remote!, chat.RemoteId!);
             else
             {
                 SelectWorkspace(workspaces.Single(w => w.Id == chat.WorkspaceId));
@@ -67,7 +73,7 @@ public partial class MainView
     }
     private void UpdateArchiveSelection()
     {
-        foreach (var key in archivedSelection.Where(p => !p.Value.Chat.Archived || p.Value.Remote is null && !chats.Contains(p.Value.Chat)).Select(p => p.Key).ToArray()) archivedSelection.Remove(key);
+        foreach (var key in archivedSelection.Where(p => !p.Value.Chat.Archived || p.Value.Remote is null && !p.Value.Chat.IsRemote && !chats.Contains(p.Value.Chat)).Select(p => p.Key).ToArray()) archivedSelection.Remove(key);
         ArchiveSelectionBar.IsVisible = showArchived;
         ArchiveSelectionBar.IsEnabled = !archiveBatchRunning;
         ArchiveSelectionCount.Text = archivedSelection.Count == 0 ? "Select chats" : $"{archivedSelection.Count} selected";
@@ -111,11 +117,18 @@ public partial class MainView
                     if (!target.Chat.Archived) { archivedSelection.Remove(key); continue; }
                     if (delete)
                     {
-                        var warning = target.Remote is { } remote ? await remote.DeleteArchivedChat(target.Chat.Id) :
-                            await DeleteChatCore(target.Chat, workspaces.Single(w => w.Id == target.Chat.WorkspaceId));
+                        var warning = target.Remote is { } remote ? await remote.DeleteArchivedChat(target.Chat.Id)
+                            : target.Chat.IsRemote ? await RemoteDeleteChat(target.Chat)
+                            : await DeleteChatCore(target.Chat, workspaces.Single(w => w.Id == target.Chat.WorkspaceId));
                         if (warning is not null) warnings.Add(target.Chat.Title + ": " + warning);
                     }
                     else if (target.Remote is { } remote) await remote.UnarchiveChat(target.Chat.Id);
+                    else if (target.Chat.IsRemote)
+                    {
+                        if (await RemoteHostFor(target.Chat.Remote!).Call(new() { ["method"] = "archive", ["chatId"] = target.Chat.RemoteId, ["archived"] = false }) is null)
+                            throw new IOException(RemoteHostFor(target.Chat.Remote!).LastError ?? "The host did not respond.");
+                        target.Chat.Archived = false;
+                    }
                     else { target.Chat.Archived = false; store.Save(target.Chat); }
                     archivedSelection.Remove(key); completed++;
                 }
