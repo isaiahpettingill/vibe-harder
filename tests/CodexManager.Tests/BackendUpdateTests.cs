@@ -1,3 +1,4 @@
+using Avalonia.Controls;
 namespace CodexManager.Tests;
 
 public class BackendUpdateTests
@@ -217,5 +218,57 @@ public class BackendUpdateTests
         Assert.Contains("@latest", AgentProviders.Command(store, workspace, provider));
         store.Setting(AgentProviders.CommandKey(provider, false), "wrapper " + old);
         Assert.Equal("wrapper " + old, AgentProviders.Command(store, workspace, provider));
+    }
+    [Fact]
+    public async Task FindingUpdatesOnlyComparesVersionsAndApplyingUpdatesThatBackend()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("backend-find-").FullName);
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.EnabledKey(provider.Provider), provider.Provider is AgentProvider.Codex or AgentProvider.Claude or AgentProvider.Pi ? "1" : "0");
+        // Automatic updates are off: the manual check and update still work.
+        store.Setting(BackendUpdates.EnabledKey, "0");
+        var wsl = new Workspace("u", "Ubuntu", "/home/me", "Ubuntu-24.04");
+        BundledPackages.Pin(store, new Workspace("x", "Local", "C:\\"), new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.1.1", ["@openai/codex"] = "0.160.1" });
+        BundledPackages.Pin(store, wsl, new Dictionary<string, string> { ["@agentclientprotocol/claude-agent-acp"] = "0.84.0", ["pi-acp"] = "1.0.0" });
+        List<string> commands = [];
+        var latest = new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.1.2", ["@openai/codex"] = "0.160.1", ["@agentclientprotocol/claude-agent-acp"] = "0.84.0", ["pi-acp"] = "1.0.0", ["@earendil-works/pi-coding-agent"] = "0.9.0" };
+        var updater = new BackendUpdates(store, () => [wsl], (_, _) => false,
+            (_, command, _) => { lock (commands) commands.Add(command); return Task.FromResult(0); },
+            (environment, command, _) => command == "pi --version" ? (environment.IsWsl ? Task.FromResult("pi 0.8.4") : Task.FromException<string>(new IOException("not found")))
+                : Task.FromResult(latest[command["npm view ".Length..^" version".Length]]));
+        List<BackendUpdates.AvailableUpdate> found = [];
+        await updater.FindUpdates(update => { lock (found) found.Add(update); }, TestContext.Current.CancellationToken);
+        Assert.Equal(["local Codex codex-acp 2.1.2", "Ubuntu-24.04 Pi pi 0.9.0"], found.Select(u => $"{u.Environment.Distro ?? "local"} {u.Provider} {u.Detail}").Order());
+        Assert.Empty(commands);
+
+        var codex = found.Single(u => u.Provider == AgentProvider.Codex);
+        Assert.Null(await updater.Apply(codex, TestContext.Current.CancellationToken));
+        Assert.Contains(commands, c => c.Contains("--package=@agentclientprotocol/codex-acp@2.1.2"));
+        Assert.Equal("2.1.2", BundledPackages.Pinned(store, codex.Environment, "@agentclientprotocol/codex-acp"));
+        Assert.DoesNotContain(commands, c => c.Contains("claude") || c.Contains("pi"));
+        Assert.Equal("2.1.2", BackendUpdates.Newer("2.1.2", "codex-acp 2.1.1"));
+        Assert.Null(BackendUpdates.Newer("0.160.1", "codex-cli 0.160.1"));
+    }
+    [Avalonia.Headless.XUnit.AvaloniaFact]
+    public async Task BackendUpdatesAppearAsTrayItemsLeftOfTheAppUpdate()
+    {
+        var directory = Directory.CreateTempSubdirectory("backend-tray-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0"); store.Setting(BackendUpdates.EnabledKey, "0");
+        var window = new MainWindow(store) { Width = 1000, Height = 500 }; window.Show();
+        try
+        {
+            var show = typeof(MainView).GetMethod("ShowBackendUpdate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("l", "Local", directory), AgentProvider.Claude, "claude-agent-acp 0.85.0")]);
+            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("u", "Ubuntu", "/home/me", "Ubuntu-24.04"), AgentProvider.Claude, "claude-agent-acp 0.85.0")]);
+            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("u", "Ubuntu", "/home/me", "Ubuntu-24.04"), AgentProvider.Claude, "claude-agent-acp 0.85.1")]);
+            window.UpdateLayout();
+            var panel = UiTests.Named<StackPanel>(window, "BackendUpdates");
+            var buttons = panel.Children.OfType<Button>().ToArray();
+            Assert.Equal(["BackendUpdate_local_Claude", "BackendUpdate_Ubuntu-24.04_Claude"], buttons.Select(b => b.Name));
+            Assert.All(buttons, b => Assert.Contains(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<TextBlock>(), t => t.Text == "Update Claude"));
+            Assert.Contains("0.85.1", ToolTip.GetTip(buttons[1]) as string);
+            Assert.Equal(1, Grid.GetColumn(panel));
+            using (var frame = Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window)) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-backend-updates.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+        }
+        finally { window.RequestExit(); var until = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < until) await Task.Delay(25); }
     }
 }

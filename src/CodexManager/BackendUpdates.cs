@@ -86,19 +86,79 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
         finally { launched.TrySetResult(); }
     }
     public TimeSpan LaunchWait { get; init; } = TimeSpan.FromSeconds(20);
+
+    public sealed record AvailableUpdate(Workspace Environment, AgentProvider Provider, string Detail);
+    // npm packages behind the system installs updated in place, used only to compare versions.
+    private static string? SystemPackage(AgentProvider provider) => provider switch
+    {
+        AgentProvider.OpenCode => "opencode-ai",
+        AgentProvider.VTCode => "@vinhnx/vtcode",
+        AgentProvider.Pi => "@earendil-works/pi-coding-agent",
+        AgentProvider.Cline => "cline",
+        _ => null
+    };
+    private Workspace[] Environments(Workspace? only = null)
+    {
+        var local = new Workspace("backend-updates", "Local", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        return (only is null ? new[] { local }.Concat(workspaces().Where(w => w.IsWsl && store.Setting("closed:" + w.Id) != "1")) : [only])
+            .DistinctBy(w => w.Distro ?? "local").ToArray();
+    }
+    // Looks up newer versions without installing anything, reporting each as it is found.
+    // Environments are checked in parallel so one slow distro does not hold up the rest.
+    public async Task FindUpdates(Action<AvailableUpdate> found, CancellationToken token)
+    {
+        var providers = AgentProviders.All.Where(p => AgentProviders.IsEnabled(store, p.Provider)).Select(p => p.Provider).ToArray();
+        var pinned = Environments().ToDictionary(e => e, e => providers.ToDictionary(p => p, p => BundledPackages.For(p).Select(package => (package, BundledPackages.Pinned(store, e, package))).ToArray()));
+        await Task.WhenAll(pinned.Select(environment => Task.Run(async () =>
+        {
+            foreach (var provider in providers)
+            {
+                try
+                {
+                    var changes = new List<string>();
+                    // Unpinned sets launch @latest and are current by definition.
+                    foreach (var (package, version) in environment.Value[provider])
+                        if (version is not null && Newer(BundledPackages.ParseVersion(await resolve(environment.Key, BundledPackages.Lookup(package), token)), version) is { } latest)
+                            changes.Add(package.Split('/')[^1] + " " + latest);
+                    if (Plan(provider).Update is not null && SystemPackage(provider) is { } system)
+                    {
+                        string installed;
+                        try { installed = await resolve(environment.Key, Plan(provider).Executable + " --version", token); }
+                        catch (Exception error) when (error is not OperationCanceledException) { installed = ""; }
+                        if (installed.Length > 0 && Newer(await resolve(environment.Key, BundledPackages.Lookup(system), token), installed) is { } latest)
+                            changes.Add(Plan(provider).Executable + " " + latest);
+                    }
+                    if (changes.Count > 0) found(new(environment.Key, provider, string.Join(", ", changes)));
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+                catch (Exception error) { AppDiagnostics.Record("Backend update check " + Key(environment.Key, provider), error); }
+            }
+        }, token)));
+    }
+    // Returns the latest version when it is newer than the installed one.
+    public static string? Newer(string latest, string installed)
+    {
+        static Version? Parse(string text) => System.Text.RegularExpressions.Regex.Match(text, @"\d+\.\d+\.\d+") is { Success: true } match ? Version.Parse(match.Value) : null;
+        return Parse(latest) is { } a && Parse(installed) is { } b && a > b ? a.ToString() : null;
+    }
+    // Updates one backend now, whether or not automatic updates are on. Returns a problem, if any.
+    public async Task<string?> Apply(AvailableUpdate update, CancellationToken token)
+    {
+        var (failures, deferred) = await CheckCore(token, force: true, installProvider: null, Environments(update.Environment)[0], update.Provider, manual: true);
+        return failures.Count > 0 ? store.Setting("backendUpdate:" + Key(update.Environment, update.Provider)) ?? "Update failed."
+            : deferred ? "It is in use. Close its chats, then try again." : null;
+    }
     private string Key(Workspace workspace, AgentProvider provider) => (workspace.Distro ?? "local") + ":" + provider;
     private SemaphoreSlim Gate(Workspace workspace, AgentProvider provider) => gates.GetOrAdd(Key(workspace, provider), _ => new SemaphoreSlim(1, 1));
-    private async Task CheckCore(CancellationToken token, bool force, AgentProvider? installProvider, Workspace? onlyWorkspace = null, AgentProvider? onlyProvider = null, bool gateHeld = false)
+    private async Task<(List<string> Failures, bool Deferred)> CheckCore(CancellationToken token, bool force, AgentProvider? installProvider, Workspace? onlyWorkspace = null, AgentProvider? onlyProvider = null, bool gateHeld = false, bool manual = false)
     {
         List<string> failures = []; var deferred = false;
-        var local = new Workspace("backend-updates", "Local", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
-        var environments = (onlyWorkspace is null ? new[] { local }.Concat(workspaces().Where(w => w.IsWsl && store.Setting("closed:" + w.Id) != "1")) : [onlyWorkspace])
-            .DistinctBy(w => w.Distro ?? "local").ToArray();
+        var environments = Environments(onlyWorkspace);
         foreach (var environment in environments)
             foreach (var provider in AgentProviders.All)
             {
                 token.ThrowIfCancellationRequested();
-                if (!Enabled(store) && installProvider is null) return;
+                if (!Enabled(store) && installProvider is null && !manual) return (failures, deferred);
                 if (installProvider is { } selected && selected != provider.Provider) continue;
                 if (onlyProvider is { } selectedProvider && selectedProvider != provider.Provider) continue;
                 if (!AgentProviders.IsEnabled(store, provider.Provider)) continue;
@@ -145,6 +205,7 @@ public sealed class BackendUpdates(Store store, Func<IReadOnlyList<Workspace>> w
             }
         LastSummary = failures.Count > 0 ? "Backend updates need attention: " + string.Join(", ", failures) + ". See Agents settings."
             : deferred ? "Backend checks completed; busy agents will be checked when idle." : "Enabled backend checks completed.";
+        return (failures, deferred);
     }
     // Installs the newest versions as a fresh set and pins them only once that set runs, so a
     // bad publish or interrupted install never replaces the working one. No agent is started.

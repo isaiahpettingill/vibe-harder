@@ -64,11 +64,14 @@ public sealed class AcpClient : IAsyncDisposable
         finally { writes.Release(); }
     }
     public TimeSpan WriteTimeout { get; init; } = TimeSpan.FromSeconds(30);
-    private async Task WriteLine(string line)
+    // Process pipes are synchronous handles, so "async" writes block a pool thread until the
+    // agent reads. A stuck agent would pin pool threads and delay every timer and continuation
+    // in the app; block a dedicated thread instead.
+    private Task WriteLine(string line) => Task.Factory.StartNew(() =>
     {
-        await process.StandardInput.WriteLineAsync(line.AsMemory(), lifetime.Token).ConfigureAwait(false);
-        await process.StandardInput.FlushAsync(lifetime.Token).ConfigureAwait(false);
-    }
+        process.StandardInput.WriteLine(line);
+        process.StandardInput.Flush();
+    }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
     private async Task ReadLoop()
     {
         Exception? failure = null;

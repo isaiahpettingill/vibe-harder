@@ -1125,7 +1125,7 @@ public partial class MainView : UserControl
         connections.Paired += host => { BuildWorkspaceTree(); OpenRemoteHost(host); desktopWindow?.Activate(); };
         agents.Children.Add(new TextBlock { Text = "Choose agents for new chats. Existing chats are kept. Expand a provider to configure its commands.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var backendAutoUpdate = new CheckBox { Name = "AutoUpdateBackends", Content = "Keep enabled agent backends up to date", IsChecked = BackendUpdates.Enabled(store) };
-        ToolTip.SetTip(backendAutoUpdate, "Check at startup, every six hours, on reconnect, and when you check for app updates. Backends in use are skipped.");
+        ToolTip.SetTip(backendAutoUpdate, "Check at startup, every six hours, and on reconnect. Backends in use are skipped. Check for updates lists available backend updates either way.");
         backendAutoUpdate.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(BackendUpdates.EnabledKey, backendAutoUpdate.IsChecked == true ? "1" : "0"));
         agents.Children.Add(backendAutoUpdate);
         var fields = new Dictionary<string, TextBox>();
