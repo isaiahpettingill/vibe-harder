@@ -26,6 +26,13 @@ public sealed partial class RemoteView : UserControl, IDisposable
             chatId = null; SelectChat(id); messageRevisions.Clear(); nextCatalogRefresh = default; _ = RefreshList();
         });
     }
+    public string ImageScope => chatId ?? "";
+    public Task<string> DownloadImage(string target, CancellationToken token)
+    {
+        if (chatId is not { } id) throw new IOException("Select a chat first.");
+        if (OperatingSystem.IsBrowser()) throw new IOException("Images on the host cannot be shown in the browser.");
+        return FileLinks.Download(Call, id, target, token, ChatImages.CheckDownload);
+    }
     public async Task OpenFileLink(string target)
     {
         if (chatId is not { } id) throw new IOException("Select a chat first.");

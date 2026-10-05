@@ -13,6 +13,17 @@ public static class ConfigurationFiles
 
     public static async Task<List<ConfigurationFile>> Find(Workspace? workspace)
     {
+        var candidates = Candidates(await PathEnvironment(workspace), workspace?.Distro, workspace?.Path);
+        return await Task.Run(() => candidates.Where(f => File.Exists(f.EditorPath)).ToList());
+    }
+    // The Codex home of a workspace's host, as a path this machine can read (a WSL share for WSL).
+    public static async Task<string> CodexHome(Workspace workspace)
+    {
+        var config = Candidates(await PathEnvironment(workspace), workspace.Distro, workspace.Path).First(f => f.Title == "Codex: config.toml");
+        return System.IO.Path.GetDirectoryName(config.EditorPath)!;
+    }
+    private static async Task<Dictionary<string, string?>> PathEnvironment(Workspace? workspace)
+    {
         var environment = new Dictionary<string, string?>();
         if (workspace?.IsWsl == true)
         {
@@ -22,8 +33,7 @@ public static class ConfigurationFiles
             for (var i = 0; i < Variables.Length; i++) environment[Variables[i]] = values.ElementAtOrDefault(i);
         }
         else foreach (var variable in Variables) environment[variable] = Environment.GetEnvironmentVariable(variable);
-        var candidates = Candidates(environment, workspace?.Distro, workspace?.Path);
-        return await Task.Run(() => candidates.Where(f => File.Exists(f.EditorPath)).ToList());
+        return environment;
     }
 
     public static List<ConfigurationFile> Candidates(IReadOnlyDictionary<string, string?> environment, string? distro = null, string? cwd = null)

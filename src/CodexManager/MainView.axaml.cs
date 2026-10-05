@@ -19,6 +19,15 @@ namespace CodexManager;
 
 public partial class MainView : UserControl
 {
+    public string ImageScope => current?.Id ?? workspace?.Id ?? "";
+    // Image links in replies name files on the chat's host; remote ones are downloaded first.
+    public Task<string> ResolveImageFile(string target, CancellationToken token)
+    {
+        if (current is { IsRemote: true } remoteChat && RemoteSessionOf(remoteChat) is { } session)
+            return FileLinks.Download(session.Host.Call, remoteChat.RemoteId!, target, token, ChatImages.CheckDownload);
+        if (workspace is null) throw new IOException("Select a workspace first.");
+        return Task.FromResult(FileLinks.Resolve(target, workspace));
+    }
     public void OpenFileLink(string target)
     {
         if (current is { IsRemote: true } remoteChat && RemoteSessionOf(remoteChat) is { } session) { _ = OpenRemoteFileLink(session, remoteChat, target); return; }
@@ -587,7 +596,7 @@ public partial class MainView : UserControl
         foreach (var input in inputs)
         {
             var row = new Grid { ColumnDefinitions = new("*,Auto,Auto,Auto,Auto"), Margin = new Thickness(2) };
-            row.Children.Add(new TextBlock { Text = input.Text.Length > 0 ? input.Text : $"{input.Attachments.Length} attachments", TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 2, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
+            row.Children.Add(new TextBlock { Text = input.Text.Length > 0 ? CodexAsyncQuestions.Display(input.Text) : $"{input.Attachments.Length} attachments", TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 2, VerticalAlignment = VerticalAlignment.Center, FontSize = 11 });
             void Action(int column, string icon, string label, Func<Task> action)
             {
                 var button = new IconButton { Icon = icon, Label = label, Name = icon == "steer" ? "SteerQueued" : null, IsVisible = icon != "steer" || canSteer };

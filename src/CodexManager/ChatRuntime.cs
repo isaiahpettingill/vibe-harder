@@ -129,7 +129,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 chat.Status = "Steered turn running — this adapter does not report its completion; Stop before sending another turn";
                 store.Setting("interrupted:" + chat.Id, JsonSerializer.Serialize(input, StoreJsonContext.Default.PendingInput));
             }
-            var message = new Message { Role = "user", Provider = chat.Provider, Text = input.Text };
+            var message = new Message { Role = "user", Provider = chat.Provider, Text = CodexAsyncQuestions.Display(input.Text) };
             foreach (var a in input.Attachments) message.Attachments.Add(a);
             chat.Messages.Add(message); store.SaveMessage(chat, message);
             return true;
@@ -525,6 +525,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         store.Setting("interrupted:" + chat.Id, JsonSerializer.Serialize(chat.PendingInput, StoreJsonContext.Default.PendingInput));
         var recoverConnection = false;
         var completed = false;
+        Task? following = null;
         try
         {
             if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, limit: chat.RetainHistory ? Chat.HistoryPageSize : 1, token: turn.Token));
@@ -542,7 +543,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 restoredContext = (await store.ExportChatAsync(chat).WaitAsync(turn.Token)).Plain;
             }
             var continuation = string.IsNullOrWhiteSpace(text) && attachments.Length == 0;
-            var user = new Message { Role = continuation ? "system" : "user", Provider = chat.Provider, Text = continuation ? autoResume ? "Chat auto-resumed after unexpected restart" : "Chat resumed" : text + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
+            var user = new Message { Role = continuation ? "system" : "user", Provider = chat.Provider, Text = continuation ? autoResume ? "Chat auto-resumed after unexpected restart" : "Chat resumed" : CodexAsyncQuestions.Display(text) + string.Concat(attachments.Select(a => $"\n\n📎 {a.Name}")) };
             foreach (var a in attachments) user.Attachments.Add(a);
             chat.Messages.Add(user); store.SaveMessage(chat, user);
             chat.Status = "Working…"; Changed?.Invoke();
@@ -551,6 +552,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");
+            following = FollowAsyncQuestions(turn.Token);
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
             if (chat.Provider == AgentProvider.Pi && !turn.IsCancellationRequested &&
                 (!result.TryGetProperty("stopReason", out var piStop) || piStop.GetString() != "cancelled") &&
@@ -588,6 +590,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.PendingInput = null;
             var finishedTurn = turn; turn = null;
             try { finishedTurn?.Cancel(); } finally { finishedTurn?.Dispose(); chat.Busy = detachedTurn; }
+            if (following is not null) await following;
             try
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);

@@ -14,6 +14,7 @@ using Avalonia.Threading;
 using AvaloniaEdit;
 using ColorDocument.Avalonia;
 using ColorTextBlock.Avalonia;
+using LiveMarkdown.Avalonia;
 using Markdown.Avalonia;
 
 namespace CodexManager;
@@ -74,8 +75,10 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     private void Decorate()
     {
         var codeBlocks = new List<Border>();
+        var placeholders = new List<Border>();
         foreach (var control in this.GetVisualDescendants())
         {
+            if (control is Border { Child: null } placeholder && (placeholder.Classes.Contains("ChatImage") || placeholder.Classes.Contains("MermaidBlock"))) placeholders.Add(placeholder);
             // Markdown.Avalonia adds scroll viewers after rendering. Let touch
             // panning continue into the transcript when they reach an edge.
             if (control is ScrollViewer scroll) ScrollViewer.SetIsScrollChainingEnabled(scroll, true);
@@ -91,6 +94,8 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             DecorateLinks(block);
             block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted || SessionNotice ? "AppMuted" : "AppText"));
         }
+        foreach (var border in placeholders)
+            if (border.Classes.Contains("MermaidBlock")) ShowDiagram(border); else ShowImage(border);
         foreach (var border in codeBlocks)
         {
             // Plain fences use an upstream horizontal scroller whose overlay
@@ -135,6 +140,80 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             grid.Children.Add(header); Grid.SetRow(editor, 1); grid.Children.Add(editor); border.Child = grid;
         }
     }
+    private void ShowDiagram(Border border)
+    {
+        var source = border.Tag as string ?? "";
+        var presenter = new MermaidPresenter { Text = source, Margin = new Thickness(8) };
+        void Use(AvaloniaProperty property, string key) => presenter.Bind(property, this.GetResourceObservable(key));
+        Use(MermaidPresenter.FontFamilyProperty, "ChatFont"); Use(MermaidPresenter.NodeLabelFontSizeProperty, "ChatFontSize");
+        Use(MermaidPresenter.ForegroundProperty, "AppText"); Use(MermaidPresenter.SecondaryForegroundProperty, "AppMuted");
+        Use(MermaidPresenter.NodeFillProperty, "AppBackground"); Use(MermaidPresenter.NodeStrokeProperty, "AppAccent");
+        Use(MermaidPresenter.GroupFillProperty, "AppSurface"); Use(MermaidPresenter.GroupHeaderFillProperty, "AppBackground"); Use(MermaidPresenter.GroupStrokeProperty, "AppBorder");
+        Use(MermaidPresenter.AccentFillProperty, "AppAccent"); Use(MermaidPresenter.AccentForegroundProperty, "AppOnAccent"); Use(MermaidPresenter.AccentStrokeProperty, "AppAccent");
+        Use(MermaidPresenter.LineStrokeProperty, "AppMuted"); Use(MermaidPresenter.ThickLineStrokeProperty, "AppMuted"); Use(MermaidPresenter.DottedLineStrokeProperty, "AppMuted");
+        Use(MermaidPresenter.ArrowFillProperty, "AppMuted"); Use(MermaidPresenter.EdgeLabelBackgroundProperty, "AppSurface"); Use(MermaidPresenter.EdgeLabelStrokeProperty, "AppBorder");
+        // Wide diagrams shrink to the transcript width instead of scrolling inside it.
+        var diagram = new Viewbox { Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, HorizontalAlignment = HorizontalAlignment.Left, Child = presenter };
+        var code = new SelectableTextBlock { Text = source, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(8), IsVisible = false };
+        code.Bind(TextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+        code.Bind(TextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
+        var toggle = new IconButton { Name = "MermaidSource", Label = "Show source", Icon = "code" };
+        toggle.Click += (_, _) =>
+        {
+            code.IsVisible = !code.IsVisible; diagram.IsVisible = !code.IsVisible;
+            toggle.Label = code.IsVisible ? "Show diagram" : "Show source"; toggle.Icon = code.IsVisible ? "preview" : "code";
+        };
+        var copy = new IconButton { Name = "CopyCode", Label = "Copy code" };
+        copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(source); };
+        var header = new Grid { ColumnDefinitions = new("*,Auto,Auto") };
+        header.Children.Add(new TextBlock { Text = "mermaid", Margin = new Thickness(8, 4), FontSize = 11 });
+        Grid.SetColumn(toggle, 1); header.Children.Add(toggle); Grid.SetColumn(copy, 2); header.Children.Add(copy);
+        var grid = new Grid { RowDefinitions = new("Auto,Auto,Auto") };
+        grid.Children.Add(header); Grid.SetRow(diagram, 1); grid.Children.Add(diagram); Grid.SetRow(code, 2); grid.Children.Add(code);
+        border.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+        border.Child = grid;
+    }
+    private async void ShowImage(Border border)
+    {
+        if (border.Tag is not ChatImage image) return;
+        var status = new TextBlock { Text = "Loading image…", FontSize = 11 };
+        status.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
+        border.Child = status;
+        var data = image.Url.StartsWith("data:", StringComparison.OrdinalIgnoreCase);
+        if (!data)
+        {
+            ToolTip.SetTip(border, image.Url);
+            var open = new MenuItem { Header = "Open image" }; open.Click += async (_, _) => await OpenLink(image.Url);
+            var copy = new MenuItem { Header = "Copy image link" };
+            copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(image.Url); };
+            border.ContextMenu = new ContextMenu { ItemsSource = new[] { open, copy } };
+        }
+        try
+        {
+            var bitmap = await ChatImages.Load(image.Url, ImageScope(), ResolveImageFile);
+            var view = new Image { Source = bitmap, Stretch = Stretch.Uniform, StretchDirection = StretchDirection.DownOnly, MaxHeight = 480, HorizontalAlignment = HorizontalAlignment.Left };
+            Avalonia.Automation.AutomationProperties.SetName(view, image.Alt);
+            if (!data)
+            {
+                view.Cursor = new Cursor(StandardCursorType.Hand);
+                view.PointerReleased += async (_, e) => { if (e.InitialPressMouseButton == MouseButton.Left) { e.Handled = true; await OpenLink(image.Url); } };
+            }
+            border.Child = view;
+        }
+        catch (Exception error)
+        {
+            status.Text = "Image unavailable: " + (image.Alt.Length > 0 ? image.Alt : data ? "embedded image" : image.Url);
+            ToolTip.SetTip(border, (data ? "" : image.Url + "\n") + error.Message);
+        }
+    }
+    // Relative and absolute paths name files on the chat's host, which may be WSL or a remote machine.
+    private string ImageScope() =>
+        this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote ? "remote:" + remote.ImageScope
+        : this.GetVisualAncestors().OfType<MainView>().FirstOrDefault()?.ImageScope ?? "";
+    private Task<string> ResolveImageFile(string target, CancellationToken token) => Dispatcher.UIThread.InvokeAsync(() =>
+        this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote ? remote.DownloadImage(target, token)
+        : this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main ? main.ResolveImageFile(target, token)
+        : throw new IOException("Images on this host cannot be opened here."));
     private void ApplyHighlighting(TextEditor editor)
     {
         if (editor.SyntaxHighlighting is { } definition && !syntaxDefinitions.TryGetValue(editor, out _)) syntaxDefinitions.Add(editor, definition);
@@ -144,6 +223,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     private void RefreshSyntax()
     {
         ScheduleDecoration();
+        foreach (var presenter in this.GetVisualDescendants().OfType<MermaidPresenter>()) presenter.InvalidateVisual();
         foreach (var editor in this.GetVisualDescendants().OfType<TextEditor>())
         { ApplyHighlighting(editor); editor.TextArea.TextView.Redraw(); }
     }
@@ -312,6 +392,10 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             var offset = 0;
             return $"<p style=\"font-family:{Encode(block.FontFamily.Name)};font-size:{block.FontSize}px\">" + string.Concat(block.Content.Select(i => Inline(i, from, to, ref offset))) + "</p>";
         }
+        if (element.Control is Border { Tag: ChatImage image })
+            return !selection || selected.Contains(image.Url, StringComparison.Ordinal) ? (ChatImages.IsWeb(image.Url) ? $"<img src=\"{Encode(image.Url)}\" alt=\"{Encode(image.Alt)}\">" : "<p>" + Encode(image.Alt.Length > 0 ? image.Alt : image.Url) + "</p>") : "";
+        if (element.Control is Border { Tag: string diagram } mermaid && mermaid.Classes.Contains("MermaidBlock"))
+            return !selection || selected.Contains(diagram, StringComparison.Ordinal) ? "<pre><code class=\"language-mermaid\">" + Encode(diagram) + "</code></pre>" : "";
         if (element.Control.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault() is { } editor && !element.Children.Any())
             return !selection || selected.Contains(editor.Text, StringComparison.Ordinal) ? "<pre><code>" + Encode(editor.Text) + "</code></pre>" : "";
         var body = string.Concat(element.Children.Select(c => Html(c, selection, selected)));

@@ -62,12 +62,19 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     yield return new HeaderElement(Inlines(heading.Inline), heading.Level);
                     break;
                 case ParagraphBlock paragraph:
-                    yield return new CTextBlockElement(Inlines(paragraph.Inline), "Paragraph");
+                    // Linked images render below their paragraph; a paragraph of only images is replaced.
+                    var images = new List<(string Url, string Alt)>();
+                    var inlines = Inlines(paragraph.Inline, images);
+                    if (images.Count == 0 || paragraph.Inline?.Any(i => i is not LineBreakInline && !(i is LinkInline { IsImage: true }) && !(i is LiteralInline l && l.Content.IsEmptyOrWhitespace())) == true)
+                        yield return new CTextBlockElement(inlines, "Paragraph");
+                    foreach (var (url, alt) in images) yield return new ImageElement(url, alt);
                     break;
                 case CodeBlock code:
                     var language = (code as FencedCodeBlock)?.Info ?? "";
                     var text = code.Lines.ToString();
-                    yield return string.IsNullOrWhiteSpace(language) ? new PlainCodeBlockElement(text) : new CodeElement(language, text);
+                    // An unclosed fence is still streaming; show its source until the diagram is complete.
+                    if (code is FencedCodeBlock { ClosingFencedCharCount: > 0 } && language.Equals("mermaid", StringComparison.OrdinalIgnoreCase)) yield return new MermaidElement(text);
+                    else yield return string.IsNullOrWhiteSpace(language) ? new PlainCodeBlockElement(text) : new CodeElement(language, text);
                     break;
                 case QuoteBlock quote:
                     yield return new BlockquoteElement(Blocks(quote).ToArray());
@@ -116,7 +123,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
         }
         return new TableBlockElement(headers.ToArray(), rows.ToArray(), [], true);
     }
-    private CInline[] Inlines(ContainerInline? container)
+    private CInline[] Inlines(ContainerInline? container, List<(string Url, string Alt)>? images = null)
     {
         if (container is null) return [];
         var result = new List<CInline>();
@@ -134,7 +141,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     result.Add(line.IsHard ? new CLineBreak() : new CRun { Text = " " });
                     break;
                 case EmphasisInline emphasis:
-                    var children = Inlines(emphasis);
+                    var children = Inlines(emphasis, images);
                     result.Add(emphasis.DelimiterChar == '~' ? new CStrikethrough(children)
                         : emphasis.DelimiterCount == 2 ? new CBold(children) : new CItalic(children));
                     break;
@@ -142,12 +149,18 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     var url = link.GetDynamicUrl?.Invoke() ?? link.Url ?? "";
                     if (link.IsImage)
                     {
-                        // Retain the existing asynchronous image loader, not its parser.
-                        result.Add(Plugins.Info.LoadImage(url));
+                        var alt = string.Concat(link.Descendants<LiteralInline>().Select(l => l.Content.ToString()));
+                        images?.Add((url, alt));
+                        result.Add(Link([new CRun { Text = alt.Length > 0 ? alt : url }], url));
                     }
-                    else result.Add(Link(Inlines(link), url));
+                    else
+                    {
+                        if (ChatImages.IsImageLink(url)) images?.Add((url, ""));
+                        result.Add(Link(Inlines(link), url));
+                    }
                     break;
                 case AutolinkInline link:
+                    if (!link.IsEmail && ChatImages.IsImageLink(link.Url)) images?.Add((link.Url, ""));
                     result.Add(Link([new CRun { Text = link.Url }], link.IsEmail ? "mailto:" + link.Url : link.Url));
                     break;
                 case HtmlEntityInline entity:
@@ -157,7 +170,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     result.Add(new CRun { Text = task.Checked ? "☑" : "☐" });
                     break;
                 case ContainerInline nested:
-                    result.AddRange(Inlines(nested));
+                    result.AddRange(Inlines(nested, images));
                     break;
             }
         }
@@ -168,6 +181,26 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
         CommandParameter = url,
         Command = target => { if (HyperlinkCommand?.CanExecute(target) == true) HyperlinkCommand.Execute(target); }
     };
+
+    // ChatMarkdown fills these placeholders, so loading and theming stay with its resources.
+    private sealed class ImageElement(string url, string alt) : DocumentElement
+    {
+        private readonly Lazy<Control> control = new(() => new Border { Classes = { "ChatImage" }, Tag = new ChatImage(url, alt), HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, Margin = new Thickness(0, 4) });
+        public override Control Control => control.Value;
+        public override IEnumerable<DocumentElement> Children => [];
+        public override void Select(Point from, Point to) => Helper?.Register(Control);
+        public override void UnSelect() => Helper?.Unregister(Control);
+        public override void ConstructSelectedText(StringBuilder builder) => builder.Append("![").Append(alt).Append("](").Append(url).Append(')');
+    }
+    private sealed class MermaidElement(string text) : DocumentElement
+    {
+        private readonly Lazy<Control> control = new(() => new Border { Classes = { "CodeBlock", "MermaidBlock" }, Tag = text });
+        public override Control Control => control.Value;
+        public override IEnumerable<DocumentElement> Children => [];
+        public override void Select(Point from, Point to) => Helper?.Register(Control);
+        public override void UnSelect() => Helper?.Unregister(Control);
+        public override void ConstructSelectedText(StringBuilder builder) => builder.Append("```mermaid\n").Append(text).Append("\n```");
+    }
 
     private sealed class CodeElement : DocumentElement
     {
@@ -189,3 +222,4 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
         public override void ConstructSelectedText(StringBuilder builder) => builder.Append(text);
     }
 }
+public sealed record ChatImage(string Url, string Alt);
