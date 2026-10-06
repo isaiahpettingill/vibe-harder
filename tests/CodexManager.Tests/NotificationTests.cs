@@ -60,6 +60,24 @@ public class NotificationTests
     }
 
     [Fact]
+    public void PhonesAreOnlyPushedToWhileNobodyUsesTheHost()
+    {
+        // The real idle time is readable on desktop systems with a session.
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()) Assert.NotNull(HostActivity.Idle());
+        try
+        {
+            HostActivity.IdleOverride = () => TimeSpan.FromSeconds(10);
+            Assert.True(HostActivity.UserActive());
+            HostActivity.IdleOverride = () => TimeSpan.FromMinutes(5);
+            Assert.False(HostActivity.UserActive());
+            // Without any way to tell, the phone is told.
+            HostActivity.IdleOverride = () => null;
+            Assert.False(HostActivity.UserActive());
+        }
+        finally { HostActivity.IdleOverride = null; }
+    }
+
+    [Fact]
     public void ChatLinksOnlyAcceptChatIds()
     {
         Assert.Equal("vibeharder://chat/abc123", ChatLinks.For("abc123"));

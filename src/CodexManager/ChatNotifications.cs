@@ -2,7 +2,7 @@ namespace CodexManager;
 
 // Tells the user when a chat finishes, or when an agent comes back from background work, while
 // they are looking elsewhere. Desktop notifications go through the system notifier; paired phones
-// get a UnifiedPush message from the host.
+// get a UnifiedPush message from the host, unless someone is using the host right now.
 public static class ChatNotifications
 {
     public const string EnabledKey = "completionNotifications";
@@ -15,7 +15,7 @@ public static class ChatNotifications
         if (!Enabled(store)) return;
         var title = background ? "Back from background work" : "Reply ready";
         if (desktop) PermissionNotifications.Show("done:" + chat.Id, chat.Title, open, title, ChatLinks.For(chat.Id));
-        if (Push is { } push && !chat.IsRemote) _ = SendPush(push, chat, title);
+        if (Push is { } push && !chat.IsRemote && !HostActivity.UserActive()) _ = SendPush(push, chat, title);
     }
     private static async Task SendPush(Func<Chat, string, Task> push, Chat chat, string title)
     {

@@ -58,14 +58,15 @@ public partial class MainView
         window.Closing += OnClosing;
         window.Activated += (_, _) => WakePresentation();
         window.Deactivated += (_, _) => SchedulePresentationSleep();
-        window.AddHandler(KeyDownEvent, (_, _) => WakePresentation(), RoutingStrategies.Tunnel, handledEventsToo: true);
+        window.AddHandler(KeyDownEvent, (_, _) => { WakePresentation(); HostActivity.Touched(); }, RoutingStrategies.Tunnel, handledEventsToo: true);
         window.AddHandler(KeyDownEvent, (_, e) =>
         {
             if (!ReferenceEquals(e.Source, window)) return;
             var forwarded = new Avalonia.Input.KeyEventArgs { RoutedEvent = KeyDownEvent, Key = e.Key, KeyModifiers = e.KeyModifiers, PhysicalKey = e.PhysicalKey };
             RaiseEvent(forwarded); e.Handled = forwarded.Handled;
         }, RoutingStrategies.Tunnel);
-        window.AddHandler(PointerPressedEvent, (_, _) => WakePresentation(), RoutingStrategies.Tunnel, handledEventsToo: true);
+        window.AddHandler(PointerPressedEvent, (_, _) => { WakePresentation(); HostActivity.Touched(); }, RoutingStrategies.Tunnel, handledEventsToo: true);
+        window.AddHandler(PointerMovedEvent, (_, _) => HostActivity.Touched(), RoutingStrategies.Tunnel, handledEventsToo: true);
         window.PropertyChanged += (_, e) => { if (e.Property == Window.IsVisibleProperty || e.Property == Window.WindowStateProperty) SchedulePresentationSleep(); };
         ConfigureTray();
         window.Opened += async (_, _) => await StartDesktop(window,
