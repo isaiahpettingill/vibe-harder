@@ -19,6 +19,8 @@ public sealed class MainWindow : Window
         NameScope.SetNameScope(this, NameScope.GetNameScope(View));
         View.AttachDesktop(this);
     }
+    // Composer parts are built in code, outside the view's sealed XAML name scope.
+    public T? FindControl<T>(string name) where T : Control => View.ComposerPart(name) as T ?? ControlExtensions.FindControl<T>(this, name);
     public void ShowFromTray() => View.ShowFromTray();
     public void RequestExit() => View.RequestExit();
     public bool IsPresentationSleeping => View.IsPresentationSleeping;

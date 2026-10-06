@@ -153,8 +153,13 @@ public partial class MainView : UserControl
         InitializeChatSearch();
         OpenWorkspaceButton.Content = AppIcons.Label("add", "Open workspace");
         ArchiveViewButton.Content = AppIcons.Label("chevron-down", "Chats", trailing: true);
-        ((StackPanel)SlashCommands.Parent!).Children.Remove(SlashCommands);
-        RootPanes.Children.Add(new SlashCommandOverlay(Composer, SlashCommands));
+        ComposerHost.Content = chatComposer;
+        Composer.TextChanged += DraftChanged;
+        SlashCommands.PointerReleased += SlashCommandClicked;
+        chatComposer.AttachButton.Click += AttachFiles;
+        SendButton.Click += SendClick;
+        chatComposer.OpenAttachment += OpenAttachment;
+        chatComposer.RemoveAttachment += RemoveAttachment;
         historyNavigation = new TranscriptNavigation(MessageList, HistoryNavigation, () => viewingHistory, BrowseHistory);
         TerminalDrawer.PropertyChanged += (_, e) =>
         {
@@ -925,9 +930,20 @@ public partial class MainView : UserControl
     }
     // Send what the user saved if they edited an opened attachment (e.g. a long paste).
     private static Attachment[] OutgoingAttachments(Chat chat) => chat.Attachments.Select(AttachmentFiles.WithSavedEdits).ToArray();
-    private async void OpenAttachment(object? sender, RoutedEventArgs e)
+    // The composer shared with the mobile view; its parts keep the names they had in XAML.
+    private readonly ChatComposer chatComposer = new(remote: false, "Ask Codex… paste an image or drop a file");
+    private ChatComposer ComposerBorder => chatComposer;
+    internal Control? ComposerPart(string name) => chatComposer.Part(name);
+    private ComposerEditor Composer => chatComposer.Editor;
+    private ItemsControl AttachmentList => chatComposer.AttachmentList;
+    private IconButton SendButton => chatComposer.SendButton;
+    private WrapPanel ConfigOptionsPanel => chatComposer.ConfigOptions;
+    private Expander QueuePanel => chatComposer.QueuePanel;
+    private StackPanel QueueItems => chatComposer.QueueItems;
+    private ListBox SlashCommands => chatComposer.SlashCommands;
+    private async void OpenAttachment(Attachment attachment)
     {
-        if (sender is not Control { Tag: Attachment attachment } || TopLevel.GetTopLevel(this) is not { } top) return;
+        if (TopLevel.GetTopLevel(this) is not { } top) return;
         try
         {
             var path = await Task.Run(() => AttachmentFiles.WriteCopy(attachment));
@@ -936,9 +952,9 @@ public partial class MainView : UserControl
         }
         catch (Exception error) { StatusText.Text = "Could not open attachment: " + error.Message; }
     }
-    private void RemoveAttachment(object? sender, RoutedEventArgs e)
+    private void RemoveAttachment(Attachment attachment)
     {
-        if (sender is not Button { Tag: Attachment attachment } || current is null) return;
+        if (current is null) return;
         current.Attachments.Remove(attachment);
         pendingSaves.Add(current);
         if (attachment.Reference is { } reference) Composer.Text = (Composer.Text ?? "").Replace(reference, "", StringComparison.Ordinal);

@@ -80,14 +80,15 @@ public sealed partial class RemoteView : UserControl, IDisposable
         if (!presentationSleeping) timer.Start();
         _ = Connect();
     }
-    private readonly WrapPanel attachmentChips = new();
-    private readonly TextBlock attachmentError = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-    private readonly IconButton send = new() { Name = "RemoteSend", Icon = "send", Label = "Send", Classes = { "accent" } };
-    private readonly StackPanel queuedMessages = new();
-    private readonly Expander queuePanel = new() { Name = "RemoteQueuePanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch };
+    // The same composer as the desktop chat pane.
+    private readonly ChatComposer chatComposer = new(remote: true, "Message the agent…");
+    private TextBlock attachmentError => chatComposer.AttachmentError;
+    private IconButton send => chatComposer.SendButton;
+    private StackPanel queuedMessages => chatComposer.QueueItems;
+    private Expander queuePanel => chatComposer.QueuePanel;
     private bool busy, sending, preparing;
     private bool advancingQueue;
-    private readonly ListBox slashCommands = new() { Name = "RemoteSlashCommands", IsVisible = false, MaxHeight = 150 };
+    private ListBox slashCommands => chatComposer.SlashCommands;
     private SlashCommand[] availableCommands = [];
     private void UpdateSlashCommands()
     {
@@ -158,7 +159,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private RemoteConnection? connection;
     private readonly CancellationTokenSource lifetime = new();
     private readonly TextBlock status = new() { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-    private readonly ComposerEditor composer = new() { Name = "RemoteComposer", MinHeight = 56, MaxHeight = 140, Padding = new Thickness(8, 6), Background = Avalonia.Media.Brushes.Transparent, PlaceholderText = "Message the agent…" };
+    private ComposerEditor composer => chatComposer.Editor;
     private readonly StackPanel approvals = new();
     private readonly ListBox chats = new();
     private readonly ComboBox workspaces = new();
@@ -180,7 +181,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private DateTimeOffset nextCatalogRefresh;
     private string permissionsJson = "";
     private string configJson = "";
-    private readonly WrapPanel configs = new() { Orientation = Orientation.Horizontal };
+    private WrapPanel configs => chatComposer.ConfigOptions;
     private readonly List<Attachment> attachments = [];
     private JsonArray chatRows = [];
     private bool presentationSleeping;
@@ -307,8 +308,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var scope = "remote:" + Host.Address + ":" + Host.Port + ":";
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         if (Content is Panel panel) panel.Background = SidebarColors.Brush(preferences, "workspaceColor:" + scope + owner, true);
-        composer.BorderBrush = SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) ?? this.FindResource("AppBorder") as Avalonia.Media.IBrush;
-        composer.BorderThickness = new Thickness(SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) is null ? 1 : 2);
+        chatComposer.BorderBrush = SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) ?? this.FindResource("AppBorder") as Avalonia.Media.IBrush;
+        chatComposer.BorderThickness = new Thickness(SidebarColors.Brush(preferences, "chatColor:" + scope + chatId) is null ? 1 : 2);
     }
     public RemoteView(RemoteHost host, Func<bool>? allowAll = null, Action? activate = null, Store? preferences = null, RemoteDownloads? downloads = null)
     {
@@ -389,9 +390,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
         panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
         Grid.SetRow(approvalScroll, 2); panel.Children.Add(approvalScroll);
-        queuePanel.Content = new ScrollViewer { Content = queuedMessages, MaxHeight = 150, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
         queuedMessages.Children.CollectionChanged += (_, _) => { var count = queuedMessages.Children.Count; queuePanel.IsVisible = count > 0; queuePanel.Header = $"{count} queued message{(count == 1 ? "" : "s")}"; };
-        var input = new StackPanel { Spacing = 6 }; Grid.SetRow(input, 3); panel.Children.Add(input); input.Children.Add(queuePanel); input.Children.Add(attachmentError); input.Children.Add(attachmentChips); input.Children.Add(new SlashCommandOverlay(composer, slashCommands)); input.Children.Add(composer);
+        var input = chatComposer; Grid.SetRow(input, 3); panel.Children.Add(input);
+        chatComposer.OpenAttachment += attachment => _ = OpenAttachment(attachment);
+        chatComposer.RemoveAttachment += attachment => { attachments.Remove(attachment); if (attachment.Reference is { } reference) composer.Text = composer.Text.Replace(reference, "", StringComparison.Ordinal); RefreshAttachments(); };
         slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
         DragDrop.SetAllowDrop(input, true);
         input.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
@@ -406,9 +408,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             }
             catch (Exception error) { attachmentError.Text = "Drop failed: " + error.Message; }
         }, RoutingStrategies.Bubble, true);
-        var footer = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6 }; input.Children.Add(footer); footer.Children.Add(configs);
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Spacing = 4 }; Grid.SetColumn(actions, 1); footer.Children.Add(actions);
-        var attach = new IconButton { Name = "RemoteAttach", Icon = "add", Label = "Attach images or files" };
+        var attach = chatComposer.AttachButton;
         attach.Click += async (_, _) =>
         {
             var selectedChat = chatId;
@@ -424,8 +424,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             }
             catch (Exception error) { attachmentError.Text = "Could not attach files: " + error.Message; }
             finally { attach.IsEnabled = true; }
-        }; actions.Children.Add(attach);
-        actions.Children.Add(send);
+        };
         composer.TextChanged += (_, _) => { UpdateSendAction(); UpdateSlashCommands(); SaveBrowserDraft(); };
         send.Click += async (_, _) => await SendOrStop();
         composer.AddHandler(KeyDownEvent, async (_, e) =>
@@ -652,7 +651,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         sending = true; timer.Interval = TimeSpan.FromMilliseconds(250); UpdateSendAction();
         try
         {
-            var result = await Call(new() { ["method"] = stop ? method == "send-now" ? "queue/interrupt" : "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent, StoreJsonContext.Default.AttachmentArray) });
+            var result = await Call(new() { ["method"] = stop ? method == "send-now" ? "queue/interrupt" : "stop" : method, ["chatId"] = id, ["text"] = text, ["attachments"] = JsonSerializer.SerializeToNode(sent.Select(AttachmentFiles.WithSavedEdits).ToArray(), StoreJsonContext.Default.AttachmentArray) });
             if (result is not null && id == chatId)
             {
                 var follow = !viewingHistory && output.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: true };
@@ -840,16 +839,19 @@ public sealed partial class RemoteView : UserControl, IDisposable
     private void RefreshAttachments()
     {
         UpdateSendAction();
-        attachmentChips.Children.Clear();
-        foreach (var attachment in attachments)
+        chatComposer.AttachmentList.ItemsSource = attachments.ToArray();
+    }
+    private async Task OpenAttachment(Attachment attachment)
+    {
+        if (OperatingSystem.IsBrowser() || TopLevel.GetTopLevel(this) is not { } top) return;
+        try
         {
-            var chip = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4, Margin = new Thickness(0, 0, 6, 4) };
-            chip.Children.Add(new TextBlock { Text = attachment.Name, MaxWidth = 220, TextTrimming = Avalonia.Media.TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
-            var remove = new IconButton { Icon = "remove", IconSize = 10, Label = "Remove " + attachment.Name };
-            remove.Click += (_, _) => { attachments.Remove(attachment); if (attachment.Reference is { } reference) composer.Text = composer.Text.Replace(reference, "", StringComparison.Ordinal); RefreshAttachments(); };
-            chip.Children.Add(remove);
-            attachmentChips.Children.Add(chip);
+            var path = await Task.Run(() => AttachmentFiles.WriteCopy(attachment));
+            if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
+            var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
+            if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open " + attachment.Name + ".");
         }
+        catch (Exception error) { attachmentError.Text = "Could not open attachment: " + error.Message; }
     }
     public async Task ArchiveChat(string id, bool archived)
     {

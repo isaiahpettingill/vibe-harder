@@ -155,4 +155,40 @@ public class MobileChatLayoutTests
         }
         finally { window.Close(); }
     }
+
+    [AvaloniaFact]
+    public void MobileAndDesktopShareTheComposer()
+    {
+        using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", ""));
+        var window = new Window { Width = 420, Height = 800, Content = view }; window.Show();
+        try
+        {
+            var mobile = Assert.Single(view.GetVisualDescendants().OfType<ChatComposer>());
+            Assert.Same(mobile.Editor, view.GetVisualDescendants().OfType<ComposerEditor>().Single(e => e.Name == "RemoteComposer"));
+            var attachments = (List<Attachment>)typeof(RemoteView).GetField("attachments", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!;
+            var pasted = new Attachment("Pasted text 1.txt", "text/plain", "hello", Reference: "[\"hello…\"]");
+            attachments.Add(pasted); mobile.Editor.Text = "see [\"hello…\"]";
+            typeof(RemoteView).GetMethod("RefreshAttachments", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, []);
+            window.UpdateLayout();
+            // Same chip as desktop: an open button and a remove button.
+            Assert.Contains(mobile.AttachmentList.GetVisualDescendants().OfType<Button>(), b => b.Name == "OpenAttachmentButton");
+            using (var frame = window.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-mobile-composer.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+            mobile.AttachmentList.GetVisualDescendants().OfType<IconButton>().Single(b => ReferenceEquals(b.Tag, pasted)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Empty(attachments); Assert.Equal("see ", mobile.Editor.Text);
+        }
+        finally { window.Close(); }
+
+        var directory = Directory.CreateTempSubdirectory("shared-composer-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var desktop = new MainWindow(store); desktop.Show();
+        try
+        {
+            var composer = Assert.Single(desktop.GetVisualDescendants().OfType<ChatComposer>());
+            Assert.Same(composer, desktop.FindControl<Border>("ComposerBorder"));
+            Assert.Same(composer.Editor, desktop.FindControl<ComposerEditor>("Composer"));
+            Assert.Same(composer.SendButton, desktop.FindControl<IconButton>("SendButton"));
+            using (var frame = desktop.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-desktop-composer.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
+        }
+        finally { desktop.RequestExit(); }
+    }
 }

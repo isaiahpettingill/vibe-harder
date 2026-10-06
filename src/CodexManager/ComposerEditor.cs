@@ -22,6 +22,18 @@ public sealed class ComposerEditor : TextEditor
         Options.EnableHyperlinks = false; Options.EnableEmailHyperlinks = false; Options.AllowScrollBelowDocument = false;
         Options.HighlightCurrentLine = false; Options.EnableTextDragDrop = false;
         TextChanged += (_, _) => { if (empty != (Document.TextLength == 0)) { empty = !empty; InvalidateVisual(); } };
+        AddHandler(PointerReleasedEvent, (_, e) => { if (e.Pointer.Type != Avalonia.Input.PointerType.Mouse) ReopenKeyboard(); }, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+    }
+    // Android shows the keyboard only when the focused input changes; TextBox also asks on each
+    // tap, but TextEditor never does. Tapping a still-focused draft after the keyboard was
+    // dismissed would otherwise do nothing, so hand focus over again.
+    private void ReopenKeyboard()
+    {
+        if (!TextArea.IsFocused || TopLevel.GetTopLevel(this) is not { InputPane: { } pane } top || pane.State == Avalonia.Controls.Platform.InputPaneState.Open) return;
+        var caret = CaretOffset;
+        top.FocusManager?.Focus(null);
+        TextArea.Focus();
+        CaretOffset = caret;
     }
     public string? PlaceholderText { get => GetValue(PlaceholderTextProperty); set => SetValue(PlaceholderTextProperty, value); }
     public new string Text

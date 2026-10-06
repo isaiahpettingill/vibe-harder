@@ -58,17 +58,7 @@
         </Grid>
       </Grid>
       <ScrollViewer Grid.Row="2" Name="PermissionScroll" MaxHeight="280" IsVisible="False"><StackPanel Name="InlinePermissions"/></ScrollViewer>
-      <Border Grid.Row="3" Name="ComposerBorder" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="5" Background="{DynamicResource AppSurface}" Margin="8,4,8,8" Padding="6">
-        <StackPanel Spacing="6">
-          <ListBox Name="SlashCommands" IsVisible="False" MaxHeight="180" FontSize="11" PointerReleased="SlashCommandClicked"/>
-          <Expander Name="QueuePanel" IsVisible="False" IsExpanded="True" HorizontalAlignment="Stretch"><ScrollViewer MaxHeight="150" HorizontalScrollBarVisibility="Disabled"><StackPanel Name="QueueItems"/></ScrollViewer></Expander>
-          
-          
-          <ItemsControl Name="AttachmentList"><ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel/></ItemsPanelTemplate></ItemsControl.ItemsPanel><ItemsControl.ItemTemplate><DataTemplate x:DataType="local:Attachment"><Border Margin="0,0,6,5" Padding="6" Background="{DynamicResource AppSurface}" CornerRadius="4"><Grid ColumnDefinitions="*,Auto"><Button Name="OpenAttachmentButton" Tag="{Binding}" Click="OpenAttachment" Padding="0" Background="Transparent" BorderThickness="0" ToolTip.Tip="Open (edit pasted text in your text editor)"><StackPanel Spacing="4"><Image Source="{Binding Thumbnail}" IsVisible="{Binding IsImage}" Width="80" Height="60" Stretch="Uniform"/><TextBlock Text="{Binding Name}" MaxWidth="150" TextTrimming="CharacterEllipsis" FontSize="11"/></StackPanel></Button><local:IconButton Grid.Column="1" Icon="remove" IconSize="10" Label="Remove attachment" Tag="{Binding}" Click="RemoveAttachment" VerticalAlignment="Top"/></Grid></Border></DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
-          <local:ComposerEditor FontFamily="{DynamicResource ChatFont}" Name="Composer" FontSize="{DynamicResource ChatFontSize}" Foreground="{DynamicResource AppText}" PlaceholderText="Ask Codex… paste an image or drop a file" MinHeight="48" MaxHeight="190" Padding="8,6" Background="Transparent" BorderThickness="0" TextChanged="DraftChanged"/>
-          <Grid ColumnDefinitions="*,Auto"><WrapPanel Name="ConfigOptionsPanel" VerticalAlignment="Center"/><StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Bottom" Spacing="2"><local:IconButton Icon="add" Label="Attach files" Click="AttachFiles"/><local:IconButton Name="SendButton" Icon="send" Label="Send" Classes="accent" Click="SendClick"/></StackPanel></Grid>
-        </StackPanel>
-      </Border>
+      <ContentControl Grid.Row="3" Name="ComposerHost"/>
       </Grid>
       <Grid Grid.Column="1" Name="TerminalDrawer" IsVisible="False" ColumnDefinitions="5,*" Width="380" MinWidth="220">
         <Border Background="{DynamicResource AppBorder}" PointerPressed="TerminalResizeStart" PointerMoved="TerminalResizeMove" PointerReleased="TerminalResizeEnd" Cursor="SizeWestEast"/>
