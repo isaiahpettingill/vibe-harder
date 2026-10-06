@@ -33,6 +33,9 @@ public sealed partial class RemoteView : UserControl, IDisposable
         if (OperatingSystem.IsBrowser()) throw new IOException("Images on the host cannot be shown in the browser.");
         return FileLinks.Download(Call, id, target, token, ChatImages.CheckDownload);
     }
+    private Control ApprovalCard(string key, Func<Control> create) =>
+        approvals.Children.FirstOrDefault(c => Equals(c.Tag, key)) ?? WithTag(create(), key);
+    private static Control WithTag(Control control, string key) { control.Tag = key; return control; }
     public async Task StopAsyncTask(string taskId)
     {
         if (chatId is not { } id) return;
@@ -579,25 +582,35 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 var permissionText = result["permissions"]!.ToJsonString() + (result["elicitations"]?.ToJsonString() ?? "[]");
                 if (permissionsJson != permissionText)
                 {
-                    permissionsJson = permissionText; approvals.Children.Clear();
+                    permissionsJson = permissionText;
+                    // Keep the cards of requests that are still pending: rebuilding one would discard what
+                    // the user is typing into it, and detaching it drops the focus.
+                    var cards = new List<Control>();
                     foreach (var permission in result["permissions"]!.AsArray())
                     {
                         var permissionId = permission!["id"]!.GetValue<string>();
-                        approvals.Children.Add(new PermissionCard(permission.AsObject(), async option =>
+                        cards.Add(ApprovalCard("permission:" + permissionId, () => new PermissionCard(permission.AsObject(), async option =>
                         {
                             if (await Call(new() { ["method"] = "approve", ["permissionId"] = permissionId, ["optionId"] = option }) is null) throw new IOException("Reconnect and try again.");
-                        }));
+                        })));
                     }
                     if (result["elicitations"] is JsonArray questions)
                         foreach (var question in questions.OfType<JsonObject>())
                         {
                             var questionId = question["id"]!.GetValue<string>();
-                            approvals.Children.Add(new ElicitationCard(question, async answer =>
+                            cards.Add(ApprovalCard("question:" + questionId, () => new ElicitationCard(question, async answer =>
                             {
                                 if (await Call(new() { ["method"] = "elicitation/respond", ["elicitationId"] = questionId, ["response"] = answer }) is null)
                                     throw new IOException("Reconnect and try again.");
-                            }));
+                            })));
                         }
+                    foreach (var stale in approvals.Children.Except(cards).ToArray()) approvals.Children.Remove(stale);
+                    for (var i = 0; i < cards.Count; i++)
+                    {
+                        var index = approvals.Children.IndexOf(cards[i]);
+                        if (index == i) continue;
+                        if (index < 0) approvals.Children.Insert(i, cards[i]); else approvals.Children.Move(index, i);
+                    }
                 }
             }
             catch (Exception error)

@@ -1049,9 +1049,16 @@ public partial class MainView : UserControl
     private readonly Dictionary<string, (Chat Chat, ElicitationCard Card)> elicitationCards = [];
     private void UpdatePermissions()
     {
-        InlinePermissions.Children.Clear();
-        foreach (var pending in permissionCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
-        foreach (var pending in elicitationCards.Values.Where(p => p.Chat == current)) InlinePermissions.Children.Add(pending.Card);
+        // Update in place: detaching a card, even to re-add it, drops the focus of a field the user is typing in.
+        var cards = permissionCards.Values.Where(p => p.Chat == current).Select(p => (Control)p.Card)
+            .Concat(elicitationCards.Values.Where(p => p.Chat == current).Select(p => (Control)p.Card)).ToArray();
+        foreach (var stale in InlinePermissions.Children.Except(cards).ToArray()) InlinePermissions.Children.Remove(stale);
+        for (var i = 0; i < cards.Length; i++)
+        {
+            var index = InlinePermissions.Children.IndexOf(cards[i]);
+            if (index == i) continue;
+            if (index < 0) InlinePermissions.Children.Insert(i, cards[i]); else InlinePermissions.Children.Move(index, i);
+        }
         PermissionScroll.IsVisible = InlinePermissions.Children.Count > 0;
     }
     private async Task<JsonObject> Permission(Chat chat, JsonElement request, CancellationToken token, bool remote = false)

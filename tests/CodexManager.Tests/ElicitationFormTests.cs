@@ -121,4 +121,31 @@ public class ElicitationFormTests
         Assert.NotNull(ElicitationForm.Validate(request, new JsonObject { ["port"] = 70000, ["name"] = "web" }));
         Assert.NotNull(ElicitationForm.Validate(request, new JsonObject { ["port"] = 8080, ["name"] = "A" }));
     }
+
+    [AvaloniaFact]
+    public async Task TypingInAQuestionKeepsFocusWhileTheChatUpdates()
+    {
+        var directory = Directory.CreateTempSubdirectory("question-focus-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Test", directory)); store.Save(new Chat { WorkspaceId = "w" });
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
+            composer.Text = "question"; window.FindControl<IconButton>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var until = DateTime.UtcNow.AddSeconds(15);
+            ElicitationCard? card = null;
+            while (card is null && DateTime.UtcNow < until) { await Task.Delay(25); window.UpdateLayout(); card = window.GetLogicalDescendants().OfType<ElicitationCard>().FirstOrDefault(); }
+            Assert.NotNull(card);
+            var field = card!.GetLogicalDescendants().OfType<TextBox>().First();
+            field.Focus(); field.Text = "half typed"; Assert.True(field.IsFocused);
+            // New agent output refreshes the pending-request panel; the field must keep focus and text.
+            var refresh = typeof(MainView).GetMethod("UpdatePermissions", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
+            for (var i = 0; i < 3; i++) { refresh.Invoke(window.View, []); window.UpdateLayout(); }
+            Assert.True(field.IsFocused); Assert.Equal("half typed", field.Text);
+            Assert.Same(card, window.GetLogicalDescendants().OfType<ElicitationCard>().Single());
+        }
+        finally { window.RequestExit(); var end = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < end) await Task.Delay(25); }
+    }
 }
