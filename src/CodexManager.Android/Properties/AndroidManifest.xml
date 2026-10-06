@@ -4,6 +4,13 @@
   <uses-permission android:name="android.permission.USE_BIOMETRIC" />
   <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <!-- UnifiedPush: find installed distributors and their link activity (package visibility). -->
+  <queries>
+    <intent><action android:name="org.unifiedpush.android.distributor.REGISTER" /></intent>
+    <intent><action android:name="org.unifiedpush.android.distributor.UNREGISTER" /></intent>
+    <intent><action android:name="org.unifiedpush.android.distributor.LINK" /></intent>
+    <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="unifiedpush" android:host="link" /></intent>
+  </queries>
   <application android:allowBackup="false" android:label="Vibe Harder" android:icon="@drawable/app" android:usesCleartextTraffic="false">
     <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true">
       <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />

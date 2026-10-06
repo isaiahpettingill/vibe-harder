@@ -15,6 +15,10 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
     private BiometricAppLock? appLock;
     private AndroidTerminalKeyboard? terminalKeyboard;
     private AndroidPermissionNotifications? notifications;
+    private AndroidUnifiedPush? push;
+    private TaskCompletionSource<bool>? pushPermission;
+    private global::Android.Content.Intent? pendingPush;
+    private const int PushPermissionRequest = 9304;
     private global::Android.Net.ConnectivityManager? connectivity;
     private NetworkObserver? networkObserver;
     private sealed class NetworkObserver(MainActivity owner) : global::Android.Net.ConnectivityManager.NetworkCallback
@@ -38,6 +42,18 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         notifications = new AndroidPermissionNotifications(this);
         PermissionNotifications.Mobile = notifications.Show;
         PermissionNotifications.MobileDismiss = notifications.Dismiss;
+        push = AndroidUnifiedPush.For(this);
+        push.Activity = this;
+        push.RequestPermission = () =>
+        {
+            pushPermission = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            RequestPermissions(["android.permission.POST_NOTIFICATIONS"], PushPermissionRequest);
+            return pushPermission.Task;
+        };
+        MobilePush.Current = push;
+        // Re-register on every start so the computers always hold the current endpoints.
+        push.Refresh();
+        pendingPush = Intent;
         appLock = new BiometricAppLock(this);
         MobileAppSecurity.Current = appLock;
         Window?.DecorView.ViewTreeObserver?.AddOnGlobalLayoutListener(this);
@@ -65,23 +81,34 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         var occlusion = keyboardVisible ? Math.Max(0, location[1] + content.Height - visible.Bottom) / density : 0;
         view.UpdateNativeMobileInsets(new Thickness(bars.Left / density, bars.Top / density, bars.Right / density, keyboardVisible ? 0 : bars.Bottom / density), occlusion);
     }
-    internal void OnAppUnlocked() { resumePending = true; UpdateInsets(); ResumeConnection(); notifications?.Activate(Intent); }
+    internal void OnAppUnlocked() { resumePending = true; UpdateInsets(); ResumeConnection(); notifications?.Activate(Intent); OpenPushedChat(); }
+    // A tapped push notification names its computer and chat; open them once the app is unlocked.
+    private void OpenPushedChat()
+    {
+        if (appLock?.Locked == true || pendingPush?.GetStringExtra("pushHost") is not { } host || Content is not MainView view) return;
+        var chat = pendingPush.GetStringExtra("pushChat");
+        pendingPush.RemoveExtra("pushHost"); pendingPush = null;
+        view.OpenPushedChat(host, chat);
+    }
     protected override void OnNewIntent(global::Android.Content.Intent? intent)
     {
         base.OnNewIntent(intent); Intent = intent;
         if (appLock?.Locked != true) notifications?.Activate(intent);
+        pendingPush = intent; OpenPushedChat();
     }
     public override void OnRequestPermissionsResult(int requestCode, string[] permissions, Permission[] grantResults)
     {
         base.OnRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == AndroidPermissionNotifications.PermissionRequest) notifications?.PermissionResult();
+        if (requestCode == PushPermissionRequest) pushPermission?.TrySetResult(grantResults.Length > 0 && grantResults[0] == Permission.Granted);
     }
     protected override void OnPause() { appLock?.Pause(); (Content as MainView)?.SuspendRemotePresentation(); base.OnPause(); }
     protected override void OnStop() { appLock?.Stop(); base.OnStop(); }
-    protected override void OnResume() { base.OnResume(); resumePending = true; appLock?.Resume(); UpdateInsets(); ResumeConnection(); }
+    protected override void OnResume() { base.OnResume(); resumePending = true; appLock?.Resume(); UpdateInsets(); ResumeConnection(); OpenPushedChat(); }
     protected override void OnActivityResult(int requestCode, Result resultCode, global::Android.Content.Intent? data)
     {
         if (requestCode == BiometricAppLock.CredentialRequest) appLock?.CredentialResult(resultCode);
+        else if (requestCode == AndroidUnifiedPush.LinkRequest) push?.LinkResult(resultCode, data);
         else base.OnActivityResult(requestCode, resultCode, data);
     }
     public override void OnBackPressed()
@@ -95,6 +122,7 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         appLock?.Dispose();
         terminalKeyboard?.Dispose();
         notifications?.Dispose();
+        if (push is not null) { push.Activity = null; push.RequestPermission = null; }
         if (networkObserver is not null) connectivity?.UnregisterNetworkCallback(networkObserver);
         networkObserver?.Dispose(); networkObserver = null;
         Window?.DecorView.ViewTreeObserver?.RemoveOnGlobalLayoutListener(this); (Content as MainView)?.DisposeMobile(); base.OnDestroy();
