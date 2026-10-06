@@ -11,7 +11,7 @@
     <intent><action android:name="org.unifiedpush.android.distributor.LINK" /></intent>
     <intent><action android:name="android.intent.action.VIEW" /><data android:scheme="unifiedpush" android:host="link" /></intent>
   </queries>
-  <application android:allowBackup="false" android:label="Vibe Harder" android:icon="@drawable/app" android:usesCleartextTraffic="false">
+  <application android:allowBackup="false" android:label="Vibe Harder" android:icon="@mipmap/app" android:usesCleartextTraffic="false">
     <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.files" android:exported="false" android:grantUriPermissions="true">
       <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/file_paths" />
     </provider>
