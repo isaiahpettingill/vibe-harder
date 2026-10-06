@@ -23,10 +23,14 @@ public static class HeadlessHost
                 runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
                 runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);
+                // No desktop here: completions only reach paired phones.
+                runtime.TurnCompleted += () => ChatNotifications.Completed(store, chat, false, () => { }, desktop: false);
+                runtime.BackgroundCompleted += () => ChatNotifications.Completed(store, chat, true, () => { }, desktop: false);
             }
             return runtime;
         }
         service = new(store, workspaces, chats, Runtime);
+        ChatNotifications.Push = (chat, title) => UnifiedPushHost.Notify(RemoteServer.DirectoryPath, title, chat.Title, chat.Id);
         if (args.Contains("--pair")) RemoteTrust.OpenPairing(RemoteServer.DirectoryPath);
         Task PairDevice(string device, string code, CancellationToken token, Action cancel)
         {

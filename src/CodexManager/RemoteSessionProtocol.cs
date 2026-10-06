@@ -87,7 +87,8 @@ public sealed class RemoteSessionProtocol(string directory, Func<JsonObject, Tas
                 var request = await read(session.Token, RemoteWire.MaximumFrame);
                 if (!RemoteTrust.Authorized(directory, device, secret)) break;
                 var response = new JsonObject { ["id"] = request["id"]?.DeepClone() };
-                try { response["result"] = await Dispatcher.UIThread.InvokeAsync(() => authenticatedHandle is null ? handle(request) : authenticatedHandle(device, secret, request)).ConfigureAwait(false); }
+                // Push registration belongs to this device, so it is handled with the device's identity.
+                try { response["result"] = UnifiedPushHost.Handles(request["method"]?.GetValue<string>()) ? UnifiedPushHost.Handle(directory, device, request) : await Dispatcher.UIThread.InvokeAsync(() => authenticatedHandle is null ? handle(request) : authenticatedHandle(device, secret, request)).ConfigureAwait(false); }
                 catch (Exception error) { response["error"] = error.Message; }
                 await write(response, session.Token);
             }

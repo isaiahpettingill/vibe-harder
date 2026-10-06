@@ -197,6 +197,8 @@ public partial class MainView : UserControl
         InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
+        // Paired phones that registered for UnifiedPush get the same notifications.
+        if (!remoteOnly) ChatNotifications.Push = (chat, title) => UnifiedPushHost.Notify(RemoteServer.DirectoryPath, title, chat.Title, chat.Id);
         BuildWorkspaceTree();
 #if !MOBILE_CLIENT
         // The vh command line drives this app's chats through the same handler as paired devices.

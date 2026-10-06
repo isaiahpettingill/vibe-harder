@@ -95,5 +95,36 @@ public static class RemoteTrust
         }
     }
     public static JsonObject Devices(string directory) { lock (Sync) return Read(Path.Combine(directory, "devices.json")); }
+    // A paired device's UnifiedPush endpoint and keys; null removes them.
+    public static void SetPush(string directory, string id, JsonObject? push)
+    {
+        lock (Sync)
+        {
+            var path = Path.Combine(directory, "devices.json"); var devices = Read(path);
+            if (devices[id] is not JsonObject device) return;
+            if (push is null) device.Remove("push"); else device["push"] = push;
+            Write(path, devices); DeviceCaches.Remove(Path.GetFullPath(path));
+        }
+    }
+    public static IReadOnlyList<(string Device, JsonObject Push)> PushTargets(string directory)
+    {
+        lock (Sync)
+            return Read(Path.Combine(directory, "devices.json")).Where(d => d.Value?["push"] is JsonObject).Select(d => (d.Key, (JsonObject)d.Value!["push"]!.DeepClone())).ToArray();
+    }
+    // The computer's VAPID identity for push servers, created once.
+    public static WebPush.KeyPair VapidKey(string directory)
+    {
+        lock (Sync)
+        {
+            var path = Path.Combine(directory, "vapid.json");
+            var saved = Read(path);
+            if (saved["public"]?.GetValue<string>() is { } publicKey && saved["private"]?.GetValue<string>() is { } privateKey)
+                return new(WebPush.FromBase64Url(publicKey), WebPush.FromBase64Url(privateKey));
+            var key = WebPush.Generate();
+            Directory.CreateDirectory(directory);
+            RemoteKey.WritePrivate(path, System.Text.Encoding.UTF8.GetBytes(new JsonObject { ["public"] = WebPush.Base64Url(key.PublicKey), ["private"] = WebPush.Base64Url(key.PrivateKey) }.ToJsonString()));
+            return key;
+        }
+    }
     public static void Revoke(string directory, string id) { lock (Sync) { var path = Path.Combine(directory, "devices.json"); var devices = Read(path); devices.Remove(id); Write(path, devices); } }
 }
