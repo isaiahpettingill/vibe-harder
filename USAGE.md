@@ -57,6 +57,13 @@ Archiving hides the chat immediately and cancels its active history loader or tu
 
 Folders, chats, selected folder/chat, drafts, attachments, ACP session IDs, and transcripts survive restarts. Continuing an existing chat uses ACP `session/load`, preserving actual Codex context. Replayed messages are not duplicated in the app transcript.
 
+## Background work and notifications
+
+- Agents that support the JetBrains AIR extensions (the bundled Codex and Claude adapters) report background tasks, such as a dev server started in the background. The task shows on the card that started it, with its status and a Stop button, and the agent is kept running until its tasks end.
+- When an agent wakes up on its own (for example when a background task finishes), the chat shows "Working in background" and is marked done afterwards.
+- Desktop notifications tell you when a chat you are not looking at finishes or comes back from background work. Turn them off in Settings. Clicking one opens the chat.
+- On Android, paired computers can push the same notifications through UnifiedPush. Install a distributor app such as Sunup; the app registers with each paired computer automatically. Turn this off, or choose another distributor, in the connection settings. Pairing works the same without it.
+
 ## Command line
 
 `vh` controls chats from a terminal or script: `vh status`, `vh chats`, `vh show CHAT`, `vh send CHAT MESSAGE --wait`, `vh approve CHAT OPTION`, `vh answer CHAT VALUE`, `vh new WORKSPACE MESSAGE`, and `vh stop CHAT`. Commands print the current state and exit; `--wait` checks until the turn finishes and prints the reply. It talks to the app running on this computer through a local, current-user-only pipe, or with `--host NAME` to a computer paired with `vh pair ADDRESS`. See `vh help`.
