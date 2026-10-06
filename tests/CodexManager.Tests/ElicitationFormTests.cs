@@ -19,7 +19,7 @@ public class ElicitationFormTests
         var window = new Window { Content = card }; window.Show();
         try
         {
-            card.GetLogicalDescendants().OfType<ComboBox>().Single().SelectedIndex = 1;
+            card.GetLogicalDescendants().OfType<RadioButton>().ElementAt(1).IsChecked = true;
             card.GetLogicalDescendants().OfType<TextBox>().Single().Text = "Keep tests";
             card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Send answer")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("accept", answer?["action"]?.GetValue<string>());
@@ -29,6 +29,69 @@ public class ElicitationFormTests
         }
         finally { window.Close(); }
     }
+    private static JsonObject? Answer(string json, Action<ElicitationCard> act)
+    {
+        JsonObject? answer = null;
+        var card = new ElicitationCard(JsonNode.Parse(json)!.AsObject(), value => { answer = value; return Task.CompletedTask; });
+        var window = new Window { Content = card }; window.Show();
+        try
+        {
+            act(card);
+            card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Send answer")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            return answer;
+        }
+        finally { window.Close(); }
+    }
+    private static RadioButton Radio(ElicitationCard card, string label) =>
+        card.GetLogicalDescendants().OfType<RadioButton>().Single(r => r.Content is string s ? s == label : r.GetLogicalDescendants().OfType<TextBlock>().First().Text == label);
+
+    // claude-agent-acp: a select field per question plus an "Other" companion naming it.
+    private const string ClaudeQuestion = """
+        {"mode":"form","message":"Which database?","requestedSchema":{"type":"object","properties":{
+        "question_0":{"type":"string","title":"Database","oneOf":[{"const":"Postgres","title":"Postgres","description":"Relational"},{"const":"Redis","title":"Redis"}]},
+        "question_0_custom":{"type":"string","title":"Other","_meta":{"jetbrains":{"air":{"version":1,"customAnswer":{"questionId":"question_0","isCustomAnswer":true}}},"_askUserQuestionCustomAnswer":{"questionId":"question_0","isCustomAnswer":true}}},
+        "question_1":{"type":"array","title":"Extras","items":{"anyOf":[{"const":"Cache","title":"Cache"},{"const":"Queue","title":"Queue"}]}},
+        "question_1_custom":{"type":"string","title":"Other","_meta":{"jetbrains":{"air":{"version":1,"customAnswer":{"questionId":"question_1","isCustomAnswer":true}}}}}}}}
+        """;
+    // codex-acp: a required select per question and a note field; typed text in the select is the answer.
+    private const string CodexQuestion = """
+        {"mode":"form","message":"Codex needs your input to continue.","requestedSchema":{"type":"object","properties":{
+        "rates":{"type":"string","title":"Which rates?","oneOf":[{"const":"1x","title":"1x"},{"const":"2x","title":"2x"}]},
+        "rates_note":{"type":"string","title":"Additional answer or note","_meta":{"codex":{"questionId":"rates","role":"user_note"},"_askUserQuestionCustomAnswer":true,"jetbrains":{"air":{"version":1,"customAnswer":true}}}}},"required":["rates"]}}
+        """;
+
+    [AvaloniaFact]
+    public void WriteInAnswersAttachToTheirQuestionInEachAgentsFormat()
+    {
+        // Claude: the companion is the write-in, rendered under its own question, never as a loose field.
+        var claude = Answer(ClaudeQuestion, card =>
+        {
+            Assert.Equal(2, card.GetLogicalDescendants().OfType<TextBox>().Count(t => t.Name == "OtherAnswer"));
+            Assert.DoesNotContain(card.GetLogicalDescendants().OfType<TextBlock>(), t => t.FontWeight == Avalonia.Media.FontWeight.Medium && t.Text is "Other" or "Other *");
+            card.GetLogicalDescendants().OfType<TextBox>().First().Text = "SQLite";
+            Assert.True(Radio(card, "Other").IsChecked, "typing should select Other; Postgres=" + Radio(card, "Postgres").IsChecked);
+            card.GetLogicalDescendants().OfType<CheckBox>().First().IsChecked = true;
+        })!;
+        Assert.Equal("accept", claude["action"]!.GetValue<string>());
+        Assert.False(claude["content"]!.AsObject().ContainsKey("question_0"));
+        Assert.Equal("SQLite", claude["content"]!["question_0_custom"]!.GetValue<string>());
+        Assert.Equal("Cache", claude["content"]!["question_1"]![0]!.GetValue<string>());
+
+        // Claude: text next to a picked option is a note on it.
+        var noted = Answer(ClaudeQuestion, card => { Radio(card, "Redis").IsChecked = true; card.GetLogicalDescendants().OfType<TextBox>().First().Text = "for sessions"; })!;
+        Assert.Equal("Redis", noted["content"]!["question_0"]!.GetValue<string>());
+        Assert.Equal("for sessions", noted["content"]!["question_0_custom"]!.GetValue<string>());
+
+        // Codex: the write-in goes in the required choice field itself, and passes validation.
+        var codex = Answer(CodexQuestion, card => { Radio(card, "Other").IsChecked = true; card.GetLogicalDescendants().OfType<TextBox>().Single().Text = "3x for urgent"; })!;
+        Assert.Equal("accept", codex["action"]!.GetValue<string>());
+        Assert.Equal("3x for urgent", codex["content"]!["rates"]!.GetValue<string>());
+        Assert.False(codex["content"]!.AsObject().ContainsKey("rates_note"));
+        var codexNote = Answer(CodexQuestion, card => { Radio(card, "1x").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); card.GetLogicalDescendants().OfType<TextBox>().Single().Text = "only this year"; })!;
+        Assert.Equal("1x", codexNote["content"]!["rates"]!.GetValue<string>());
+        Assert.Equal("only this year", codexNote["content"]!["rates_note"]!.GetValue<string>());
+    }
+
     [Fact]
     public void SupportsCodexAndClaudeChoiceSchemasAndValidatesAnswers()
     {

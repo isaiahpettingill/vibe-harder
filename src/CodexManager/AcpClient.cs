@@ -150,6 +150,7 @@ public sealed class AcpClient : IAsyncDisposable
         var capabilities = RpcJson.Object(("fs", RpcJson.Object(("readTextFile", ReadTextFile is not null), ("writeTextFile", WriteTextFile is not null))), ("terminal", false), ("session", RpcJson.Object(("configOptions", RpcJson.Object(("boolean", new JsonObject()))))));
         if (SessionUpdateAsync is not null) capabilities["subagents"] = new JsonObject();
         if (ElicitationRequested is not null) capabilities["elicitation"] = RpcJson.Object(("form", new JsonObject()));
+        capabilities["_meta"] = Air.ClientMeta();
         return Request("initialize", RpcJson.Object(("protocolVersion", 1), ("clientInfo", RpcJson.Object(("name", "codex-manager"), ("version", "1.0.0"))), ("clientCapabilities", capabilities)), token);
     }
     public async ValueTask DisposeAsync()

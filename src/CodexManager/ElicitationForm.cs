@@ -31,7 +31,8 @@ public static class ElicitationForm
             var mustProvide = required?.Any(item => item?.GetValue<string>() == name) == true;
             if (value is null)
             {
-                if (mustProvide) return $"{Label(name, field)} is required.";
+                // Claude's write-in companion answers the question in place of an option.
+                if (mustProvide && !properties.Any(p => p.Value is JsonObject f && CustomAnswerFor(f) == name && content[p.Key] is JsonValue)) return $"{Label(name, field)} is required.";
                 continue;
             }
             var type = field["type"]?.GetValue<string>();
@@ -57,7 +58,9 @@ public static class ElicitationForm
             else if (type == "string")
             {
                 if (value is not JsonValue v || !v.TryGetValue<string>(out var input)) return $"{Label(name, field)} must be text.";
-                if (Choices(field) is { Count: > 0 } choices && !choices.Any(choice => JsonNode.DeepEquals(choice.Value, value))) return $"Select an option for {Label(name, field)}.";
+                // Codex reads free text in a choice field as the question's own answer when it offers a write-in.
+                if (Choices(field) is { Count: > 0 } choices && !choices.Any(choice => JsonNode.DeepEquals(choice.Value, value)) && !(TakesTypedAnswer(properties, name) && input.Trim().Length > 0))
+                    return $"Select an option for {Label(name, field)}.";
                 if (field["minLength"] is JsonValue min && input.Length < min.GetValue<int>()) return $"{Label(name, field)} is too short.";
                 if (field["maxLength"] is JsonValue max && input.Length > max.GetValue<int>()) return $"{Label(name, field)} is too long.";
                 if (field["pattern"] is JsonValue pattern)
@@ -72,6 +75,19 @@ public static class ElicitationForm
     }
 
     public static string Label(string name, JsonObject field) => field["title"]?.GetValue<string>() ?? name;
+
+    // AIR agents mark the free-text companion of a choice question. Claude names the question in
+    // the marker and reads the companion as the answer; Codex marks a note and reads typed text in
+    // the choice field itself as the answer.
+    public static string? CustomAnswerFor(JsonObject field)
+    {
+        var meta = field["_meta"];
+        var marker = Air.Meta(meta)?["customAnswer"] ?? meta?["_askUserQuestionCustomAnswer"];
+        if (marker is JsonObject named) return named["questionId"]?.GetValue<string>();
+        return marker is JsonValue flag && flag.TryGetValue<bool>(out var on) && on ? meta?["codex"]?["questionId"]?.GetValue<string>() : null;
+    }
+    public static bool TakesTypedAnswer(JsonObject properties, string question) =>
+        properties.Any(p => p.Value is JsonObject f && CustomAnswerFor(f) == question && (Air.Meta(f["_meta"])?["customAnswer"] ?? f["_meta"]?["_askUserQuestionCustomAnswer"]) is JsonValue);
 
     public static IReadOnlyList<(JsonNode Value, string Label, string? Description)> Choices(JsonObject field)
     {
