@@ -127,7 +127,9 @@ public partial class MainView
                 if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged += SafeAreaChanged;
                 ApplyMobileInsets();
                 if (inputTopLevel?.InputPane is { } pane) pane.StateChanged += InputPaneChanged;
-                var host = RemoteSettings.Hosts(store).FirstOrDefault();
+                // Reopen the computer used last; its view then opens the most recent chat.
+                var hosts = RemoteSettings.Hosts(store);
+                var host = hosts.FirstOrDefault(h => MobilePush.Key(h) == store.Setting(LastRemoteHostKey)) ?? hosts.FirstOrDefault();
                 if (host is null) ShowConnectionSettings(); else OpenRemoteHost(host);
             }
         };

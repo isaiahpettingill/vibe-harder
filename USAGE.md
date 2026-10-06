@@ -8,7 +8,7 @@ The logo source is [LOGO.png](LOGO.png). Code is [MIT licensed](LICENSE).
 
 **Themes:** Original, Catppuccin Mocha, Monokai, Solarized Dark, Gruvbox, and Solarized Light, shared by chat, controls, and terminal ANSI colors.
 
-**Remote access:** [Paired hosts, headless mode, and Android](REMOTE.md). Agents stay on their owning host when a client disconnects. Android is a remote-only client with a shared chat sidebar and remote terminal. Use the terminal button or swipe right to open it; swipe left or use Back to return to chat. Android has no tray mode.
+**Remote access:** [Paired hosts, headless mode, and Android](REMOTE.md). Agents stay on their owning host when a client disconnects. Android is a remote-only client with a shared chat sidebar and remote terminal. Use the terminal button or swipe right to open it; swipe left or use Back to return to chat. Android has no tray mode. It opens on the computer used last, in the chat you opened last there unless that computer has worked in a newer one since. Tap the summary line under the message box to change the model, mode, and other session options in a drawer; tap outside it to close.
 
 ## Run
 

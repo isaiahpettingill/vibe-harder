@@ -303,7 +303,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
         }
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
-        ApplyColors();
+        if (userInitiated) RememberChat(id);
+        ApplyColors(); UpdateEmptyState();
     }
     private readonly Func<bool> allowAll;
     private readonly Action? activate;
@@ -378,6 +379,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         ScrollViewer.SetAllowAutoHide(output, false);
         Grid.SetColumn(chatSearch, 2); split.Children.Add(chatSearch); InitializeChatSearch();
         Grid.SetColumn(output, 2); Grid.SetRow(output, 1); split.Children.Add(output);
+        var empty = BuildEmptyState(); Grid.SetColumn(empty, 2); Grid.SetRow(empty, 1); split.Children.Add(empty);
         var latest = new IconButton { Name = "RemoteLatest", Icon = "chevron-down", Label = "Return to latest message", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 8), IsVisible = false };
         latest.Bind(BackgroundProperty, this.GetResourceObservable("AppSurface")); Grid.SetColumn(latest, 2); Grid.SetRow(latest, 1); split.Children.Add(latest);
         var navigation = transcriptNavigation = new TranscriptNavigation(output, latest, () => viewingHistory, async newer =>
@@ -517,6 +519,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (delta.X > 0 && !terminal.IsVisible) await ShowTerminal();
             else if (delta.X < 0 && terminal.IsVisible) terminal.SetVisible(false);
         }, RoutingStrategies.Tunnel, true);
+        var drawer = BuildOptionsDrawer(); Grid.SetColumnSpan(drawer, 3); terminalLayout.Children.Add(drawer);
         Content = terminalLayout;
         timer.Tick += async (_, _) =>
         {
@@ -552,24 +555,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 navigation.Update();
                 remoteRecentModels = result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [];
                 var configText = result["config"]!.ToJsonString();
-                if (configText != configJson)
-                {
-                    configJson = configText; configs.Children.Clear();
-                    foreach (var config in result["config"]!.AsArray())
-                    {
-                        var option = new SessionConfig(config!["id"]!.GetValue<string>(), config["name"]!.GetValue<string>(), "select", config["current"]!.GetValue<string>(), config["values"]!.AsArray().Select(v => new SessionValue(v!["value"]!.GetValue<string>(), v["name"]!.GetValue<string>())).ToArray());
-                        if (option.Id == VtCodeLaunch.AuthenticationOption) { var badge = new OptionContent(option) { Margin = new Thickness(4, 2) }; ToolTip.SetTip(badge, option.Name); configs.Children.Add(badge); continue; }
-                        var button = new Button { Content = new OptionContent(option, Enum.TryParse<AgentProvider>(result["provider"]?.GetValue<string>(), out var optionProvider) ? optionProvider : null), FontSize = 11, MinHeight = OperatingSystem.IsAndroid() ? 40 : 24, Padding = new Thickness(4) }; ToolTip.SetTip(button, config["name"]!.GetValue<string>());
-                        if (result["provider"]?.GetValue<string>() == "OpenCode" && ModelPicker.IsModel(option))
-                        {
-                            var selectedChat = id;
-                            button.Flyout = ModelPicker.Create(option, result["recentModels"]?.AsArray().Select(v => v!.GetValue<string>()).ToArray() ?? [],
-                                async value => await Call(new() { ["method"] = "config", ["chatId"] = selectedChat, ["configId"] = option.Id, ["value"] = value }), () => remoteRecentModels, () => Bounds.Width >= 720 && !OperatingSystem.IsAndroid());
-                            configs.Children.Add(button); continue;
-                        }
-                        button.Click += (_, _) => { var menu = new MenuFlyout(); foreach (var value in config["values"]!.AsArray()) { var item = new MenuItem { Header = value!["name"]!.GetValue<string>() }; item.Click += async (_, _) => await Call(new() { ["method"] = "config", ["chatId"] = chatId, ["configId"] = config["id"]!.DeepClone(), ["value"] = value["value"]!.DeepClone() }); menu.Items.Add(item); } menu.ShowAt(button); }; configs.Children.Add(button);
-                    }
-                }
+                if (configText != configJson) { configJson = configText; RenderConfig(result, id); }
                 var firstPage = messages.Count == 0;
                 // Attach the initial page in one layout pass. Adding messages one
                 // at a time while following the end visibly scrolls through them.
@@ -821,6 +807,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         FilterChats();
         if (catalogJson != json) { catalogJson = json; CatalogChanged?.Invoke(result.DeepClone()); }
         if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
+        OpenRecentChatOnce(); UpdateEmptyState();
     }
     private void FilterChats()
     {
@@ -838,7 +825,9 @@ public sealed partial class RemoteView : UserControl, IDisposable
         {
             if (chatId is not null) SaveBrowserDraft();
             chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear();
+            optionRows.Children.Clear(); chatComposer.OptionsSummary.IsVisible = false; CloseOptions(); configJson = "";
         }
+        UpdateEmptyState();
     }
     private async Task<JsonNode?> Call(JsonObject request)
     {

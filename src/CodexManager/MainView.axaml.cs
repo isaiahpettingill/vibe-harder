@@ -105,7 +105,7 @@ public partial class MainView : UserControl
     private void OpenRemoteHost(RemoteHost host, string? workspaceId = null)
     {
         if (!remoteOnly) { OpenRemoteDesktop(host, workspaceId); return; }
-        ClearRecoveryNotice();
+        ClearRecoveryNotice(); store.Setting(LastRemoteHostKey, MobilePush.Key(host));
         if (remoteView?.Host == host) { remoteView.SetPresentationSleeping(false); if (workspaceId is not null) remoteView.SelectWorkspaceId(workspaceId); CollapseSidebar(); return; }
         CollapseSidebar(); CloseRemoteView();
         refreshingChats = true;
@@ -119,7 +119,8 @@ public partial class MainView : UserControl
             if (workspaceId is not null) existing.SelectWorkspaceId(workspaceId);
             RefreshRemoteSidebar(); return;
         }
-        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store, remoteDownloads) { ShowTerminalButton = !remoteOnly }; remoteView = view; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
+        var view = new RemoteView(host, () => store.Setting("allowAllPermissions") == "1", () => { ShowFromTray(); OpenRemoteHost(host); }, store, remoteDownloads) { ShowTerminalButton = !remoteOnly, OpenRecentChat = workspaceId is null }; remoteView = view;
+        view.OpenWorkspaceRequested += ShowWorkspaceChooser; remoteViews[host] = view; MobileTerminalButton.IsEnabled = true;
         view.SetConnectionCollapsed(store.Setting(RemoteCollapsedKey(host)) == "1");
         if (workspaceId is not null) view.SelectWorkspaceId(workspaceId);
         view.WorkspaceNavigation += CollapseSidebar;
@@ -276,7 +277,9 @@ public partial class MainView : UserControl
         if (!workspaces.Any(w => w.Id == existing.Id)) workspaces.Add(existing);
         BuildWorkspaceTree(); SelectWorkspace(existing, true);
     }
-    private async void WorkspaceSelectorClick(object? sender, RoutedEventArgs e)
+    private const string LastRemoteHostKey = "lastRemoteHost";
+    private void WorkspaceSelectorClick(object? sender, RoutedEventArgs e) => ShowWorkspaceChooser(OpenWorkspaceButton);
+    private async void ShowWorkspaceChooser(Control anchor)
     {
         if (RemoteSettings.Hosts(store).Count > 0)
         {
@@ -293,7 +296,7 @@ public partial class MainView : UserControl
                 var host = await new RemoteSettings(store, remoteServer?.Fingerprint, ConfigureRemoteServer, ConfigureWebServer).ShowDialog<RemoteHost?>(desktopWindow!);
                 BuildWorkspaceTree(); if (host is not null) OpenRemoteHost(host);
             };
-            Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(OpenWorkspaceButton, popup); popup.ShowAt(OpenWorkspaceButton); return;
+            Avalonia.Controls.Primitives.FlyoutBase.SetAttachedFlyout(anchor, popup); popup.ShowAt(anchor); return;
         }
         if (remoteOnly) { ShowConnectionSettings(); return; }
         var history = new WorkspaceHistory(store);

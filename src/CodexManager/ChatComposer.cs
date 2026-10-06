@@ -19,6 +19,9 @@ public sealed class ChatComposer : Border
     public ItemsControl AttachmentList { get; }
     public ComposerEditor Editor { get; }
     public WrapPanel ConfigOptions { get; }
+    // On a phone the session options collapse to one tappable line that opens them in a drawer.
+    public Button OptionsSummary { get; }
+    public TextBlock OptionsSummaryText { get; } = new() { TextTrimming = TextTrimming.CharacterEllipsis, MaxLines = 1, VerticalAlignment = VerticalAlignment.Center, FontSize = 12 };
     public IconButton AttachButton { get; }
     public IconButton SendButton { get; }
     public event Action<Attachment>? OpenAttachment;
@@ -51,6 +54,14 @@ public sealed class ChatComposer : Border
         Editor.Bind(TemplatedControl.FontSizeProperty, this.GetResourceObservable("ChatFontSize"));
         Editor.Bind(TemplatedControl.ForegroundProperty, this.GetResourceObservable("AppText"));
         ConfigOptions = new WrapPanel { Name = remote ? "RemoteConfigOptions" : "ConfigOptionsPanel", Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        OptionsSummary = new Button
+        {
+            Name = remote ? "RemoteOptionsSummary" : "OptionsSummary", IsVisible = false, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            VerticalAlignment = VerticalAlignment.Center, MinHeight = 40, Padding = new Thickness(8, 4), Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            Content = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6, Children = { OptionsSummaryText, WithColumn(AppIcons.Create("chevron-up"), 1) } }
+        };
+        ToolTip.SetTip(OptionsSummary, "Session options");
+        OptionsSummaryText.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
         AttachButton = new IconButton { Name = remote ? "RemoteAttach" : "AttachButton", Icon = "add", Label = "Attach files" };
         SendButton = new IconButton { Name = remote ? "RemoteSend" : "SendButton", Icon = "send", Label = "Send", Classes = { "accent" } };
         var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom, Spacing = 2, Children = { AttachButton, SendButton } };
@@ -61,10 +72,11 @@ public sealed class ChatComposer : Border
             Children =
             {
                 new SlashCommandOverlay(Editor, SlashCommands), QueuePanel, AttachmentError, AttachmentList, Editor,
-                new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6, Children = { ConfigOptions, actions } }
+                new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6, Children = { ConfigOptions, OptionsSummary, actions } }
             }
         };
     }
+    private static Control WithColumn(Control control, int column) { Grid.SetColumn(control, column); return control; }
     private Control Chip(Attachment attachment)
     {
         var open = new Button { Name = "OpenAttachmentButton", Tag = attachment, Padding = new Thickness(0), Background = Brushes.Transparent, BorderThickness = new Thickness(0) };
@@ -82,5 +94,5 @@ public sealed class ChatComposer : Border
         return chip;
     }
     // XAML name scopes are sealed after loading, so hosts resolve the parts' names here.
-    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, AttachmentList, Editor, ConfigOptions, AttachButton, SendButton }.FirstOrDefault(c => c.Name == name);
+    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, AttachmentList, Editor, ConfigOptions, OptionsSummary, AttachButton, SendButton }.FirstOrDefault(c => c.Name == name);
 }
