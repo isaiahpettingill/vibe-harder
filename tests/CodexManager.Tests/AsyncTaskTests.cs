@@ -54,6 +54,27 @@ public class AsyncTaskTests
     }
 
     [AvaloniaFact]
+    public async Task BackgroundRepliesStayOneMessageWhileTheChatIsNotOnScreen()
+    {
+        var (store, chat, runtime) = Start();
+        ChatRuntime.BackgroundQuietTime = TimeSpan.FromMilliseconds(500);
+        try
+        {
+            var woke = 0; runtime.BackgroundCompleted += () => woke++;
+            await runtime.Send("background", []).WaitAsync(TimeSpan.FromSeconds(15));
+            // The window unloads an unwatched chat's messages after every update, as MainView does.
+            chat.RetainHistory = false;
+            runtime.Changed += () => { store.TrimHistory(chat); store.ReleaseHistory(chat); };
+            await Wait(() => woke == 1);
+            var page = await store.ReadPageAsync(chat, limit: 20);
+            var reply = Assert.Single(page, m => m.Role == "assistant" && m.Text.Contains("port 3000"));
+            Assert.Equal("The dev server is up on port 3000.", reply.Text);
+            Assert.DoesNotContain(page, m => m.Role == "assistant" && m.Text is "The dev " or "server is up" or " on port 3000.");
+        }
+        finally { ChatRuntime.BackgroundQuietTime = TimeSpan.FromSeconds(4); await runtime.DisposeAsync(); store.Dispose(); }
+    }
+
+    [AvaloniaFact]
     public async Task TasksStopFromTheCardAndRemoteClientsSeeThem()
     {
         var (store, chat, runtime) = Start();

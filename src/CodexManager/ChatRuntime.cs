@@ -16,6 +16,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private bool restoreDiracContext;
     private bool loading;
     private bool replaying;
+    private Message? streaming;
     private bool connected;
     private Message? activePlan;
     private readonly Dictionary<string, AcpToolCall> toolCalls = [];
@@ -703,6 +704,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (kind == "user_message_chunk") activePlan = null;
             var protocolId = update.TryGetProperty("messageId", out var messageId) && messageId.ValueKind == JsonValueKind.String ? messageId.GetString() : null;
             var last = chat.Messages.LastOrDefault();
+            // The window releases an unwatched chat's messages between updates when no prompt is
+            // running, as in an autonomous cycle. Continue the message being streamed instead of
+            // starting a new one for each chunk.
+            if (last is null && streaming is { } current && current.Sequence == chat.NextSequence - 1) { chat.Messages.Add(current); last = current; }
             // claude-agent-acp tags streamed chunks with whichever stream most recently started a
             // message, so concurrent subagents flip the id mid-sentence. Its ids still identify
             // history points, but they cannot delimit consecutive text from the same role.
@@ -710,6 +715,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (last?.Role != role || idDelimits && protocolId is not null && last.ProviderMessageId is not null && last.ProviderMessageId != protocolId) { Add(role, ""); last = chat.Messages.Last(); }
             if (protocolId is not null) last.ProviderMessageId = protocolId;
             last.Text += content.GetProperty("text").GetString();
+            streaming = last;
         }
         else if (kind is "tool_call" or "tool_call_update")
         {

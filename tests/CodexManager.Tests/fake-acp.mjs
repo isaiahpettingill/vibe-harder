@@ -110,7 +110,7 @@ createInterface({input:process.stdin}).on('line',line=>{
      backgroundTask=kind;if(kind!=='background-long')setTimeout(()=>{send({sessionUpdate:'async_task_progress',asyncTaskId:'task-1',summary:'Compiled 12 files'});
        setTimeout(()=>{send({sessionUpdate:'async_task_state_update',asyncTaskId:'task-1',state:'completed',summary:'Server ready on :3000'});backgroundTask=null;
          // The agent wakes up on its own after the task ends: an autonomous cycle outside any prompt.
-         setTimeout(()=>{send({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'The dev server is up on port 3000.'}});},300);},300);},2500);break;}
+         setTimeout(()=>{for(const part of ['The dev ','server is up',' on port 3000.'])send({sessionUpdate:'agent_message_chunk',content:{type:'text',text:part}});},300);},300);},2500);break;}
    if(m.params.prompt[0]?.text==='air-failure'){const send=u=>emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:u}});const info=air=>send({sessionUpdate:'session_info_update',_meta:{jetbrains:{air:{version:1,...air}}}});
      info({goal:{objective:'Ship the change',status:'active',iterations:2,lastReason:'Tests still need work',createdAt:1710000000123,controlMethod:'_session/goal'}});
      info({sessionFailure:{id:'turn-1:error',revision:1,category:'service',severity:'warning',title:'Retrying Claude, attempt 1 of 3.',actions:[]}});
