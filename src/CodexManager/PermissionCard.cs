@@ -24,7 +24,7 @@ public sealed class PermissionCard : Border
         if (Text(presentation?["description"]) is { } reason)
             panel.Children.Add(new SelectableTextBlock { Text = reason, TextWrapping = TextWrapping.Wrap, Opacity = 0.8 });
         if (Body(toolCall, input, heading) is { } body) panel.Children.Add(body);
-        var buttons = new WrapPanel { Orientation = Orientation.Horizontal };
+        var buttons = new WrapPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
         var errorText = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var options = (request["options"] as JsonArray ?? []).OfType<JsonObject>().ToArray();
         // With defaultToNo the decline is the default action, so it gets the emphasis and the focus.
@@ -34,7 +34,7 @@ public sealed class PermissionCard : Border
         foreach (var option in options)
         {
             var id = Text(option["optionId"]);
-            var button = new Button { Content = Text(option["name"]) ?? id, Margin = new Thickness(0, 0, 6, 4), MinHeight = 40 };
+            var button = new Button { Content = Text(option["name"]) ?? id, Margin = new Thickness(6, 0, 0, 4), MinHeight = 40 };
             if (ReferenceEquals(option, preferred)) { button.Classes.Add("accent"); focus = button; }
             if (Text(Air.Meta(option["_meta"])?["permission"]?["description"]) is { } help) ToolTip.SetTip(button, help);
             button.Click += async (_, _) =>

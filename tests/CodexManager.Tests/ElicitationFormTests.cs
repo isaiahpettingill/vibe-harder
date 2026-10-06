@@ -148,4 +148,37 @@ public class ElicitationFormTests
         }
         finally { window.RequestExit(); var end = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < end) await Task.Delay(25); }
     }
+
+    [AvaloniaFact]
+    public void EnterSendsTheAnswerAndCtrlEnterAddsALine()
+    {
+        JsonObject? answer = null;
+        var card = new ElicitationCard(JsonNode.Parse(ClaudeQuestion)!.AsObject(), value => { answer = value; return Task.CompletedTask; });
+        var window = new Window { Content = card }; window.Show();
+        try
+        {
+            var buttons = card.GetLogicalDescendants().OfType<Button>().Where(b => b is not RadioButton && b.Content is string).ToArray();
+            Assert.Equal(["Cancel", "Decline", "Send answer"], buttons.Select(b => (string)b.Content!));
+            Assert.Equal(Avalonia.Layout.HorizontalAlignment.Right, ((Control)buttons[0].Parent!).HorizontalAlignment);
+            var field = card.GetLogicalDescendants().OfType<TextBox>().First();
+            field.Focus(); field.Text = "first line"; field.CaretIndex = field.Text.Length;
+            field.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter, KeyModifiers = Avalonia.Input.KeyModifiers.Control });
+            Assert.Null(answer); Assert.Equal("first line\n", field.Text);
+            field.SelectedText = "second";
+            field.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+            Assert.Equal("accept", answer?["action"]?.GetValue<string>());
+            Assert.Equal("first line\nsecond", answer!["content"]!["question_0_custom"]!.GetValue<string>());
+        }
+        finally { window.Close(); }
+
+        answer = null;
+        var choice = new ElicitationCard(JsonNode.Parse(CodexQuestion)!.AsObject(), value => { answer = value; return Task.CompletedTask; });
+        window = new Window { Content = choice }; window.Show();
+        try
+        {
+            choice.GetLogicalDescendants().OfType<RadioButton>().First().RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter });
+            Assert.Equal("1x", answer?["content"]?["rates"]?.GetValue<string>());
+        }
+        finally { window.Close(); }
+    }
 }

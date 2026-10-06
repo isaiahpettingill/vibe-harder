@@ -3,6 +3,7 @@ using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
+using Avalonia.LogicalTree;
 using Avalonia.Media;
 
 namespace CodexManager;
@@ -132,13 +133,30 @@ public sealed class ElicitationCard : Border
             if (ElicitationForm.Validate(request, content) is { } error) { errorText.Text = error; return; }
             await Reply(ElicitationForm.Accept(content));
         };
-        buttons.Children.Add(submit);
-        foreach (var (label, answer) in new[] { ("Decline", ElicitationForm.Decline()), ("Cancel", ElicitationForm.Cancel()) })
+        // Actions sit on the right with the primary one last.
+        buttons.HorizontalAlignment = HorizontalAlignment.Right;
+        foreach (var (label, answer) in new[] { ("Cancel", ElicitationForm.Cancel()), ("Decline", ElicitationForm.Decline()) })
         {
-            var button = new Button { Content = label, Margin = new Thickness(0, 0, 6, 4), MinHeight = 40 };
+            var button = new Button { Content = label, Margin = new Thickness(6, 0, 0, 4), MinHeight = 40 };
             button.Click += async (_, _) => await Reply(answer);
             buttons.Children.Add(button);
         }
+        submit.Margin = new Thickness(6, 0, 0, 4);
+        buttons.Children.Add(submit);
+        // Enter sends the answer from anywhere in the card; Ctrl+Enter adds a line in a text field.
+        // Buttons handle their own Enter first, so Enter on Decline still declines.
+        AddHandler(KeyDownEvent, (_, e) =>
+        {
+            if (e.Key != Avalonia.Input.Key.Enter || !buttons.IsEnabled) return;
+            if (e.KeyModifiers == Avalonia.Input.KeyModifiers.Control)
+            {
+                if (e.Source is TextBox { AcceptsReturn: true } box) { box.SelectedText = "\n"; e.Handled = true; }
+                return;
+            }
+            if (e.KeyModifiers != Avalonia.Input.KeyModifiers.None || e.Source is Button and not Avalonia.Controls.Primitives.ToggleButton) return;
+            e.Handled = true; submit.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+        }, Avalonia.Interactivity.RoutingStrategies.Tunnel);
+        foreach (var box in panel.GetLogicalDescendants().OfType<TextBox>()) box.AcceptsReturn = true;
         panel.Children.Add(buttons); panel.Children.Add(errorText); Child = panel;
     }
     private static Control Option(string label, string? description)
