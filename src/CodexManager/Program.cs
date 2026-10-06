@@ -21,7 +21,8 @@ internal static class Program
             return;
         }
         string? directory;
-        try { directory = args.Contains("--headless") ? null : WorkspaceLaunch.Parse(args); }
+        // A clicked notification passes vibeharder://chat/<id>; forward it like a folder.
+        try { directory = args.Contains("--headless") ? null : args is [var link] && ChatLinks.TryParse(link, out _) ? link : WorkspaceLaunch.Parse(args); }
         catch (Exception error) when (error is ArgumentException or IOException or NotSupportedException)
         { Console.Error.WriteLine(error.Message); Environment.ExitCode = 2; return; }
         using var instance = new AppInstance(Store.DataDirectory);
@@ -35,7 +36,12 @@ internal static class Program
         void Deliver()
         {
             if ((Application.Current?.ApplicationLifetime as Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)?.MainWindow is not MainWindow window) return;
-            while (pending.TryDequeue(out var folder)) { window.ShowFromTray(); if (folder is not null) window.View.OpenLocalDirectory(folder); }
+            while (pending.TryDequeue(out var folder))
+            {
+                window.ShowFromTray();
+                if (ChatLinks.TryParse(folder, out var chatId)) window.View.OpenChatLink(chatId);
+                else if (folder is not null) window.View.OpenLocalDirectory(folder);
+            }
         }
         App.DesktopReady = Deliver;
         // Bind the dispatcher on the main thread before a pipe request can

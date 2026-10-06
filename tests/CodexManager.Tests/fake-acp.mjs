@@ -117,6 +117,7 @@ createInterface({input:process.stdin}).on('line',line=>{
      info({sessionFailure:{id:'turn-1:error',revision:2,category:'limit',severity:'error',title:'You have hit your usage limit.',actions:['retry','new_session']}});
      info({sessionFailure:{id:'turn-1:error',revision:1,category:'service',severity:'warning',title:'stale',actions:[]}});
      response(m.id,{stopReason:'end_turn',_meta:{jetbrains:{air:{version:1,sessionFailure:{id:'turn-2:error',revision:1,category:'service',severity:'error',title:'Claude is overloaded.',actions:['retry']}}}}});break;}
+   if(m.params.prompt[0]?.text==='slow'){const id=m.id;setTimeout(()=>{update('Done slowly');response(id,{stopReason:'end_turn'});},1500);break;}
    if(m.params.prompt[0]?.text==='hang'){turn=m.id;update('Working');break;}
    if(m.params.prompt[0]?.text==='permission'){permissionTurn=m.id;emit({jsonrpc:'2.0',id:'permission-id',method:'session/request_permission',params:{sessionId:'fixture-session',toolCall:{title:'Test command',toolCallId:'t'},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}});break;}
    if(m.params.prompt[0]?.text==='question'){questionTurn=m.id;emit({jsonrpc:'2.0',id:'question-id',method:'elicitation/create',params:{sessionId:'fixture-session',mode:'form',message:'Which approach?',requestedSchema:{type:'object',properties:{approach:{type:'string',oneOf:[{const:'simple',title:'Simple'},{const:'broad',title:'Broad'}]},note:{type:'string',title:'Additional note'}},required:['approach']}}});break;}

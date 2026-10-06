@@ -567,7 +567,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (restoreContext) store.Setting("restoreContext:" + chat.Id, "");
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
             completed = chat.Status == "Ready" && !turn.IsCancellationRequested;
-            if (completed) { chat.NeedsLogin = false; AuthenticationSucceeded?.Invoke(); chat.InterruptedInput = null; chat.HasUnreadCompletion = true; }
+            if (completed) { chat.NeedsLogin = false; AuthenticationSucceeded?.Invoke(); chat.InterruptedInput = null; chat.HasUnreadCompletion = true; TurnCompleted?.Invoke(); }
 
         }
         catch (OperationCanceledException)

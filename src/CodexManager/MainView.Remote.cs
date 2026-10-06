@@ -78,8 +78,10 @@ public partial class MainView
                     Remote = host, RemoteId = id, Draft = store.Setting("remoteDraft:" + scoped) ?? ""
                 };
             }
+            var wasUnread = chat.HasUnreadCompletion; var wasBusy = chat.Busy;
             RemoteChatSession.ApplySummary(chat, record);
             if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
+            if (wasBusy && chat.HasUnreadCompletion && !wasUnread && !chat.Busy) NotifyCompleted(chat, background: false);
             seen.Add(scoped);
             if (!byWorkspace.TryGetValue(chat.WorkspaceId, out var list)) byWorkspace[chat.WorkspaceId] = list = [];
             list.Add(chat);

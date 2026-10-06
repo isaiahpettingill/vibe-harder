@@ -21,6 +21,8 @@ public sealed partial class ChatRuntime
     public bool HasBackgroundWork => asyncTasks.Values.Any(t => t.State is "running" or "paused") || backgroundQuiet?.IsEnabled == true;
     // Raised when an autonomous cycle (work the agent started on its own) goes quiet.
     public event Action? BackgroundCompleted;
+    // Raised when a prompt's turn completes normally.
+    public event Action? TurnCompleted;
     public static TimeSpan BackgroundQuietTime { get; set; } = TimeSpan.FromSeconds(4);
 
     private void UpdateAsyncTask(string kind, JsonElement update)

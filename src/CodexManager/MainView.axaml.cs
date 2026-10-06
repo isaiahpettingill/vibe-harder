@@ -20,6 +20,23 @@ namespace CodexManager;
 public partial class MainView : UserControl
 {
     public string ImageScope => current?.Id ?? workspace?.Id ?? "";
+    // Only for chats the user is not looking at; the open chat already shows its reply.
+    private void NotifyCompleted(Chat chat, bool background)
+    {
+        if (closing) return;
+        var watching = ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true };
+        ChatNotifications.Completed(store, chat, background, () => OpenChatFromNotification(chat), desktop: !watching && !remoteOnly);
+    }
+    // A clicked notification link, forwarded from a new process.
+    public void OpenChatLink(string chatId)
+    {
+        if (chats.FirstOrDefault(c => c.Id == chatId) is { } chat) OpenChatFromNotification(chat); else ShowFromTray();
+    }
+    private void OpenChatFromNotification(Chat chat)
+    {
+        ShowFromTray(); SearchBox.Text = "";
+        if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; }
+    }
     public Task StopAsyncTask(string taskId) => current is { } chat && workspace is { } owner ? Runtime(chat, owner).StopAsyncTask(taskId) : Task.CompletedTask;
     // Image links in replies name files on the chat's host; remote ones are downloaded first.
     public Task<string> ResolveImageFile(string target, CancellationToken token)
@@ -816,6 +833,8 @@ public partial class MainView : UserControl
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
+            runtime.TurnCompleted += () => NotifyCompleted(chat, background: false);
+            runtime.BackgroundCompleted += () => NotifyCompleted(chat, background: true);
             runtime.Changed += () =>
             {
                 if (closing) return;
@@ -1039,7 +1058,7 @@ public partial class MainView : UserControl
                 permissionCards[id] = (chat, new PermissionCard(JsonNode.Parse(request.GetRawText())!.AsObject(), option =>
                 { completion.TrySetResult(RpcJson.Permission(option)); return Task.CompletedTask; }));
                 UpdateControls(); UpdatePermissions();
-                if (!remote) PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } });
+                if (!remote) PermissionNotifications.Show(id, chat.Title, () => OpenChatFromNotification(chat), link: ChatLinks.For(chat.Id));
             });
             return await completion.Task;
         }
@@ -1061,7 +1080,7 @@ public partial class MainView : UserControl
                 elicitationCards[id] = (chat, new ElicitationCard(JsonNode.Parse(request.GetRawText())!.AsObject(), answer =>
                 { completion.TrySetResult(answer); return Task.CompletedTask; }));
                 UpdateControls(); UpdatePermissions();
-                if (!remote) PermissionNotifications.Show(id, chat.Title, () => { ShowFromTray(); SearchBox.Text = ""; if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner) { SelectWorkspace(owner); ChatList.SelectedItem = chat; } }, "Question from agent");
+                if (!remote) PermissionNotifications.Show(id, chat.Title, () => OpenChatFromNotification(chat), "Question from agent", ChatLinks.For(chat.Id));
             });
             return await completion.Task;
         }
@@ -1138,6 +1157,10 @@ public partial class MainView : UserControl
         var startAtLogin = new CheckBox { Name = "StartAtLogin", Content = "Start Vibe Harder when I sign in (including after a restart)", IsChecked = store.Setting("startAtLogin") == "1" };
         startAtLogin.IsCheckedChanged += (_, _) => ApplyChange(() => { StartupRegistration.SetEnabled(startAtLogin.IsChecked == true); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0"); });
         panel.Children.Add(autoResume); panel.Children.Add(startAtLogin);
+        var notify = new CheckBox { Name = "CompletionNotifications", Content = "Notify me when a chat finishes or an agent comes back from background work", IsChecked = ChatNotifications.Enabled(store) };
+        ToolTip.SetTip(notify, "Desktop notifications, and push notifications on paired phones that enabled them.");
+        notify.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(ChatNotifications.EnabledKey, notify.IsChecked == true ? "1" : "0"));
+        panel.Children.Add(notify);
         panel.Children.Add(new TextBlock { Text = "Enable both for unattended recovery after a restart. Explicitly stopped chats stay stopped. Agents still use their existing permission settings.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var diagnostics = new Button { Content = "Open diagnostic logs" };
         diagnostics.Click += (_, _) => ApplyChange(() => { Directory.CreateDirectory(AppDiagnostics.DirectoryPath); FileLinks.Reveal(AppDiagnostics.DirectoryPath); }); panel.Children.Add(diagnostics);
