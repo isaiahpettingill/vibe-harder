@@ -180,6 +180,11 @@ public partial class MainView : UserControl
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
         BuildWorkspaceTree();
+#if !MOBILE_CLIENT
+        // The vh command line drives this app's chats through the same handler as paired devices.
+        if (!remoteOnly && !OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser())
+            _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => remoteSessions.Handle(request)), discoveryLifetime.Token);
+#endif
         // Files dropped anywhere on the chat (transcript or composer) attach to the open chat.
         DragDrop.SetAllowDrop(ChatPane, true);
         ChatPane.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = current is null ? DragDropEffects.None : DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);

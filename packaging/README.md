@@ -15,6 +15,21 @@
 
 The scripts only launch the GUI; they do not run agents or host a server in your terminal.
 
+## Chat command line (`vh`)
+
+`vh` is installed beside the app and set up by the same steps (Windows PATH entry, `install-cli.sh` on Linux and macOS). It drives chats without the GUI: every command prints the current state and exits, with no streaming or interactive screen.
+
+```sh
+vh status                          # running chats and anything waiting for you
+vh chats                           # list chats; add -w WORKSPACE or --all
+vh show "fix login" -n 10          # recent messages (a chat id, id prefix, or title)
+vh send "fix login" "try again" --wait   # send, check until the turn ends, print the reply
+vh approve "fix login" allow       # answer a permission request
+vh pair my-desktop:2222            # pair with another computer, then: vh --host my-desktop chats
+```
+
+Without `--host`, `vh` talks to Vibe Harder running on this computer (the desktop app or `VibeHarder --headless`); no pairing is needed. Add `--json` for machine-readable output. `vh help` lists every command. Exit codes: 0 done, 1 error, 2 usage, 3 waiting for your input or timed out.
+
 ## Linux latest-release installer
 
 Installed desktop releases also check for updates after startup and every four hours. Use **Download update**, then **Restart to update** in the status bar. Downloads are verified against GitHub's SHA-256 digest and retain your platform, architecture, and package mode. The restart saves chats and resumes active requests once, without changing the normal automatic-resume preference. Linux/macOS updates require write access to the installation's parent directory; system-owned installs must be updated by their owner. Development builds, headless hosts, and Android do not poll for updates.

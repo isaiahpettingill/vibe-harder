@@ -8,6 +8,7 @@ case "$mode" in aot) aot=true; bundled=true;; bundled) aot=false; bundled=true;;
 publish="artifacts/publish/$rid-$mode"
 mkdir -p "$publish" artifacts/packages
 dotnet publish src/CodexManager -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -p:Version="$version" -o "$publish"
+dotnet publish src/CodexManager.Cli -c Release -r "$rid" --self-contained "$bundled" -p:PublishAot="$aot" -p:StripSymbols=true -p:Version="$version" -o "$publish"
 find "$publish" -maxdepth 1 -type f \( -name '*.pdb' -o -name '*.dbg' \) -delete
 cp packaging/install-linux.sh "$publish/install.sh"
 cp packaging/vibe-harder.sh packaging/install-cli.sh "$publish/"
@@ -15,5 +16,5 @@ cp packaging/README.md "$publish/INSTALL.md"
 cp LICENSE "$publish/LICENSE"
 printf '%s' "$rid" > "$publish/runtime.txt"
 printf '{"version":"%s","runtime":"%s","mode":"%s"}\n' "$version" "$rid" "$mode" > "$publish/update.json"
-chmod +x "$publish/install.sh" "$publish/VibeHarder" "$publish/vibe-harder.sh" "$publish/install-cli.sh"
+chmod +x "$publish/install.sh" "$publish/VibeHarder" "$publish/vh" "$publish/vibe-harder.sh" "$publish/install-cli.sh"
 tar -czf "artifacts/packages/VibeHarder-$version-$rid-$mode.tar.gz" -C "$publish" .

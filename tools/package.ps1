@@ -33,6 +33,9 @@ if ($Runtime -eq 'win-arm64' -and $isAot) {
 }
 dotnet publish @nativeOptions (Join-Path $repo 'src/CodexManager') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" "-p:Version=$Version" -p:StripSymbols=true -o $publish
 if ($LASTEXITCODE) { throw 'Publish failed' }
+# The vh command line ships beside the app, so adding the app folder to PATH provides it.
+dotnet publish @nativeOptions (Join-Path $repo 'src/CodexManager.Cli') -c Release -r $Runtime "--self-contained=$($mode -ne 'framework')" "-p:PublishAot=$isAot" "-p:Version=$Version" -p:StripSymbols=true -o $publish
+if ($LASTEXITCODE) { throw 'CLI publish failed' }
 # Symbols stay in the build tree, not in distributed packages.
 Get-ChildItem -LiteralPath $publish -File | Where-Object { $_.Extension -in '.pdb', '.dbg' } | Remove-Item
 

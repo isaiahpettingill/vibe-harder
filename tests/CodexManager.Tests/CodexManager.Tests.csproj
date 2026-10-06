@@ -24,6 +24,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\CodexManager\CodexManager.csproj" />
+    <!-- Built for CliTests, which run vh as its own process; its shared types would clash here. -->
+    <ProjectReference Include="..\..\src\CodexManager.Cli\CodexManager.Cli.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>

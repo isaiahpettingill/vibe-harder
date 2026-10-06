@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>vh</AssemblyName>
+    <Title>Vibe Harder command line</Title>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <PublishAot Condition="'$(PublishAot)' == ''">true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <StripSymbols>true</StripSymbols>
+    <DebugType Condition="'$(Configuration)' == 'Release'">none</DebugType>
+    <DebugSymbols Condition="'$(Configuration)' == 'Release'">false</DebugSymbols>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Shares the app's wire protocol and pairing code; no UI is loaded. -->
+    <Compile Include="../CodexManager/CliPipe.cs;../CodexManager/RemoteConnection.cs;../CodexManager/RemotePairing.cs;../CodexManager/RemoteKey.cs;../CodexManager/WebSocketWire.cs;../CodexManager/BrowserPlatform.cs" LinkBase="Shared" />
+    <PackageReference Include="BouncyCastle.Cryptography" Version="2.7.0" />
+  </ItemGroup>
+</Project>

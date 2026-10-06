@@ -55,6 +55,7 @@ public static class HeadlessHost
             catch (Exception error) { Console.Error.WriteLine("Web access: " + error.Message); }
         }
         var webStartup = StartWeb();
+        _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.Handle(request)), webLifetime.Token);
         async void Stop()
         {
             if (stopping) return; stopping = true;

@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/CodexManager/CodexManager.csproj" />
     <Project Path="src/CodexManager.UI/CodexManager.UI.csproj" />
+    <Project Path="src/CodexManager.Cli/CodexManager.Cli.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CodexManager.Tests/CodexManager.Tests.csproj" />

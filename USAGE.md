@@ -57,6 +57,10 @@ Archiving hides the chat immediately and cancels its active history loader or tu
 
 Folders, chats, selected folder/chat, drafts, attachments, ACP session IDs, and transcripts survive restarts. Continuing an existing chat uses ACP `session/load`, preserving actual Codex context. Replayed messages are not duplicated in the app transcript.
 
+## Command line
+
+`vh` controls chats from a terminal or script: `vh status`, `vh chats`, `vh show CHAT`, `vh send CHAT MESSAGE --wait`, `vh approve CHAT OPTION`, `vh answer CHAT VALUE`, `vh new WORKSPACE MESSAGE`, and `vh stop CHAT`. Commands print the current state and exit; `--wait` checks until the turn finishes and prints the reply. It talks to the app running on this computer through a local, current-user-only pipe, or with `--host NAME` to a computer paired with `vh pair ADDRESS`. See `vh help`.
+
 ## Configuration and data
 
 **Connection settings** exposes separate local and WSL ACP and account commands for each provider. Defaults:
