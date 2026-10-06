@@ -6,6 +6,7 @@ using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
+using Avalonia.Input.TextInput;
 using Avalonia.LogicalTree;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
@@ -122,5 +123,42 @@ public class ComposerInputTests
             Assert.Equal(draft + new string('x', 50), input.Text); Assert.Equal(input.Text, Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_w").SelectedItem).Draft);
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+    // Android keyboards rewrite the word being composed the way Avalonia's Android backend does:
+    // select the composing range through the input client, forward-delete it, then type the new text.
+    private static void Replace(ComposerEditor editor, TextInputMethodClient client, int start, int end, string text)
+    {
+        client.Selection = new TextSelection(start, end);
+        if (end > start) editor.TextArea.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Delete });
+        editor.TextArea.RaiseEvent(new TextInputEventArgs { RoutedEvent = InputElement.TextInputEvent, Text = text });
+        client.Selection = new TextSelection(start + text.Length, start + text.Length);
+    }
+
+    [AvaloniaFact]
+    public void KeyboardCompositionReplacesTheWordInsteadOfDuplicatingIt()
+    {
+        var editor = new ComposerEditor();
+        var window = new Window { Content = editor }; window.Show();
+        try
+        {
+            editor.TextArea.Focus();
+            var request = new TextInputMethodClientRequestedEventArgs { RoutedEvent = InputElement.TextInputMethodClientRequestedEvent };
+            editor.TextArea.RaiseEvent(request);
+            var client = Assert.IsAssignableFrom<TextInputMethodClient>(request.Client);
+
+            editor.Text = "first line\nsay h";
+            Assert.Equal("say h", client.SurroundingText);
+            Assert.Equal(new TextSelection(5, 5), client.Selection);
+            Replace(editor, client, 4, 5, "he");
+            Replace(editor, client, 4, 6, "hel");
+            Replace(editor, client, 4, 7, "hello");
+            Assert.Equal("first line\nsay hello", editor.Text);
+            Assert.Equal(editor.Text.Length, editor.CaretIndex);
+
+            client.Selection = new TextSelection(0, 3);
+            Assert.Equal("say", editor.SelectedText);
+            Assert.Equal(new TextSelection(0, 3), client.Selection);
+        }
+        finally { window.Close(); }
     }
 }
