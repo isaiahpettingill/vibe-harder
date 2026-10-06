@@ -46,7 +46,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     public async Task ReleaseIfIdle(DateTimeOffset now)
     {
         if (client is null || lifetime.IsCancellationRequested) { idleTimer?.Stop(); idleSince = null; return; }
-        if (chat.Busy || IsChangingHistory || chat.NeedsPermission || loading || reconnecting || IsLoadingHistory || IsConfiguring || IsRecovering || IsSteering || advancingQueue || IsActiveView?.Invoke() == true || now < remoteViewUntil)
+        // Background tasks and autonomous cycles run in the agent process; stopping it would kill them.
+        if (chat.Busy || HasBackgroundWork || IsChangingHistory || chat.NeedsPermission || loading || reconnecting || IsLoadingHistory || IsConfiguring || IsRecovering || IsSteering || advancingQueue || IsActiveView?.Invoke() == true || now < remoteViewUntil)
         { idleSince = null; return; }
         idleSince ??= now;
         if (now - idleSince < IdleTimeout) return;
@@ -343,6 +344,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         client.Disconnected += () => Dispatcher.UIThread.Post(() =>
         {
             if (!connected || !ReferenceEquals(client, connection) || lifetime.IsCancellationRequested) return;
+            EndAsyncTasks();
             connected = false;
             DisconnectSubagents();
             if (connection.DisconnectReason is { } disconnectReason)
@@ -587,7 +589,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         finally
         {
             chat.Updated = DateTimeOffset.UtcNow;
-            chat.PendingInput = null;
+            chat.PendingInput = null; promptEndedAt = DateTimeOffset.UtcNow;
             var finishedTurn = turn; turn = null;
             try { finishedTurn?.Cancel(); } finally { finishedTurn?.Dispose(); chat.Busy = detachedTurn; }
             if (following is not null) await following;
@@ -722,12 +724,14 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (id is not null) { if (call.Status is "completed" or "failed" && !call.Backgrounded) toolCalls.Remove(id); else toolCalls[id] = call; }
             message.Text = call.Render(); if (!replaying) store.SaveMessage(chat, message);
         }
+        else if (kind is "async_task_spawned" or "async_task_progress" or "async_task_state_update") UpdateAsyncTask(kind, update);
         else if (kind == "plan")
         {
             if (activePlan is null) { Add("plan", ""); activePlan = chat.Messages.Last(); }
             activePlan.Text = string.Join("\n", update.GetProperty("entries").EnumerateArray().Select(e => $"- [{(e.GetProperty("status").GetString() == "completed" ? "x" : " ")}] {e.GetProperty("content").GetString()}"));
             store.SaveMessage(chat, activePlan);
         }
+        NoteBackgroundActivity(kind ?? "");
         Changed?.Invoke();
     }
     private Task? disposal;

@@ -16,6 +16,11 @@ public sealed class AcpToolCall
     public string Content { get; private set; } = "";
     public string RawOutput { get; private set; } = "";
     public bool Backgrounded { get; private set; }
+    // The background task this call started, or that this card stands for.
+    public string? TaskState { get; private set; }
+    public string? TaskSummary { get; private set; }
+    public void SetTask(string state, string? summary) { TaskState = state; TaskSummary = summary ?? TaskSummary; }
+    public void Describe(string title, string? description) { Title = title; if (description is { Length: > 0 } && description != title) Content = description; }
     public int? ExitCode { get; private set; }
     private readonly StringBuilder output = new();
     private bool outputTrimmed;
@@ -64,7 +69,8 @@ public sealed class AcpToolCall
 
     public string Render()
     {
-        var status = Backgrounded && Status is "completed" or "in_progress" or "pending" ? "running in background" : Status;
+        var status = TaskState is { } task ? task is "running" or "paused" ? "running in background" + (task == "paused" ? " (paused)" : "") : task
+            : Backgrounded && Status is "completed" or "in_progress" or "pending" ? "running in background" : Status;
         var heading = string.IsNullOrWhiteSpace(CommandTitle) ? Title : CommandTitle;
         var details = new StringBuilder();
         if (Content.Length > 0) details.Append(Content.TrimStart('\n'));
@@ -74,6 +80,7 @@ public sealed class AcpToolCall
             details.Append(Fence((outputTrimmed ? "…\n" : "") + output.ToString().TrimEnd('\n'), "console"));
         }
         if (details.Length == 0 && RawOutput.Length > 0) details.Append(RawOutput);
+        if (TaskSummary is { Length: > 0 } summary) details.Insert(0, "*" + summary.Replace("*", "\\*") + "*" + (details.Length > 0 ? "\n\n" : ""));
         if (ExitCode is { } code and not 0 && Status != "failed") details.Append($"\n\n*exit code {code}*");
         var input = heading == Title || Input.Length > 0 ? Input : "\n\n```\n" + Title + "\n```";
         return $"{OneLine(heading)}\n\n*{status}*{input}{(details.Length > 0 ? "\n\n" : "")}{details}";

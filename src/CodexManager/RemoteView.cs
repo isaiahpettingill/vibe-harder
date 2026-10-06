@@ -33,6 +33,11 @@ public sealed partial class RemoteView : UserControl, IDisposable
         if (OperatingSystem.IsBrowser()) throw new IOException("Images on the host cannot be shown in the browser.");
         return FileLinks.Download(Call, id, target, token, ChatImages.CheckDownload);
     }
+    public async Task StopAsyncTask(string taskId)
+    {
+        if (chatId is not { } id) return;
+        await Call(new() { ["method"] = "task/stop", ["chatId"] = id, ["taskId"] = taskId });
+    }
     public async Task OpenFileLink(string target)
     {
         if (chatId is not { } id) throw new IOException("Select a chat first.");
@@ -701,6 +706,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     {
         var message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
         message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
+        message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
         foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         return message;
     }
@@ -717,6 +723,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (!byId.TryGetValue(id, out var message)) { message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
             message.Text = row["text"]!.GetValue<string>();
             message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
+            message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
             if (row["attachments"] is { } files)
             {
                 var incoming = files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];

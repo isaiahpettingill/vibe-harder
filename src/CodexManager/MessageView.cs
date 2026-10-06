@@ -54,6 +54,9 @@ public sealed class MessageView : UserControl
     private bool expanded;
     private bool attached;
     private readonly IconButton history = new() { Icon = "more", IconSize = 11, Label = "Message actions", VerticalAlignment = VerticalAlignment.Top };
+    // A background task stays visible on its card, collapsed or not, with a way to stop it.
+    private readonly TextBlock taskBadge = new() { Name = "AsyncTaskBadge", FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0), IsVisible = false, Text = "● running in background" };
+    private readonly IconButton stopTask = new() { Name = "StopAsyncTask", Icon = "stop", IconSize = 11, Label = "Stop background task", IsVisible = false, VerticalAlignment = VerticalAlignment.Top };
     public bool IsExpandedOutput => IsOutput && expanded;
     private bool IsOutput => Message?.Role is "tool" or "thought" or "plan";
     static MessageView()
@@ -64,10 +67,25 @@ public sealed class MessageView : UserControl
     public MessageView()
     {
         toggle.Content = title; toggle.Click += (_, _) => { expanded = !expanded; if (Message is not null) Message.OutputExpanded = expanded; Refresh(); };
-        var header = new Grid { ColumnDefinitions = new("*,Auto,Auto") };
-        header.Children.Add(toggle); Grid.SetColumn(history, 1); header.Children.Add(history);
+        var header = new Grid { ColumnDefinitions = new("*,Auto,Auto,Auto,Auto") };
+        header.Children.Add(toggle);
+        taskBadge.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppAccent"));
+        Grid.SetColumn(taskBadge, 1); header.Children.Add(taskBadge); Grid.SetColumn(stopTask, 2); header.Children.Add(stopTask);
+        stopTask.Click += async (_, _) =>
+        {
+            if (Message?.AsyncTask is not { } task) return;
+            stopTask.IsEnabled = false;
+            try
+            {
+                if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.StopAsyncTask(task.Id);
+                else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.StopAsyncTask(task.Id);
+            }
+            catch (Exception error) { ToolTip.SetTip(stopTask, "Could not stop: " + error.Message); }
+            finally { stopTask.IsEnabled = true; }
+        };
+        Grid.SetColumn(history, 3); header.Children.Add(history);
         timestamp.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
-        Grid.SetColumn(timestamp, 2); header.Children.Add(timestamp);
+        Grid.SetColumn(timestamp, 4); header.Children.Add(timestamp);
         history.Click += async (_, _) =>
         {
             if (Message is not { } message) return;
@@ -146,6 +164,9 @@ public sealed class MessageView : UserControl
             commandVisible = outputVisible = largeVisible = ContentChunk;
             legacySubagent = Message is { Role: "tool", Subagent: null } ? SubagentInfo.FromLegacy(Message.Text) : null;
         }
+        taskBadge.IsVisible = Message?.AsyncTask?.Running == true;
+        taskBadge.Text = Message?.AsyncTask?.State == "paused" ? "● paused" : "● running in background";
+        stopTask.IsVisible = Message?.AsyncTask is { Running: true, CanStop: true };
         var subagent = Message?.Subagent ?? legacySubagent;
         if (subagent is not null)
         {

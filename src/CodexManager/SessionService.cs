@@ -19,6 +19,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         if (known?[message.Id]?.GetValue<string>() == snapshot.Revision) return row;
         row["sequence"] = message.Sequence; row["role"] = message.Role; row["text"] = message.Text;
         row["timestamp"] = message.Timestamp?.ToString("O");
+        row["asyncTask"] = message.AsyncTask?.ToJson();
         row["subagent"] = message.Subagent is null ? null : JsonSerializer.SerializeToNode(message.Subagent, StoreJsonContext.Default.SubagentInfo);
         row["attachments"] = JsonSerializer.SerializeToNode(message.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray);
         return row;
@@ -297,6 +298,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             if (method == "queue" || chat.Busy || active.IsRecovering || active.IsReconnecting) active.Queue(input); else _ = active.Send(input.Text, input.Attachments);
         }
         else if (method == "stop") await active.Stop();
+        else if (method == "task/stop") await active.StopAsyncTask(Text("taskId"));
         else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); Changed?.Invoke(); }
         else if (method == "read") { chat.HasUnreadCompletion = false; store.Save(chat); }
         else if (method == "reconnect") await active.Reconnect();

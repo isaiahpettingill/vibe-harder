@@ -20,6 +20,7 @@ namespace CodexManager;
 public partial class MainView : UserControl
 {
     public string ImageScope => current?.Id ?? workspace?.Id ?? "";
+    public Task StopAsyncTask(string taskId) => current is { } chat && workspace is { } owner ? Runtime(chat, owner).StopAsyncTask(taskId) : Task.CompletedTask;
     // Image links in replies name files on the chat's host; remote ones are downloaded first.
     public Task<string> ResolveImageFile(string target, CancellationToken token)
     {

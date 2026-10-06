@@ -22,6 +22,7 @@ public interface IChatSession : IAsyncDisposable
     Task SendQueuedNow(PendingInput input, bool waitForCompletion = true);
     Task AdvanceQueued(bool interrupt = false);
     Task Stop();
+    Task StopAsyncTask(string taskId);
     Task SetConfig(SessionConfig config, string value);
     Task Reconnect(bool automatic = false);
     Task LoadHistory();

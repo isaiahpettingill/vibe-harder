@@ -9,6 +9,7 @@ const response = (id,result) => emit({jsonrpc:'2.0',id,result});
 let activeSession = 'fixture-session';
 const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}}});
 let turn;
+let backgroundTask=null;
 let permissionTurn;
 let questionTurn;
 let clientCapabilities;
@@ -101,10 +102,20 @@ createInterface({input:process.stdin}).on('line',line=>{
    if(m.params.prompt[0]?.text==='idle-exit'){update('Done');response(m.id,{stopReason:'end_turn'});setTimeout(()=>process.exit(3),150);break;}
    if(m.params.prompt[0]?.text?.startsWith('async-question:')){const rollout=m.params.prompt[0].text.slice(15);const id=m.id;update('Checking');setTimeout(()=>{const call=(name,args,call_id)=>appendFileSync(rollout,JSON.stringify({timestamp:new Date().toISOString(),type:'response_item',payload:{type:'function_call',name,arguments:JSON.stringify(args),call_id}})+'\n');call('send_message_to_user_async',{message:'Heads up: **staging** is down.'},'call_note');call('request_user_input_async',{questions:[{title:'Which rates apply?',options:['1x / 1x / 1x','Ask the manager']},{title:'Anything else?'}]},'call_ask');setTimeout(()=>{update(' done');response(id,{stopReason:'end_turn'});},300);},600);break;}
    if(m.params.prompt[0]?.text?.startsWith('<send_user_message_question_reply>')){update('Got it');response(m.id,{stopReason:'end_turn'});break;}
+   if(['background','background-long','workflow'].includes(m.params.prompt[0]?.text)){const kind=m.params.prompt[0].text;const send=u=>emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:u}});const air={jetbrains:{air:{version:1}}};
+     if(kind!=='workflow'){send({sessionUpdate:'tool_call',toolCallId:'bash-1',title:'npm run dev',kind:'execute',status:'in_progress',rawInput:{command:'npm run dev',description:'Start the dev server'},_meta:{jetbrains:{air:{version:1,commandTitle:'Start the dev server'}}}});
+       send({sessionUpdate:'tool_call_update',toolCallId:'bash-1',status:'completed',_meta:{jetbrains:{air:{version:1,asyncTasks:{backgrounded:true}}}}});}
+     send({sessionUpdate:'async_task_spawned',asyncTaskId:'task-1',name:kind==='workflow'?'Nightly workflow':'npm run dev',taskType:kind==='workflow'?'workflow':'shell',description:kind==='workflow'?'Runs the nightly checks':'Start the dev server',showInTranscript:true,canStop:true,...(kind==='workflow'?{}:{toolCallId:'bash-1'})});
+     send({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'Started it in the background.'}});response(m.id,{stopReason:'end_turn'});
+     backgroundTask=kind;if(kind!=='background-long')setTimeout(()=>{send({sessionUpdate:'async_task_progress',asyncTaskId:'task-1',summary:'Compiled 12 files'});
+       setTimeout(()=>{send({sessionUpdate:'async_task_state_update',asyncTaskId:'task-1',state:'completed',summary:'Server ready on :3000'});backgroundTask=null;
+         // The agent wakes up on its own after the task ends: an autonomous cycle outside any prompt.
+         setTimeout(()=>{send({sessionUpdate:'agent_message_chunk',content:{type:'text',text:'The dev server is up on port 3000.'}});},300);},300);},2500);break;}
    if(m.params.prompt[0]?.text==='hang'){turn=m.id;update('Working');break;}
    if(m.params.prompt[0]?.text==='permission'){permissionTurn=m.id;emit({jsonrpc:'2.0',id:'permission-id',method:'session/request_permission',params:{sessionId:'fixture-session',toolCall:{title:'Test command',toolCallId:'t'},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}});break;}
    if(m.params.prompt[0]?.text==='question'){questionTurn=m.id;emit({jsonrpc:'2.0',id:'question-id',method:'elicitation/create',params:{sessionId:'fixture-session',mode:'form',message:'Which approach?',requestedSchema:{type:'object',properties:{approach:{type:'string',oneOf:[{const:'simple',title:'Simple'},{const:'broad',title:'Broad'}]},note:{type:'string',title:'Additional note'}},required:['approach']}}});break;}
    update('Hello **');update('world**');response(m.id,{stopReason:'end_turn'});break;
+  case '_session/async_task/stop': if(backgroundTask&&m.params.asyncTaskId==='task-1'){backgroundTask=null;emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'async_task_state_update',asyncTaskId:'task-1',state:'stopped'}}});response(m.id,{stopped:true});}else response(m.id,{stopped:false});break;
   case 'session/cancel': if(turn){response(turn,{stopReason:'cancelled'});turn=null;}break;
   case 'crash': process.exit(3);break;
   case 'echo':response(m.id,m.params);break;

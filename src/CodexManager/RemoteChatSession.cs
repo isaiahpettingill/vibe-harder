@@ -158,6 +158,7 @@ public sealed class RemoteChatSession : IChatSession
             Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]?.GetValue<string>() ?? ""
         };
         message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
+        message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
         foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
         return message;
     }
@@ -180,6 +181,7 @@ public sealed class RemoteChatSession : IChatSession
             }
             message.Text = row["text"]!.GetValue<string>();
             message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
+            message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
             if (row["attachments"] is { } files)
             {
                 var incoming = files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];
@@ -262,6 +264,7 @@ public sealed class RemoteChatSession : IChatSession
     public Task SendQueuedNow(PendingInput input, bool waitForCompletion = true) => Try(new() { ["method"] = "queue/send", ["queueId"] = input.Id });
     public Task AdvanceQueued(bool interrupt = false) => Try(new() { ["method"] = interrupt ? "queue/interrupt" : "queue/advance" });
     public Task Stop() => Try(new() { ["method"] = "stop" });
+    public Task StopAsyncTask(string taskId) => Try(new() { ["method"] = "task/stop", ["taskId"] = taskId });
     public Task SetConfig(SessionConfig config, string value) => Try(new() { ["method"] = "config", ["configId"] = config.Id, ["value"] = value });
     public Task Reconnect(bool automatic = false) => Try(new() { ["method"] = "reconnect" });
     public Task LoadHistory() { activateNext = true; return Poll(); }

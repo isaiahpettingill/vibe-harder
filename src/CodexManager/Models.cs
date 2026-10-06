@@ -111,6 +111,9 @@ public sealed class Message : Observable
     public SubagentInfo? Subagent { get => subagent; set { if (!Equals(subagent, value)) { subagent = value; Revision++; Changed(); } } }
     private string text = "";
     public string Text { get => text; set { if (Set(ref text, value)) Revision++; } }
+    private AsyncTaskInfo? asyncTask;
+    // A background task the agent runs for this card; live state, not saved.
+    public AsyncTaskInfo? AsyncTask { get => asyncTask; set { if (!Equals(asyncTask, value)) { asyncTask = value; Revision++; Changed(); } } }
     public string Label => Role switch { "user" => "YOU", "tool" => "TOOL", "system" => "SESSION", "thought" => "THINKING", "plan" => "PLAN", _ => Provider is { } provider && Enum.IsDefined(provider) ? AgentProviders.Get(provider).Name.ToUpperInvariant() : "AGENT" };
 }
 
@@ -137,4 +140,12 @@ public sealed record Attachment(string Name, string MimeType, string Data, strin
     public JsonObject ToContent() => IsImage
         ? RpcJson.Object(("type", "image"), ("mimeType", MimeType), ("data", Data))
         : RpcJson.Object(("type", "resource"), ("resource", RpcJson.Object(("uri", new Uri(SourcePath!).AbsoluteUri), ("mimeType", MimeType), (Binary ? "blob" : "text", Data))));
+}
+// An agent's background task (AIR async task): a backgrounded command, a workflow, or a monitor.
+public sealed record AsyncTaskInfo(string Id, string State, string? Summary, bool CanStop)
+{
+    public bool Running => State is "running" or "paused";
+    public System.Text.Json.Nodes.JsonObject ToJson() => new() { ["id"] = Id, ["state"] = State, ["summary"] = Summary, ["canStop"] = CanStop };
+    public static AsyncTaskInfo? FromJson(System.Text.Json.Nodes.JsonNode? node) => node is System.Text.Json.Nodes.JsonObject task && task["id"]?.GetValue<string>() is { } id
+        ? new(id, task["state"]?.GetValue<string>() ?? "running", task["summary"]?.GetValue<string>(), task["canStop"]?.GetValue<bool>() == true) : null;
 }
