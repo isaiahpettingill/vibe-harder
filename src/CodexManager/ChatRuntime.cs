@@ -556,6 +556,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             store.Setting("unmaterialized:" + chat.Id, "");
             following = FollowAsyncQuestions(turn.Token);
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
+            // A turn-ending failure arrives on the prompt response.
+            if (Air.Of(result) is { } air && air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
             if (chat.Provider == AgentProvider.Pi && !turn.IsCancellationRequested &&
                 (!result.TryGetProperty("stopReason", out var piStop) || piStop.GetString() != "cancelled") &&
                 !chat.Messages.Any(m => m.Sequence > user.Sequence && m.Role is "assistant" or "tool" && !string.IsNullOrWhiteSpace(m.Text)))
@@ -725,6 +727,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             message.Text = call.Render(); if (!replaying) store.SaveMessage(chat, message);
         }
         else if (kind is "async_task_spawned" or "async_task_progress" or "async_task_state_update") UpdateAsyncTask(kind, update);
+        else if (kind == "session_info_update") ApplySessionInfo(update);
         else if (kind == "plan")
         {
             if (activePlan is null) { Add("plan", ""); activePlan = chat.Messages.Last(); }

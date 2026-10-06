@@ -101,4 +101,30 @@ public class AsyncTaskTests
         }
         finally { await runtime.DisposeAsync(); store.Dispose(); }
     }
+
+    [AvaloniaFact]
+    public async Task FailuresUpdateInPlaceAndGoalsShow()
+    {
+        var (store, chat, runtime) = Start();
+        try
+        {
+            await runtime.Send("air-failure", []).WaitAsync(TimeSpan.FromSeconds(15));
+            var failure = chat.Messages.Single(m => m.ToolId == "failure:turn-1:error");
+            Assert.Equal("system", failure.Role);
+            // Revision 2 replaced the retry warning; the stale revision 1 that followed was ignored.
+            Assert.Equal("✖ You have hit your usage limit.\n\nYou can try again or start a new chat.", failure.Text);
+            Assert.Equal("✖ Claude is overloaded.\n\nYou can try again.", chat.Messages.Single(m => m.ToolId == "failure:turn-2:error").Text);
+            Assert.Equal("Goal: Ship the change\n\nactive · 2 iterations\n\nTests still need work", chat.Messages.Single(m => m.ToolId == "goal").Text);
+        }
+        finally { await runtime.DisposeAsync(); store.Dispose(); }
+    }
+
+    [Fact]
+    public void RecommendedModelIsMarked()
+    {
+        var config = System.Text.Json.JsonDocument.Parse("""{"configOptions":[{"id":"model","name":"Model","type":"select","currentValue":"sonnet","options":[{"value":"opus","name":"Claude Opus"},{"value":"sonnet","name":"Claude Sonnet"}],"_meta":{"jetbrains":{"air":{"version":1,"recommendedValue":"sonnet"}}}}]}""").RootElement;
+        var model = Assert.Single(SessionConfig.Read(config));
+        Assert.Equal(["Claude Opus", "Claude Sonnet (recommended)"], model.Values.Select(v => v.Name));
+        Assert.Equal("sonnet", model.Current);
+    }
 }

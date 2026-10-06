@@ -18,6 +18,9 @@ public sealed record SessionConfig(string Id, string Name, string Kind, string C
                 var kind = config.GetProperty("type").GetString();
                 if (kind is not "select" and not "boolean") continue;
                 var values = kind == "boolean" ? new[] { new SessionValue("false", "Off"), new SessionValue("true", "On") } : ReadValues(config.GetProperty("options")).ToArray();
+                // AIR names the model and effort the agent recommends in place of a "default" row.
+                if (Air.Of(config) is { } air && air.TryGetProperty("recommendedValue", out var recommended) && recommended.GetString() is { } pick)
+                    values = values.Select(v => v.Value == pick ? v with { Name = v.Name + " (recommended)" } : v).ToArray();
                 var currentValue = config.GetProperty("currentValue");
                 var current = kind == "boolean" ? (currentValue.GetBoolean() ? "true" : "false") : currentValue.GetString()!;
                 result.Add(new(config.GetProperty("id").GetString()!, config.GetProperty("name").GetString()!, kind, current, values));
