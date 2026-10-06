@@ -95,6 +95,13 @@ public partial class MainView : UserControl
         }
         else RefreshRemoteSidebar();
     }
+    // A tapped push notification: open its computer, then the chat when it names one.
+    public void OpenPushedChat(string hostKey, string? chatId)
+    {
+        if (RemoteSettings.Hosts(store).FirstOrDefault(h => MobilePush.Key(h) == hostKey) is not { } host) return;
+        OpenRemoteHost(host);
+        if (chatId is { Length: > 0 } && remoteViews.TryGetValue(host, out var view)) view.SelectChat(chatId);
+    }
     private void OpenRemoteHost(RemoteHost host, string? workspaceId = null)
     {
         if (!remoteOnly) { OpenRemoteDesktop(host, workspaceId); return; }

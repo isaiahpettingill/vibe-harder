@@ -12,6 +12,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
     private readonly CancellationTokenSource lifetime = new();
     private RemotePairingSession? pairing;
     private Action? webStatusChanged;
+    private Action? pushChanged;
     private IDisposable? webQr = null;
     public event Action<RemoteHost>? Paired;
     public ConnectionSettingsView(Store store, bool remoteOnly, Func<Task> configureServer, Func<Task>? configureWeb = null)
@@ -116,6 +117,28 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
                 finally { UpdateSecurityLabel(); biometric.IsEnabled = true; }
             };
         }
+        if (MobilePush.Current is { } push)
+        {
+            panel.Children.Add(new TextBlock { Text = "Notifications", FontSize = 18 });
+            panel.Children.Add(new TextBlock { Text = "Get notified when a chat on a paired computer finishes, or an agent comes back from background work. This uses a UnifiedPush distributor app, such as Sunup.", TextWrapping = TextWrapping.Wrap });
+            var enabled = new CheckBox { Name = "PushNotifications", Content = "Push notifications from my computers", IsChecked = push.Enabled };
+            var pushStatus = new TextBlock { Name = "PushStatus", TextWrapping = TextWrapping.Wrap };
+            var choose = new Button { Name = "ChoosePushDistributor", Content = "Choose push distributor", MinHeight = 44 };
+            var updating = false;
+            void UpdatePush() { updating = true; enabled.IsChecked = push.Enabled; pushStatus.Text = push.Status; choose.IsVisible = push.Enabled && push.CanChooseDistributor; updating = false; }
+            pushChanged = () => Avalonia.Threading.Dispatcher.UIThread.Post(UpdatePush);
+            push.Changed += pushChanged; UpdatePush();
+            enabled.IsCheckedChanged += async (_, _) =>
+            {
+                if (updating || enabled.IsChecked == push.Enabled) return;
+                enabled.IsEnabled = false;
+                try { await push.SetEnabled(enabled.IsChecked == true); }
+                catch (Exception error) { pushStatus.Text = AppDiagnostics.Message("Could not change push notifications", error); }
+                finally { enabled.IsEnabled = true; UpdatePush(); }
+            };
+            choose.Click += (_, _) => push.ChooseDistributor();
+            panel.Children.Add(enabled); panel.Children.Add(pushStatus); panel.Children.Add(choose);
+        }
         var copyLog = new Button { Content = "Copy diagnostic log" };
         copyLog.Click += async (_, _) =>
         {
@@ -202,5 +225,10 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         }
         Content = new ScrollViewer { Content = panel, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
     }
-    public void Dispose() { lifetime.Cancel(); pairing?.Dispose(); pairing = null; Paired = null; webQr?.Dispose(); if (webStatusChanged is not null) WebAccessStatus.Changed -= webStatusChanged; }
+    public void Dispose()
+    {
+        lifetime.Cancel(); pairing?.Dispose(); pairing = null; Paired = null; webQr?.Dispose();
+        if (webStatusChanged is not null) WebAccessStatus.Changed -= webStatusChanged;
+        if (pushChanged is not null && MobilePush.Current is { } push) push.Changed -= pushChanged;
+    }
 }
