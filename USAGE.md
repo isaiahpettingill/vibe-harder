@@ -2,7 +2,7 @@
 
 <img src="LOGO.png" alt="Vibe Harder logo" width="128">
 
-A compact cross-platform Avalonia desktop app for Codex, Claude, and OpenCode chats, with bundled Noto Sans for UI/chat and NeoSpleen Nerd Font for code, tools, and terminals. Windows and WSL are first-class: pick a distro, browse its Linux folders, and run chats and terminal tabs there from Windows.
+A compact cross-platform Avalonia desktop app for Codex, Claude, and OpenCode chats, with bundled Noto Sans for UI/chat and NeoSpleen for code, tools, and terminals. Windows and WSL are first-class: pick a distro, browse its Linux folders, and run chats and terminal tabs there from Windows.
 
 The logo source is [LOGO.png](LOGO.png). Code is [MIT licensed](LICENSE).
 
@@ -41,7 +41,7 @@ Archiving hides the chat immediately and cancels its active history loader or tu
 - The workspace-name selector shows searchable folder history, including workspaces you closed. Remove an entry with **×**; its saved chats remain intact. Missing folders disappear from history automatically when the selector opens. Unavailable WSL distributions retain their entries. Opening an empty workspace starts the last-used chat provider.
 - The chat input shows the model, reasoning/variant, fast mode, and other settings reported by the selected provider. Options update when the agent changes its available configuration; unsupported options remain hidden.
 - Tool output, edits, and thinking start collapsed, with short command previews and smaller gray text. Expand a section for the full content; Each expanded output keeps its collapse control inline above the scrolling content. **Copy code**, per-message **Copy**, and **Copy chat** support copying output. Select chat text and press Ctrl+C/Cmd+C to copy with formatting into applications that accept HTML.
-- **Settings → Fonts** configures UI, Chat, Code, and Terminal families and sizes independently. UI/chat default to Noto Sans; code/tools and terminals default to NeoSpleen Nerd Font. **Settings → Terminal settings** chooses an installed Windows shell or a custom command through cmd.exe; Linux/macOS and each WSL distro support a shell-command override. Changes apply to new terminal tabs; agent/login commands retain their separate configuration.
+- **Settings → Fonts** configures UI, Chat, Code, and Terminal families and sizes independently. UI/chat default to Noto Sans; code/tools and terminals default to NeoSpleen. **Settings → Terminal settings** chooses an installed Windows shell or a custom command through cmd.exe; Linux/macOS and each WSL distro support a shell-command override. Changes apply to new terminal tabs; agent/login commands retain their separate configuration.
 - **Open workspace** automatically discovers installed WSL distros. Select Local or a distro. A single click selects a folder and updates the path; **Open selected folder** opens that folder. Double-click browses inside. With no selection, **Open current folder** opens the displayed directory. Home, Parent, Back, Enter/Right, absolute paths, filtering, and hidden folders are supported.
 - Each workspace heading contains **＋** (new chat) and **×** (close workspace), with its chats underneath. Choose **Claude**, **Codex**, or **OpenCode** from **＋** to start a chat immediately. Provider SVGs identify chats; all providers stay visible together. Closing a workspace saves its drafts and history and stops its processes. Reopening the same folder/environment restores its chats.
 - Opening a folder discovers previous sessions from all three providers for that folder. **Import** refreshes selected providers. Re-importing skips existing provider/session pairs and preserves archived chats. Opening an imported chat replays its transcript and resumes its original session. Search spans all open workspaces and providers.
@@ -142,7 +142,7 @@ Model and thinking options use compact bottom-toolbar menus. Copy and collapse a
 - [Claude ACP adapter](https://github.com/agentclientprotocol/claude-agent-acp) and [Claude CLI account commands](https://code.claude.com/docs/en/cli-reference).
 - [OpenCode ACP](https://opencode.ai/docs/acp/), [account commands](https://opencode.ai/docs/cli/), [configuration](https://opencode.ai/docs/config/), and [global rules](https://opencode.ai/docs/rules/).
 - [Codex global instructions](https://developers.openai.com/codex/guides/agents-md/) and [Claude configuration directories](https://code.claude.com/docs/en/claude-directory).
-- [NeoSpleen](https://github.com/mbwilding/NeoSpleen) Nerd Font Regular and Bold are embedded. Font licensing notices ship under `Assets/Fonts` in published builds.
+- [NeoSpleen](https://github.com/mbwilding/NeoSpleen) Regular and Bold are embedded. Font licensing notices ship under `Assets/Fonts` in published builds.
 
 `node tools/acp-history-check.mjs <codex|claude|opencode> [workspace] [WSL-distro]` checks the real ACP handshake and paginated history without creating a session or sending a prompt.
 

@@ -1345,7 +1345,7 @@ public partial class MainView : UserControl
     }
     private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize, Workspace owner)
     {
-        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen Nerd Font") };
+        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen") };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         return control;

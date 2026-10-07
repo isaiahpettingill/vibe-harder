@@ -104,6 +104,22 @@ public class SettingsUiTests
     }
 
     [AvaloniaFact]
+    public void BundledNeoSpleenLoadsAndOldNerdFontSettingsStillUseIt()
+    {
+        foreach (var weight in new[] { FontWeight.Normal, FontWeight.Bold })
+        {
+            Assert.True(FontManager.Current.TryGetGlyphTypeface(new Typeface(FontSettings.Family(null), FontStyle.Normal, weight), out var glyphs));
+            Assert.Equal("NeoSpleen", glyphs!.FamilyName); Assert.Equal(weight, glyphs.Weight);
+        }
+        Assert.Equal(FontSettings.Family(null), FontSettings.Family("NeoSpleen Nerd Font"));
+        using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-fonts", Guid.NewGuid().ToString("N")));
+        store.Setting("font:Code", "NeoSpleen Nerd Font");
+        var window = new FontSettings(store); window.Show();
+        try { Assert.Equal("NeoSpleen", window.GetLogicalDescendants().OfType<AutoCompleteBox>().Single(f => f.Name == "CodeFontPicker").Text); }
+        finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
     public async Task FontSettingsSaveIndependentFamiliesAndDefaultToNeoSpleen()
     {
         using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-fonts", Guid.NewGuid().ToString("N")));
