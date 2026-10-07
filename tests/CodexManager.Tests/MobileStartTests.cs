@@ -44,6 +44,7 @@ public class MobileStartTests
         return (server, host, new Store(Path.Combine(directory, "phone")));
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task OpensTheMostRecentChatAndEditsOptionsInADrawer()
     {
@@ -89,6 +90,7 @@ public class MobileStartTests
         return new JsonObject();
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task ReopensTheChatLastOpenedOnThePhoneUnlessTheHostMovedOn()
     {
@@ -121,6 +123,7 @@ public class MobileStartTests
         }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task OffersToStartAChatOrOpenAWorkspaceInsteadOfAnEmptyChat()
     {

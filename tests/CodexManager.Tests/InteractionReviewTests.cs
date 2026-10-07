@@ -244,6 +244,7 @@ public class InteractionReviewTests
         finally { owner.Close(); }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task RemoteTerminalRunsOnHostResizesAndCloses()
     {

@@ -52,6 +52,7 @@ public class HistoryBranchTests
         await runtime.BranchHistory(first.Id, first.Sequence, options["checkpoint"]!.GetValue<string>(), false);
         Assert.Empty(await store.ReadPageAsync(chat)); Assert.NotEqual("original", chat.SessionId);
     }
+    [Trait("Category", "Slow")]
     [AvaloniaTheory]
     [InlineData("--reject-fork")]
     [InlineData("--reject-load")]

@@ -20,6 +20,7 @@ public class RemoteDesktopTests
         Assert.True(ready());
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task RemoteChatRunsInTheLocalChatPane()
     {
@@ -113,6 +114,7 @@ public class RemoteDesktopTests
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); foreach (var runtime in hostRuntimes.Values) await runtime.DisposeAsync(); }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task RemoteChatsAreCreatedQueuedStoppedArchivedAndDeletedFromTheSidebar()
     {

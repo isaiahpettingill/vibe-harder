@@ -34,6 +34,7 @@ public class RobustnessTests
         Assert.Equal("edited", edited["messages"]![0]!["text"]!.GetValue<string>());
         Assert.NotEqual(revision, edited["messages"]![0]!["revision"]!.GetValue<string>());
     }
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task CollapsedConnectionDoesNotPollAtStartupOrAfterWake()
     {

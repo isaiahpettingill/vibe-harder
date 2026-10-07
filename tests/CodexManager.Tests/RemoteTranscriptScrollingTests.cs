@@ -10,6 +10,7 @@ namespace CodexManager.Tests;
 
 public class RemoteTranscriptScrollingTests
 {
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task RemotePollingAndMarkdownResizeKeepPositionWithoutLoadingHistory()
     {

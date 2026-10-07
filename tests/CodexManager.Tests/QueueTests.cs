@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class QueueTests
 {
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task FailedReconnectKeepsQueuedMessages()
     {

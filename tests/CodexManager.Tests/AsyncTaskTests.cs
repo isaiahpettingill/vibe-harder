@@ -53,6 +53,7 @@ public class AsyncTaskTests
         finally { ChatRuntime.BackgroundQuietTime = TimeSpan.FromSeconds(4); await runtime.DisposeAsync(); store.Dispose(); }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task BackgroundRepliesStayOneMessageWhileTheChatIsNotOnScreen()
     {

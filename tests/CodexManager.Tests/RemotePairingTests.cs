@@ -12,6 +12,7 @@ namespace CodexManager.Tests;
 
 public class RemotePairingTests
 {
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task HiddenRemoteViewUpdatesCompletionWithoutSelectingChat()
     {
@@ -63,6 +64,7 @@ public class RemotePairingTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task QueuedPollTimeoutKeepsHealthyConnectionAndActiveRequest()
     {
@@ -90,6 +92,7 @@ public class RemotePairingTests
         Assert.Equal("ready", (await client.Request(new() { ["method"] = "list" }, TestContext.Current.CancellationToken))!.GetValue<string>());
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task EmptyRemoteWorkspaceReconnectsWithoutUserInput()
     {
@@ -140,6 +143,7 @@ public class RemotePairingTests
     }
     private static string DirectoryPath() => Path.Combine(Path.GetTempPath(), "vibe-pairing", Guid.NewGuid().ToString("N"));
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task WorkspaceComputerPickerKeepsLocalAndRemoteFoldersSeparate()
     {
@@ -184,6 +188,7 @@ public class RemotePairingTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task CancelledRemoteRequestUnblocksAndFreshConnectionWorks()
     {
@@ -241,6 +246,7 @@ public class RemotePairingTests
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task WrongNumberDoesNotSaveCredentialsAndPairingCanBeRetried()
     {
@@ -261,6 +267,7 @@ public class RemotePairingTests
         await Assert.ThrowsAsync<IOException>(() => retry.Complete(code!, path, timeout.Token));
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task SavedHostOpensSharedRemoteChatInMobileShell()
     {

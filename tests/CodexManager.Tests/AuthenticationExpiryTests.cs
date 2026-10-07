@@ -24,6 +24,7 @@ public class AuthenticationExpiryTests
     [InlineData("Permission denied writing file")]
     public void DoesNotMistakeOtherFailuresForExpiredCredentials(string message) => Assert.False(AgentProviders.IsAuthenticationError(new IOException(message)));
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task EveryProviderStopsForNestedExpiredAuthenticationAndKeepsInput()
     {

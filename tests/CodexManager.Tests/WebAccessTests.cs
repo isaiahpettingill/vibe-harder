@@ -48,6 +48,7 @@ public class WebAccessTests
         await File.WriteAllTextAsync(Path.Combine(bundle, ".complete"), WebAssets.Version, TestContext.Current.CancellationToken);
         Assert.Equal(bundle, await WebAssets.Ensure(directory, _ => Assert.Fail("A completed cache must not download again."), TestContext.Current.CancellationToken));
     }
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task ServesAssetsPairsAuthenticatesAndRevokesBrowser()
     {

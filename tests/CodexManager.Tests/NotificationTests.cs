@@ -14,6 +14,7 @@ public class NotificationTests
     }
     private static int Count(string chat) { lock (TestApp.Notifications) return TestApp.Notifications.Count(n => n.Chat == chat); }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task FinishedChatsNotifyUnlessTurnedOffAndOpenTheChat()
     {

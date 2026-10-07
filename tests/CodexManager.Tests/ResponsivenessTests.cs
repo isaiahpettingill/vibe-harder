@@ -9,6 +9,7 @@ namespace CodexManager.Tests;
 
 public class ResponsivenessTests
 {
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task HistoryReplayKeepsVisiblePageStableAndSettlesAfterCompletion()
     {

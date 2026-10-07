@@ -82,6 +82,7 @@ public class SessionConfigTests
         Assert.Equal("large", first.ConfigOptions.Single(c => c.Id == "model").Current);
     }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task ProviderOptionsSupportModelsReasoningAndBooleanFastMode()
     {

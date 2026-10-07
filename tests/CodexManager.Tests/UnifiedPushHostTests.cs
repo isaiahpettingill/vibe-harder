@@ -10,6 +10,7 @@ public class UnifiedPushHostTests
 {
     private static int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
 
+    [Trait("Category", "Slow")]
     [AvaloniaFact]
     public async Task PairedPhoneRegistersOverItsConnectionAndGetsEncryptedPushes()
     {
