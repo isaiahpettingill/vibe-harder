@@ -25,8 +25,9 @@ jobs:
       - run: npm ci --ignore-scripts
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev xvfb imagemagick
-      # Tests tagged Category=Slow run locally but not in CI.
-      - run: dotnet test tests/CodexManager.Tests --filter "(FullyQualifiedName~StoreTests|FullyQualifiedName~AcpTests|FullyQualifiedName~UiTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~WorkspaceHistoryTests|FullyQualifiedName~SessionConfigTests|FullyQualifiedName~ChatPresentationTests|FullyQualifiedName~SettingsUiTests|FullyQualifiedName~RecoveryTests|FullyQualifiedName~RemoteTests|FullyQualifiedName~TerminalAppearanceTests|FullyQualifiedName~ResponsivenessTests|FullyQualifiedName~ViewMemoryTests|FullyQualifiedName~PresentationSleepTests|FullyQualifiedName~ElicitationFormTests|FullyQualifiedName~IdleAgentTests|FullyQualifiedName~HistoryWindowTests|FullyQualifiedName~TranscriptScrollingTests)&Category!=Slow"
+      # Tests tagged Category=Slow run locally but not in CI. macOS is built and packaged only.
+      - if: runner.os != 'macOS'
+        run: dotnet test tests/CodexManager.Tests --filter "(FullyQualifiedName~StoreTests|FullyQualifiedName~AcpTests|FullyQualifiedName~UiTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~WorkspaceHistoryTests|FullyQualifiedName~SessionConfigTests|FullyQualifiedName~ChatPresentationTests|FullyQualifiedName~SettingsUiTests|FullyQualifiedName~RecoveryTests|FullyQualifiedName~RemoteTests|FullyQualifiedName~TerminalAppearanceTests|FullyQualifiedName~ResponsivenessTests|FullyQualifiedName~ViewMemoryTests|FullyQualifiedName~PresentationSleepTests|FullyQualifiedName~ElicitationFormTests|FullyQualifiedName~IdleAgentTests|FullyQualifiedName~HistoryWindowTests|FullyQualifiedName~TranscriptScrollingTests)&Category!=Slow"
       - if: runner.os == 'Windows'
         run: choco install nsis --no-progress -y
       - if: runner.os == 'Windows'
