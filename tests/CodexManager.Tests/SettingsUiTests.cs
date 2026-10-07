@@ -106,17 +106,29 @@ public class SettingsUiTests
     [AvaloniaFact]
     public void BundledNeoSpleenLoadsAndOldNerdFontSettingsStillUseIt()
     {
-        foreach (var weight in new[] { FontWeight.Normal, FontWeight.Bold })
+        var installed = FontSettings.Installed;
+        try
         {
-            Assert.True(FontManager.Current.TryGetGlyphTypeface(new Typeface(FontSettings.Family(null), FontStyle.Normal, weight), out var glyphs));
-            Assert.Equal("NeoSpleen", glyphs!.FamilyName); Assert.Equal(weight, glyphs.Weight);
+            FontSettings.Installed = _ => false;
+            foreach (var weight in new[] { FontWeight.Normal, FontWeight.Bold })
+            {
+                Assert.True(FontManager.Current.TryGetGlyphTypeface(new Typeface(FontSettings.Family(null), FontStyle.Normal, weight), out var glyphs));
+                Assert.Equal("NeoSpleen", glyphs!.FamilyName); Assert.Equal(weight, glyphs.Weight);
+            }
+            Assert.Equal(FontSettings.Family(null), FontSettings.Family("NeoSpleen Nerd Font"));
+            using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-fonts", Guid.NewGuid().ToString("N")));
+            store.Setting("font:Code", "NeoSpleen Nerd Font");
+            var window = new FontSettings(store); window.Show();
+            try { Assert.Equal("NeoSpleen", window.GetLogicalDescendants().OfType<AutoCompleteBox>().Single(f => f.Name == "CodeFontPicker").Text); }
+            finally { window.Close(); }
+
+            // An installed Nerd Font build is preferred for the default and for old settings.
+            FontSettings.Installed = name => name == "NeoSpleen Nerd Font";
+            Assert.Equal("NeoSpleen Nerd Font", FontSettings.Family(null).Name);
+            Assert.Equal("NeoSpleen Nerd Font", FontSettings.Family("NeoSpleen").Name);
+            Assert.Equal("Consolas", FontSettings.Family("Consolas").Name);
         }
-        Assert.Equal(FontSettings.Family(null), FontSettings.Family("NeoSpleen Nerd Font"));
-        using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-fonts", Guid.NewGuid().ToString("N")));
-        store.Setting("font:Code", "NeoSpleen Nerd Font");
-        var window = new FontSettings(store); window.Show();
-        try { Assert.Equal("NeoSpleen", window.GetLogicalDescendants().OfType<AutoCompleteBox>().Single(f => f.Name == "CodeFontPicker").Text); }
-        finally { window.Close(); }
+        finally { FontSettings.Installed = installed; }
     }
 
     [AvaloniaFact]
