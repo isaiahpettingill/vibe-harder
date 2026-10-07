@@ -611,7 +611,7 @@ public partial class MainView : UserControl
         void Apply()
         {
             if (string.IsNullOrWhiteSpace(input.Text)) return;
-            chat.Title = input.Text.Trim(); store.Save(chat); UpdateControls(); dialog.Close();
+            chat.Title = input.Text.Trim(); store.Save(chat); if (!chat.IsRemote) ChatTitles.MarkRenamed(store, chat); UpdateControls(); dialog.Close();
             if (chat.IsRemote) _ = RemoteAction(chat.Remote!, new() { ["method"] = "rename", ["chatId"] = chat.RemoteId, ["title"] = chat.Title }, "Could not rename the chat.");
         }
         save.Click += (_, _) => Apply(); input.KeyDown += (_, e) => { if (e.Key == Key.Enter) { e.Handled = true; Apply(); } };

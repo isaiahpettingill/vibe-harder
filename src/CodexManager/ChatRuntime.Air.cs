@@ -10,6 +10,11 @@ public sealed partial class ChatRuntime
 
     private void ApplySessionInfo(JsonElement update)
     {
+        // Agents that name the session (Claude, Codex, and others) replace the first-line title,
+        // unless the user renamed the chat.
+        if (update.TryGetProperty("title", out var title) && title.ValueKind == JsonValueKind.String && title.GetString()?.Trim() is { Length: > 0 } named
+            && named != chat.Title && !ChatTitles.Renamed(store, chat))
+        { chat.Title = named.Length > 250 ? named[..249] + "…" : named; store.Save(chat); }
         if (Air.Of(update) is not { } air) return;
         if (air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
         if (air.TryGetProperty("goal", out var goal)) ShowGoal(goal);

@@ -299,7 +299,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         else if (method == "stop") await active.Stop();
         else if (method == "task/stop") await active.StopAsyncTask(Text("taskId"));
-        else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); Changed?.Invoke(); }
+        else if (method == "rename") { chat.Title = Text("title"); store.Save(chat); ChatTitles.MarkRenamed(store, chat); Changed?.Invoke(); }
         else if (method == "read") { chat.HasUnreadCompletion = false; store.Save(chat); }
         else if (method == "reconnect") await active.Reconnect();
         else if (method == "resume")
