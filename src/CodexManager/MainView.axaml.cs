@@ -567,6 +567,8 @@ public partial class MainView : UserControl
         if (chat.IsRemote && chat.HasUnreadCompletion) _ = RemoteSession(chat, owner).MarkRead();
         chat.HasUnreadCompletion = false; store.Save(chat);
         if (current is not null && !ReferenceEquals(current, chat)) { DeferHistoryEviction(current); RemoteSessionOf(current)?.Deactivate(); }
+        // The subagent belongs to the chat being left.
+        if (!ReferenceEquals(current, chat)) CloseSubagent();
         KeepHistory(chat);
         switching = true; current = chat; Composer.Text = chat.Draft; switching = false;
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
@@ -1345,7 +1347,7 @@ public partial class MainView : UserControl
     }
     private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize, Workspace owner)
     {
-        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = new FontFamily("avares://VibeHarder.UI/Assets/Fonts#NeoSpleen") };
+        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = FontSettings.Family(null) };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         return control;
@@ -1551,7 +1553,7 @@ public partial class MainView : UserControl
         ChatSearch.Close();
         if (current is not null && (chats.Contains(current) || current.IsRemote)) { current.Draft = Composer.Text ?? ""; store.Save(current); }
         if (current is not null) { DeferHistoryEviction(current); RemoteSessionOf(current)?.Deactivate(); }
-        current = null; Composer.Text = ""; MessageList.ItemsSource = null; AttachmentList.ItemsSource = null; UpdateControls();
+        CloseSubagent(); current = null; Composer.Text = ""; MessageList.ItemsSource = null; AttachmentList.ItemsSource = null; UpdateControls();
     }
     private void SelectNextChat()
     {
@@ -1671,7 +1673,16 @@ public partial class MainView : UserControl
         var quit = new NativeMenuItem(active.Length == 0 ? "Quit" : "Quit and interrupt agents"); quit.Click += TrayQuitClick; menu.Items.Add(quit);
         tray.Menu = menu;
     }
-    public void ShowFromTray() { if (closing) return; foregroundRequested = true; desktopWindow?.Show(); if (desktopWindow is { } window) { window.WindowState = WindowState.Normal; window.Activate(); } UpdateControls(); }
+    // Restoring from the tray or a notification un-minimizes to the size the window had, so a
+    // maximized or full-screen window stays that way.
+    public void ShowFromTray()
+    {
+        if (closing) return;
+        foregroundRequested = true; desktopWindow?.Show();
+        if (desktopWindow is { } window) { if (window.WindowState == WindowState.Minimized) window.WindowState = restoredWindowState; window.Activate(); }
+        UpdateControls();
+    }
+    private WindowState restoredWindowState = WindowState.Normal;
     private Window? quitConfirmation;
     private async void TrayQuitClick(object? sender, EventArgs e)
     {

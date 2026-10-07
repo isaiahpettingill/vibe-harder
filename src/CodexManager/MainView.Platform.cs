@@ -68,6 +68,7 @@ public partial class MainView
         window.AddHandler(PointerPressedEvent, (_, _) => { WakePresentation(); HostActivity.Touched(); }, RoutingStrategies.Tunnel, handledEventsToo: true);
         window.AddHandler(PointerMovedEvent, (_, _) => HostActivity.Touched(), RoutingStrategies.Tunnel, handledEventsToo: true);
         window.PropertyChanged += (_, e) => { if (e.Property == Window.IsVisibleProperty || e.Property == Window.WindowStateProperty) SchedulePresentationSleep(); };
+        window.PropertyChanged += (_, e) => { if (e.Property == Window.WindowStateProperty && window.WindowState != WindowState.Minimized) restoredWindowState = window.WindowState; };
         ConfigureTray();
         window.Opened += async (_, _) => await StartDesktop(window,
             Environment.GetCommandLineArgs().Contains("--startup") && store.Setting("runInTray") != "0" && TrayAvailable);

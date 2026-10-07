@@ -77,6 +77,28 @@ public class NotificationTests
         finally { HostActivity.IdleOverride = null; }
     }
 
+    [AvaloniaFact]
+    public async Task OpeningFromANotificationKeepsAMaximizedWindowMaximized()
+    {
+        var directory = Directory.CreateTempSubdirectory("notify-window-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            window.WindowState = WindowState.Maximized;
+            window.ShowFromTray();
+            Assert.Equal(WindowState.Maximized, window.WindowState);
+            // From the taskbar it comes back maximized, not at its normal size.
+            window.WindowState = WindowState.Minimized;
+            window.ShowFromTray();
+            Assert.Equal(WindowState.Maximized, window.WindowState);
+            window.WindowState = WindowState.Normal; window.WindowState = WindowState.Minimized;
+            window.ShowFromTray();
+            Assert.Equal(WindowState.Normal, window.WindowState);
+        }
+        finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+
     [Fact]
     public void ChatLinksOnlyAcceptChatIds()
     {

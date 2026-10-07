@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Input;
@@ -59,6 +60,30 @@ public class SubagentTests
             inspector.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape }); Assert.True(closed);
         }
         finally { window.Close(); }
+    }
+
+    [AvaloniaFact]
+    public async Task FullscreenCoversOnlyTheChatPaneAndClosesWithTheChat()
+    {
+        var directory = Directory.CreateTempSubdirectory("subagent-pane-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Test", directory));
+        store.Save(new Chat { WorkspaceId = "w", Title = "First" }); store.Save(new Chat { WorkspaceId = "w", Title = "Second" });
+        var window = new MainWindow(store) { Width = 1200, Height = 800 }; window.Show();
+        try
+        {
+            var chats = UiTests.Named<ListBox>(window, "Chats_w");
+            chats.SelectedItem = chats.Items.OfType<Chat>().Single(c => c.Title == "First");
+            var root = new Message { Role = "tool", Subagent = new("Task", "Subagent", "", "running", "child", "", []) };
+            window.View.ShowSubagent(root, []); window.UpdateLayout();
+            var inspector = window.GetVisualDescendants().OfType<SubagentInspector>().Single();
+            var sidebar = chats.TranslatePoint(new Point(chats.Bounds.Width, 0), window)!.Value.X;
+            Assert.True(inspector.TranslatePoint(default, window)!.Value.X >= sidebar);
+            // Choosing another chat in the sidebar, which stays usable, closes it.
+            chats.SelectedItem = chats.Items.OfType<Chat>().Single(c => c.Title == "Second"); window.UpdateLayout();
+            Assert.Empty(window.GetVisualDescendants().OfType<SubagentInspector>());
+        }
+        finally { window.RequestExit(); var until = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < until) await Task.Delay(25); }
     }
 
     [AvaloniaFact]
