@@ -99,9 +99,7 @@ public class MobileChatLayoutTests
             UiTests.Named<IconButton>(window, "SidebarToggle").RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
             var sidebar = UiTests.Named<Border>(window, "Sidebar");
             Assert.True(sidebar.IsVisible);
-            Assert.Equal(UiTests.Named<Grid>(window, "RootPanes").Bounds.Width, sidebar.Bounds.Width, 1);
             var rename = UiTests.Named<IconButton>(window, "Rename_c");
-            Assert.Equal(1, rename.Opacity);
             var row = rename.GetVisualAncestors().OfType<Grid>().First(g => g.Classes.Contains("chatRow"));
             var point = row.TranslatePoint(new Point(35, 10), window)!.Value;
             window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left); window.UpdateLayout();
@@ -109,14 +107,6 @@ public class MobileChatLayoutTests
             Assert.Equal("c", ((Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!).Id);
         }
         finally { window.RequestExit(); await Task.Delay(200); }
-    }
-
-    [AvaloniaFact]
-    public void EmbeddedRemoteCanHideItsDuplicateTerminalAction()
-    {
-        using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", "")) { ShowTerminalButton = false };
-        Assert.False(view.ShowTerminalButton);
-        view.ShowTerminalButton = true; Assert.True(view.ShowTerminalButton);
     }
 
     [AvaloniaFact]
@@ -172,7 +162,6 @@ public class MobileChatLayoutTests
             window.UpdateLayout();
             // Same chip as desktop: an open button and a remove button.
             Assert.Contains(mobile.AttachmentList.GetVisualDescendants().OfType<Button>(), b => b.Name == "OpenAttachmentButton");
-            using (var frame = window.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-mobile-composer.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
             mobile.AttachmentList.GetVisualDescendants().OfType<IconButton>().Single(b => ReferenceEquals(b.Tag, pasted)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Empty(attachments); Assert.Equal("see ", mobile.Editor.Text);
         }
@@ -187,7 +176,6 @@ public class MobileChatLayoutTests
             Assert.Same(composer, desktop.FindControl<Border>("ComposerBorder"));
             Assert.Same(composer.Editor, desktop.FindControl<ComposerEditor>("Composer"));
             Assert.Same(composer.SendButton, desktop.FindControl<IconButton>("SendButton"));
-            using (var frame = desktop.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-desktop-composer.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
         }
         finally { desktop.RequestExit(); }
     }

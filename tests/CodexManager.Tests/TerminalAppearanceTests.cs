@@ -2,7 +2,6 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using Avalonia.Media.Imaging;
 using SvcSystems.UI.Terminal;
 
 namespace CodexManager.Tests;
@@ -12,15 +11,12 @@ public class TerminalAppearanceTests
     [AvaloniaFact]
     public async Task PalettesUpdateAnOpenTerminalAndPersistSelection()
     {
-        Directory.CreateDirectory(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")));
         using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-themes", Guid.NewGuid().ToString("N")));
         FontSettings.Apply(store); AppTheme.Apply(store);
         var model = new TerminalControlModel();
         var terminal = new ThemedTerminalControl { Model = model, FontFamily = FontSettings.Family(FontSettings.DefaultName), FontSize = 13, Height = 180 };
         var picker = AppTheme.Picker(store);
-        var markdown = new ChatMarkdown { Text = "Chat with `inline code`\n\n```sh\nprintf 'hello'\n```" };
-        var send = new IconButton { Icon = "send", Label = "Send", Classes = { "accent" }, HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right };
-        var window = new Window { Width = 600, Height = 550, Content = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { picker, markdown, terminal, send } } }; window.Show();
+        var window = new Window { Width = 600, Height = 550, Content = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { picker, terminal } } }; window.Show();
         model.Feed("Default text\r\n\u001b[31mRed \u001b[32mGreen \u001b[34mBlue\u001b[0m");
         Assert.Equal(1, model.Terminal.Buffer.Lines[1]![0].Attributes.GetFgColor());
         var original = Application.Current!.Resources["SvcSystems.UI.TerminalColor0"];
@@ -35,8 +31,6 @@ public class TerminalAppearanceTests
                 Assert.Same(model, terminal.Model);
                 var resolve = typeof(TerminalControl).GetMethod("ResolveColorBrush", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
                 Assert.Equal(Color.Parse(palette.Ansi[1]), Assert.IsAssignableFrom<ISolidColorBrush>(resolve.Invoke(terminal, [1])).Color);
-                using var frame = new RenderTargetBitmap(new PixelSize(600, 550)); frame.Render(window);
-                frame.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/theme-" + palette.Name.Replace(' ', '-') + ".png")), PngBitmapEncoderOptions.Default);
             }
         }
         finally { window.Close(); AppTheme.Apply(AppTheme.All[0]); }

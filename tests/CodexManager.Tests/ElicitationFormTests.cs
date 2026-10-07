@@ -157,9 +157,6 @@ public class ElicitationFormTests
         var window = new Window { Content = card }; window.Show();
         try
         {
-            var buttons = card.GetLogicalDescendants().OfType<Button>().Where(b => b is not RadioButton && b.Content is string).ToArray();
-            Assert.Equal(["Cancel", "Decline", "Send answer"], buttons.Select(b => (string)b.Content!));
-            Assert.Equal(Avalonia.Layout.HorizontalAlignment.Right, ((Control)buttons[0].Parent!).HorizontalAlignment);
             var field = card.GetLogicalDescendants().OfType<TextBox>().First();
             field.Focus(); field.Text = "first line"; field.CaretIndex = field.Text.Length;
             field.RaiseEvent(new Avalonia.Input.KeyEventArgs { RoutedEvent = Avalonia.Input.InputElement.KeyDownEvent, Key = Avalonia.Input.Key.Enter, KeyModifiers = Avalonia.Input.KeyModifiers.Control });

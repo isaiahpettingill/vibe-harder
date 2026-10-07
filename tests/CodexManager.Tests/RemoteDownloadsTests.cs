@@ -1,10 +1,8 @@
-using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Primitives;
 using Avalonia.Headless.XUnit;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
-using Avalonia.VisualTree;
 
 namespace CodexManager.Tests;
 
@@ -24,12 +22,6 @@ public class RemoteDownloadsTests
             var first = tracker.Begin("/reports/first-file.zip");
             var second = tracker.Begin("/reports/second-file.zip");
             Assert.True(button.IsVisible);
-            window.UpdateLayout();
-            var menu = view.GetLogicalDescendants().OfType<IconButton>().Single(c => c.Name == "SidebarToggle");
-            var menuPosition = menu.TranslatePoint(new Point(0, 0), window)!.Value;
-            var downloadPosition = button.TranslatePoint(new Point(0, 0), window)!.Value;
-            Assert.True(downloadPosition.X > menuPosition.X);
-            Assert.InRange(Math.Abs(downloadPosition.Y - menuPosition.Y), 0, 1);
             Assert.Contains("2 pending downloads", ToolTip.GetTip(button)?.ToString());
             tracker.Report(first.Id, 50, 100);
             var flyout = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(button));

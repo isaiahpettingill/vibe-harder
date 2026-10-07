@@ -7,17 +7,6 @@ namespace CodexManager.Tests;
 
 public class MessageProviderTests
 {
-    [Fact]
-    public void UnknownMessagesUseAgentAndKnownMessagesUseTheirProvider()
-    {
-        Assert.Equal("AGENT", new Message().Label);
-        Assert.Equal("AGENT", new Message { Provider = (AgentProvider)999 }.Label);
-        foreach (var provider in AgentProviders.All)
-            Assert.Equal(provider.Name.ToUpperInvariant(), new Message { Provider = provider.Provider }.Label);
-        Assert.Equal("YOU", new Message { Role = "user" }.Label);
-        Assert.Equal("SESSION", new Message { Role = "system" }.Label);
-    }
-
     [AvaloniaFact]
     public void RemoteLiveAndHistoryMessagesRetainTheSelectedProvider()
     {

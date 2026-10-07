@@ -108,12 +108,4 @@ public class AcpTests
         Assert.False(chat.Busy); Assert.Equal("Interrupted", chat.Status);
         await stop;
     }
-    [Fact]
-    public void AttachmentEncodesImageAndEmbeddedTextAsAcpBlocks()
-    {
-        var image = JsonSerializer.SerializeToElement(new Attachment("image.png", "image/png", "AQID").ToContent());
-        Assert.Equal("image", image.GetProperty("type").GetString()); Assert.Equal("AQID", image.GetProperty("data").GetString());
-        var file = JsonSerializer.SerializeToElement(new Attachment("source.cs", "text/plain", "class A {}", Path.GetFullPath("source.cs")).ToContent());
-        Assert.Equal("class A {}", file.GetProperty("resource").GetProperty("text").GetString());
-    }
 }

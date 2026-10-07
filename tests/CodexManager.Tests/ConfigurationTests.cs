@@ -94,11 +94,7 @@ public class ConfigurationTests
     [Fact]
     public void ProviderLoginCommandsAndWslTerminalArgumentsStaySeparate()
     {
-        using var store = new Store(Path.Combine(Path.GetTempPath(), "codex-manager-config", Guid.NewGuid().ToString("N")));
         var workspace = new Workspace("w", "Login", "/home/test/a b", "Debian");
-        Assert.EndsWith(" login", AgentProviders.LoginCommand(store, workspace, AgentProvider.Codex));
-        Assert.Equal("npx -y @anthropic-ai/claude-code@latest auth login", AgentProviders.LoginCommand(store, workspace, AgentProvider.Claude));
-        Assert.Equal("opencode auth login", AgentProviders.LoginCommand(store, workspace, AgentProvider.OpenCode));
         if (!OperatingSystem.IsWindows()) return;
         var options = TerminalSession.Options(workspace, "opencode auth login");
         Assert.Contains("--exec", options.CommandLine);

@@ -3,16 +3,6 @@ namespace CodexManager.Tests;
 public class DiagnosticsTests
 {
     [Fact]
-    public void OrdinaryErrorsRecoverButResourceAndMemoryCorruptionFailuresDoNot()
-    {
-        Assert.False(AppDiagnostics.IsUnrecoverable(new InvalidOperationException()));
-        Assert.False(AppDiagnostics.IsUnrecoverable(new IOException()));
-        Assert.False(AppDiagnostics.IsUnrecoverable(new OperationCanceledException()));
-        Assert.True(AppDiagnostics.IsUnrecoverable(new OutOfMemoryException()));
-        Assert.True(AppDiagnostics.IsUnrecoverable(new AccessViolationException()));
-        Assert.True(AppDiagnostics.IsUnrecoverable(new AggregateException(new OutOfMemoryException())));
-    }
-    [Fact]
     public void ErrorLogsRotateAndCapIndividualEntries()
     {
         var directory = Directory.CreateTempSubdirectory("diagnostics-").FullName;

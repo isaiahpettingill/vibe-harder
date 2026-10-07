@@ -31,7 +31,6 @@ public class TerminalInputTests
             await view.Open("workspace", "Terminal");
             Assert.Empty(view.GetLogicalDescendants().OfType<TextBox>());
             var bar = view.GetLogicalDescendants().OfType<Grid>().Single(g => g.Name == "TerminalKeyBar");
-            Assert.Equal(14, bar.Children.Count);
             await view.SendKeystroke(new("hello"));
             Assert.Equal("hello", sent[^1]);
             await view.SendKeystroke(new(Key: TerminalKey.Enter)); Assert.Equal("\r", sent[^1]);

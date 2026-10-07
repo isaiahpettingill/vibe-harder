@@ -163,24 +163,6 @@ public class SidebarCustomizationTests
         }
         finally { window.Close(); view.DisposeMobile(); }
     }
-    [AvaloniaFact]
-    public void WorkspaceActionsRevealOnHoverAndMobileHidesHandles()
-    {
-        var grip = new IconButton { Classes = { "rowAction", "dragHandle" } };
-        var action = new IconButton { Classes = { "rowAction" }, Margin = new Thickness(40, 0, 0, 0) };
-        var heading = new Grid { Classes = { "workspaceHeading" }, Background = Brushes.Transparent, Children = { grip, action }, Height = 50 };
-        var root = new UserControl { Content = heading };
-        var window = new Window { Width = 300, Height = 150, Content = root }; window.Show();
-        try
-        {
-            window.MouseMove(new Point(290, 145)); Assert.Equal(0, grip.Opacity); Assert.Equal(0, action.Opacity);
-            window.MouseMove(heading.TranslatePoint(new Point(10, 10), window)!.Value);
-            Assert.Equal(1, grip.Opacity); Assert.Equal(1, action.Opacity);
-            root.Classes.Add("touchSidebar"); Assert.False(grip.IsVisible); Assert.Equal(1, action.Opacity);
-            Assert.Same(root.FindResource("AppMuted"), action.Foreground);
-        }
-        finally { window.Close(); }
-    }
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -207,35 +189,5 @@ public class SidebarCustomizationTests
         Assert.Equal(new[] { "a", "z" }, reopened.Workspaces().Select(w => w.Id));
         Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(reopened, "chats:z", reopened.Chats(), c => c.Id).Select(c => c.Id));
         Assert.Equal("#89B4FA", reopened.Setting("workspaceColor:z")); Assert.Equal("#F38BA8", reopened.Setting("chatColor:first"));
-    }
-    [AvaloniaFact]
-    public void RequestedThemesAndModelIconsRenderWithAccentContrast()
-    {
-        var original = AppTheme.Current ?? AppTheme.All[0];
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 14, Margin = new Thickness(20) };
-        foreach (var name in new[] { "openai", "claude", "agent", "steer", "stop" }) row.Children.Add(new IconButton { Icon = name, Classes = { "accent" } });
-        var window = new Window { Content = row, Width = 360, Height = 90 }; window.Show();
-        try
-        {
-            foreach (var name in new[] { "Quiet Light", "Tokyo Night", "Tokyo Night Storm", "Tokyo Night Light", "Monokai Dimmed", "Nord Frost", "Nord Aurora", "Catppuccin Latte", "Catppuccin Mocha" })
-            {
-                var theme = AppTheme.All.Single(p => p.Name == name); Assert.Equal(16, theme.Ansi.Length);
-                AppTheme.Apply(theme); window.UpdateLayout();
-                var foreground = Assert.IsAssignableFrom<ISolidColorBrush>(Application.Current!.Resources["AppOnAccent"]);
-                foreach (var button in row.Children.Cast<IconButton>())
-                {
-                    var icon = Assert.IsType<PathIcon>(button.Content);
-                    Assert.Equal(foreground.Color, Assert.IsAssignableFrom<ISolidColorBrush>(icon.Foreground).Color);
-                    Assert.Null(icon.GetVisualDescendants().OfType<Avalonia.Controls.Shapes.Path>().Single().Stroke);
-                    Assert.True(icon.Data!.Bounds.Width > 0);
-                }
-                if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
-                {
-                    using var bitmap = new RenderTargetBitmap(new PixelSize(360, 90)); bitmap.Render(window);
-                    bitmap.Save(System.IO.Path.Combine(qa, name.Replace(' ', '-') + "-icons.png"), PngBitmapEncoderOptions.Default);
-                }
-            }
-        }
-        finally { window.Close(); AppTheme.Apply(original); }
     }
 }

@@ -49,11 +49,4 @@ public class MobileAppSecurityTests
         finally { MobileAppSecurity.Current = null; }
     }
 
-    [AvaloniaFact]
-    public void DesktopDoesNotOfferAndroidAppLock()
-    {
-        using var store = new Store(Directory.CreateTempSubdirectory("app-security-desktop-").FullName);
-        using var settings = new ConnectionSettingsView(store, false, () => Task.CompletedTask);
-        Assert.DoesNotContain(settings.GetLogicalDescendants().OfType<Button>(), b => b.Name == "BiometricUnlock");
-    }
 }

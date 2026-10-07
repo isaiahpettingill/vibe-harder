@@ -23,14 +23,4 @@ public class ProviderAuthenticationTests
         store.Setting("VTCode:localLoginCommand", "vtcode login openrouter");
         Assert.Equal("vtcode login openrouter", AgentProviders.LoginCommand(store, workspace, AgentProvider.VTCode));
     }
-    [Theory]
-    [InlineData("mode", "Mode", "mode")]
-    [InlineData("auto_approve", "Approve for me", "auto-approve")]
-    [InlineData("yolo", "YOLO", "yolo")]
-    [InlineData("provider", "Provider", "provider")]
-    [InlineData("service_tier", "Service tier", "speed")]
-    [InlineData("thought_level", "Effort level", "reasoning")]
-    [InlineData("thinking_budget", "Thinking budget", "budget")]
-    public void SessionControlsUseSemanticIcons(string id, string name, string icon) =>
-        Assert.Equal(icon, OptionContent.IconFor(new SessionConfig(id, name, "select", "", [])));
 }

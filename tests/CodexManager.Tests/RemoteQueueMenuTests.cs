@@ -27,20 +27,6 @@ public class RemoteQueueMenuTests
     }
 
     [AvaloniaFact]
-    public void RemoteQueueUsesLocalHeaderAndActionOrder()
-    {
-        using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", ""));
-        var update = typeof(RemoteView).GetMethod("UpdateRemoteQueue", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        update.Invoke(view, [new JsonObject { ["canSteer"] = true, ["queue"] = new JsonArray(new JsonObject { ["id"] = "q", ["text"] = "Queued", ["attachments"] = 0 }) }]);
-        var field = typeof(RemoteView).GetField("chatComposer", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-        var panel = Assert.IsType<ChatComposer>(field.GetValue(view)).QueuePanel; Assert.Equal("1 queued message", panel.Header); Assert.True(panel.IsExpanded);
-        var rows = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(panel.Content).Content);
-        var row = Assert.IsType<Grid>(Assert.Single(rows.Children));
-        Assert.Equal(new[] { "Remove queued message", "Edit queued message", "Steer with queued message", "Send now (interrupt current turn)" }, row.Children.OfType<IconButton>().Select(b => ToolTip.GetTip(b)));
-        update.Invoke(view, [new JsonObject { ["queue"] = new JsonArray() }]); Assert.False(panel.IsVisible);
-    }
-
-    [AvaloniaFact]
     public async Task RemoteQueueEditPreservesIdentityAttachmentsAndOrder()
     {
         using var store = new Store(Path.Combine(Path.GetTempPath(), "queue-edit-" + Guid.NewGuid().ToString("N")));

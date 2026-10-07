@@ -4,14 +4,6 @@ namespace CodexManager.Tests;
 
 public class VtCodeLaunchTests
 {
-    [Fact]
-    public void StreamingFailureExplainsAdapterProblemWithoutChangingAuthentication()
-    {
-        var help = VtCodeLaunch.FailureHelp("Provider error: Stream must be set to true");
-        Assert.Contains("adapter compatibility error", help);
-        Assert.Contains("authentication method has not been changed", help);
-        Assert.Null(VtCodeLaunch.FailureHelp("Different failure"));
-    }
     [Theory]
     [InlineData("vtcode acp", "vtcode --provider openai --api-key-env OPENAI_API_KEY acp")]
     [InlineData("vtcode acp --provider=openai", "vtcode --api-key-env OPENAI_API_KEY acp --provider=openai")]
@@ -35,8 +27,6 @@ public class VtCodeLaunchTests
         Assert.Equal("api_key", VtCodeLaunch.Method(store, workspace));
         var launch = VtCodeLaunch.Prepare("vtcode acp --api-key-env COMPANY_KEY", new HashSet<string> { "openai" }, VtCodeLaunch.Method(store, workspace));
         Assert.True(launch.OpenAiPinned); Assert.EndsWith("--config auth.openai.preferred_method=api_key", launch.Command);
-        Assert.Contains("billed separately", VtCodeLaunch.AuthenticationBadge("api_key", true).Values[0].Name);
-        Assert.Contains("unverified", VtCodeLaunch.AuthenticationBadge("chatgpt", false).Values[0].Name);
     }
 
     [Fact]

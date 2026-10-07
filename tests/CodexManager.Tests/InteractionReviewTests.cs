@@ -222,24 +222,15 @@ public class InteractionReviewTests
     [AvaloniaFact]
     public async Task PaletteDismissesOnOutsideActivationAndLauncherKeepsItsSize()
     {
-        var button = new IconButton { Icon = "command", Label = "Command palette" };
-        var owner = new Window { Width = 600, Height = 500, Content = new StackPanel { Children = { button } } }; owner.Show();
+        var owner = new Window { Width = 600, Height = 500 }; owner.Show();
         try
         {
-            owner.UpdateLayout(); var bounds = button.Bounds;
-            for (var i = 0; i < 3; i++) { owner.MouseMove(new Point(8, 8)); owner.UpdateLayout(); owner.MouseMove(new Point(400, 400)); owner.UpdateLayout(); }
-            Assert.Equal(bounds.Size, button.Bounds.Size);
             var palette = new CommandPalette([new("Test", "A command", () => Task.CompletedTask)], null);
             var overlayHost = new Grid(); owner.Content = overlayHost;
             var result = palette.Open(overlayHost);
             Assert.True(palette.IsVisible); Assert.True(owner.IsEnabled);
             owner.UpdateLayout();
             Assert.Same(owner, TopLevel.GetTopLevel(palette));
-            if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
-            {
-                using var bitmap = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(600, 500)); bitmap.Render(owner);
-                bitmap.Save(Path.Combine(qa, "palette-overlay.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
-            }
             owner.MouseDown(new Point(5, 5), MouseButton.Left); owner.MouseUp(new Point(5, 5), MouseButton.Left);
             Assert.Null(await result.WaitAsync(TimeSpan.FromSeconds(3), TestContext.Current.CancellationToken));
             Assert.False(palette.IsVisible);

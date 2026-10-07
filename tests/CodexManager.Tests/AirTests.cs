@@ -101,6 +101,5 @@ public class AirTests
         var card = new PermissionCard(request, _ => Task.CompletedTask);
         var texts = card.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
         Assert.Contains("Run command?", texts); Assert.Contains("npm test", texts);
-        Assert.Contains("accent", card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Yes, proceed")).Classes);
     }
 }

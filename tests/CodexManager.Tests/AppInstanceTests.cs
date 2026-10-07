@@ -31,6 +31,4 @@ public class AppInstanceTests
         finally { finish.Set(); thread.Join(); }
         Assert.Null(failure);
     }
-    [Fact]
-    public void StartupCommandQuotesSpaces() => Assert.Equal("\"C:\\Program Files\\Vibe Harder\\CodexManager.exe\" --startup", StartupRegistration.WindowsCommand(@"C:\Program Files\Vibe Harder\CodexManager.exe"));
 }

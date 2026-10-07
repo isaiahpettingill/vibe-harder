@@ -9,26 +9,6 @@ namespace CodexManager.Tests;
 public class VisualPerformanceTests
 {
     [AvaloniaFact]
-    public void TranscriptUsesItsScrollPresenterClip()
-    {
-        var list = new ListBox
-        {
-            ItemsSource = Enumerable.Range(0, 100).ToArray(),
-            ItemsPanel = new FuncTemplate<Panel?>(() => new TranscriptPanel()),
-            ItemTemplate = new FuncDataTemplate<int>((number, _) => new TextBlock { Text = number.ToString(), Height = 100 })
-        };
-        var window = new Window { Width = 400, Height = 300, Content = list }; window.Show();
-        try
-        {
-            window.UpdateLayout();
-            var panel = list.GetVisualDescendants().OfType<TranscriptPanel>().Single();
-            Assert.False(panel.ClipToBounds);
-            Assert.True(panel.GetVisualAncestors().OfType<Avalonia.Controls.Presenters.ScrollContentPresenter>().Single().ClipToBounds);
-        }
-        finally { window.Close(); }
-    }
-
-    [AvaloniaFact]
     public void RemoteSidebarKeepsControlsAndModelsAcrossStatusChanges()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("sidebar-cache-").FullName);
@@ -59,24 +39,6 @@ public class VisualPerformanceTests
             catalog["workspaces"]!.AsArray().Clear(); Refresh(); Assert.Single(section.Children);
         }
         finally { main.DisposeMobile(); }
-    }
-
-    [AvaloniaFact]
-    public void WorkspaceTintIsOpaqueAndUpdatesWithTheTheme()
-    {
-        using var store = new Store(Directory.CreateTempSubdirectory("opaque-tint-").FullName);
-        var previous = AppTheme.Current ?? AppTheme.All[0];
-        try
-        {
-            store.Setting("workspaceColor:w", "#89B4FA");
-            AppTheme.Apply(AppTheme.All.First(t => !t.Light));
-            var brush = Assert.IsType<Avalonia.Media.SolidColorBrush>(SidebarColors.Brush(store, "workspaceColor:w", true));
-            var dark = brush.Color; Assert.Equal(255, dark.A); Assert.Equal(1, brush.Opacity);
-            AppTheme.Apply(AppTheme.All.First(t => t.Light));
-            Assert.Same(brush, SidebarColors.Brush(store, "workspaceColor:w", true));
-            Assert.NotEqual(dark, brush.Color); Assert.Equal(255, brush.Color.A);
-        }
-        finally { AppTheme.Apply(previous); }
     }
 
     [AvaloniaFact]

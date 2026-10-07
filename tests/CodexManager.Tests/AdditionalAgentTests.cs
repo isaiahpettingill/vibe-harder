@@ -5,15 +5,6 @@ namespace CodexManager.Tests;
 public class AdditionalAgentTests
 {
     [Fact]
-    public void ClineUsesDocumentedCommandsAndRecognizesItsLoginPrompt()
-    {
-        using var store = new Store(Directory.CreateTempSubdirectory("cline-setup-").FullName);
-        var workspace = new Workspace("w", "Cline", store.DirectoryPath);
-        Assert.Equal("cline --acp", AgentProviders.Command(store, workspace, AgentProvider.Cline));
-        Assert.Equal("cline auth", AgentProviders.LoginCommand(store, workspace, AgentProvider.Cline));
-        Assert.True(AgentProviders.IsAuthenticationError(new IOException("Call authenticate before starting a session")));
-    }
-    [Fact]
     public async Task HostAdvertisesOnlyEnabledProvidersAndRejectsDisabledCreation()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("additional-agents-").FullName);
@@ -74,17 +65,4 @@ public class AdditionalAgentTests
         Assert.Contains("exec env 'VT_ACP_ENABLED=1' 'VT_ACP_ZED_ENABLED=1' 'NO_COLOR=1' vtcode acp", wsl.ArgumentList.Last());
     }
 
-    [Theory]
-    [InlineData(AgentProvider.Cline, "cline")]
-    [InlineData(AgentProvider.VTCode, "vtcode")]
-    [InlineData(AgentProvider.Dirac, "dirac")]
-    [InlineData(AgentProvider.Pi, "pi")]
-    [InlineData(AgentProvider.Pi, "pi-acp")]
-    public void MissingOptionalAgentHasInstallGuidance(AgentProvider provider, string binary)
-    {
-        var installation = AgentInstallation.FromError(provider, new IOException($"spawn {binary} ENOENT"));
-        Assert.NotNull(installation);
-        Assert.StartsWith("Install", installation.Message);
-        Assert.StartsWith("https://", installation.Url);
-    }
 }

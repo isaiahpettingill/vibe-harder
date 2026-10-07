@@ -97,12 +97,6 @@ public class TerminalLinkTests
             Assert.Null(terminal.LinkAt(Cell(terminal, 4, 4)));
             Assert.Equal("https://localhost:1234/callback?code=abc&state=xyz", terminal.LinkAt(Cell(terminal, 4, 5))?.AbsoluteUri);
             Assert.Equal(4, terminal.LinkUnderlines().Count);
-            if (Environment.GetEnvironmentVariable("VIBE_QA_DIR") is { } qa)
-            {
-                window.UpdateLayout();
-                using var image = new Avalonia.Media.Imaging.RenderTargetBitmap(new PixelSize(900, 300));
-                image.Render(window); image.Save(Path.Combine(qa, "terminal-underlines.png"), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
-            }
             model.Feed("\u001b[?1000h");
             Assert.Empty(terminal.LinkUnderlines());
             Assert.Null(terminal.LinkAt(Cell(terminal, 8, 0)));

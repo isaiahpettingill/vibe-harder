@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
-using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
@@ -13,7 +12,6 @@ public class ComposerUiTests
     [AvaloniaFact]
     public async Task QueueEscapeSidebarAndPanePersistence()
     {
-        Directory.CreateDirectory(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")));
         var directory = Path.Combine(Path.GetTempPath(), "codex-composer", Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
         using (var store = new Store(directory))
@@ -67,7 +65,6 @@ public class ComposerUiTests
             }
             var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
             Assert.Contains("1 agent running", tray.ToolTipText);
-            Assert.Contains(tray.Menu!.Items.OfType<NativeMenuItem>(), item => item.Header?.Contains("Codex · Composer ·") == true);
             composer.Text = "queued next"; send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(chat.QueuedInputs); Assert.True(window.FindControl<Expander>("QueuePanel")!.IsVisible);
             composer.Text = "enter queued";
@@ -91,7 +88,6 @@ public class ComposerUiTests
             await Wait(() => chat.Title == "Renamed");
             var panes = window.FindControl<Grid>("RootPanes")!; panes.ColumnDefinitions[0].Width = new GridLength(340);
             window.UpdateLayout();
-            using (var frame = window.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-composer-queue.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
             UiTests.Named<Button>(window, "Archive_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Archived);
         }

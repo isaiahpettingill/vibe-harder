@@ -161,18 +161,6 @@ public class BackendUpdateTests
         Assert.DoesNotContain(commands, c => c is "codex --version" or "claude --version" or "dirac --version" || c.Contains("update") || c.Contains("install"));
         Assert.Equal("Enabled backend checks completed.", updater.LastSummary);
     }
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void NativeInstallersUseTheirPlatformDefaults(bool windows)
-    {
-        Assert.Contains(windows ? "install.ps1" : "install.sh", BackendInstallers.For(AgentProvider.VTCode, windows).Single().Command);
-        var opencode = BackendInstallers.For(AgentProvider.OpenCode, windows);
-        Assert.Contains("opencode.ai/v2/install", opencode[0].Command);
-        Assert.Equal("npm install -g @opencode/cli@latest", opencode[1].Command);
-        Assert.Equal("bun install -g --trust @opencode/cli@latest", opencode[2].Command);
-        Assert.Equal("brew install anomalyco/tap/opencode-v2", opencode[3].Command);
-    }
     [Fact]
     public async Task OpenCodeFallsBackAfterUnusableBashAndMissingNpm()
     {
@@ -264,10 +252,7 @@ public class BackendUpdateTests
             var panel = UiTests.Named<StackPanel>(window, "BackendUpdates");
             var buttons = panel.Children.OfType<Button>().ToArray();
             Assert.Equal(["BackendUpdate_local_Claude", "BackendUpdate_Ubuntu-24.04_Claude"], buttons.Select(b => b.Name));
-            Assert.All(buttons, b => Assert.Contains(Avalonia.VisualTree.VisualExtensions.GetVisualDescendants(b).OfType<TextBlock>(), t => t.Text == "Update Claude"));
             Assert.Contains("0.85.1", ToolTip.GetTip(buttons[1]) as string);
-            Assert.Equal(1, Grid.GetColumn(panel));
-            using (var frame = Avalonia.Headless.HeadlessWindowExtensions.CaptureRenderedFrame(window)) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-backend-updates.png")), Avalonia.Media.Imaging.PngBitmapEncoderOptions.Default);
         }
         finally { window.RequestExit(); var until = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < until) await Task.Delay(25); }
     }

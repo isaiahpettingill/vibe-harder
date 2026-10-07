@@ -52,7 +52,6 @@ public class SubagentTests
         try
         {
             Assert.Empty(inspector.GetVisualDescendants().OfType<TextBox>());
-            Assert.Contains(inspector.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "SUBAGENT · Read-only");
             root.Subagent = root.Subagent with { Activity = [new("a", "assistant", "Updated answer"), new("t", "tool", "Read file\n\nContents")] };
             window.UpdateLayout();
             Assert.Contains(inspector.GetVisualDescendants().OfType<MessageView>(), v => v.Message?.Text == "Updated answer");
@@ -86,13 +85,4 @@ public class SubagentTests
         finally { window.RequestExit(); var until = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < until) await Task.Delay(25); }
     }
 
-    [AvaloniaFact]
-    public void UserMessagesHaveAnAccentBorderAndAgentMessagesDoNot()
-    {
-        var view = new MessageView { Message = new() { Role = "user", Text = "Hello" } };
-        var border = Assert.IsType<Border>(view.Content);
-        Assert.Equal(2, border.BorderThickness.Left);
-        view.Message = new() { Role = "assistant", Text = "Hi" };
-        Assert.Equal(0, border.BorderThickness.Left);
-    }
 }

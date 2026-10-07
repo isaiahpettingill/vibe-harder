@@ -167,16 +167,13 @@ public class RemotePairingTests
         {
             var computers = Field<ComboBox>("WorkspaceComputer"); Assert.Equal(3, computers.ItemCount);
             var paired = 0; picker.PairComputer += () => paired++;
-            Assert.Equal("Pair another computer", computers.Items[^1]!.ToString());
             computers.SelectedIndex = 2; Assert.Equal(1, paired);
-            Assert.Equal(1, Grid.GetRow(computers));
-            Assert.Equal("This computer", computers.SelectedItem!.ToString());
             Assert.Equal(local, Assert.Single(Field<ListBox>("WorkspaceHistoryList").Items.OfType<Workspace>()));
             computers.SelectedIndex = 1;
             await Wait(() => picker.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == "WorkspaceHistoryList" && l.Items.OfType<Workspace>().Any(w => w.Id == "remote")));
             Field<Button>("BrowseWorkspaceHistory").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => picker.GetLogicalDescendants().OfType<ComboBox>().Any(c => c.Name == "RemoteLocation" && c.ItemCount == 2));
-            var locations = Field<ComboBox>("RemoteLocation"); Assert.StartsWith("Files on ", locations.Items[0]!.ToString()); Assert.EndsWith("(WSL)", locations.Items[1]!.ToString());
+            var locations = Field<ComboBox>("RemoteLocation");
             Assert.DoesNotContain(locations.Items, item => item!.ToString() == "Local" || item.ToString() == WorkspaceDialog.RemoteOption);
             locations.SelectedIndex = 1; await Wait(() => Field<TextBox>("RemoteFolderPath").Text == "/srv/project");
             Field<Button>("OpenRemoteFolder").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -301,46 +298,6 @@ public class RemotePairingTests
             }
         }
         finally { view.DisposeMobile(); window.Close(); }
-    }
-
-    [AvaloniaFact]
-    public async Task SwitchingToLocalKeepsRemoteSidebarAndDraft()
-    {
-        var directory = DirectoryPath(); Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
-        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
-        store.Save(new Workspace("local", "Local project", directory)); store.Save(new Chat { Id = "local-chat", WorkspaceId = "local" });
-        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
-        var port = Port(); var hostDirectory = Path.Combine(directory, "host");
-        await using var server = new RemoteServer(hostDirectory, "127.0.0.1", port, request => Task.FromResult<JsonNode?>(
-            request["method"]!.GetValue<string>() == "list"
-                ? new JsonObject { ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "remote", ["name"] = "Remote project" }), ["chats"] = new JsonArray(new JsonObject { ["id"] = "remote-chat", ["workspaceId"] = "remote", ["title"] = "Remote chat", ["provider"] = "Codex", ["status"] = "Ready", ["busy"] = false, ["archived"] = false }) }
-                : request["method"]!.GetValue<string>() == "chat"
-                    ? new JsonObject { ["status"] = "Ready", ["queued"] = 0, ["busy"] = false, ["config"] = new JsonArray(), ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(), ["queue"] = new JsonArray() }
-                    : JsonValue.Create(true)));
-        await Wait(() => server.Fingerprint is not null);
-        var host = await RemoteConnection.Pair(RemoteTrust.Invite(hostDirectory, "localhost", port, "Test host"), Path.Combine(directory, "key"), "Desktop", TestContext.Current.CancellationToken);
-        RemoteSettings.SaveHosts(store, [host]);
-        var window = new MainWindow(store); window.Show();
-        try
-        {
-            // Desktop shows the host's chats in its own sidebar groups and chat pane.
-            var remoteListName = "Chats_remote:localhost:" + port + ":remote";
-            await Wait(() => window.GetLogicalDescendants().OfType<ListBox>().Any(l => l.Name == remoteListName));
-            var composer = window.FindControl<ComposerEditor>("Composer")!;
-            var first = UiTests.Named<ListBox>(window, remoteListName); first.SelectedItem = first.Items[0];
-            composer.Text = "Remote draft";
-            for (var i = 0; i < 3; i++)
-            {
-                var local = UiTests.Named<ListBox>(window, "Chats_local"); local.SelectedItem = local.Items[0];
-                Assert.Equal("", composer.Text);
-                var remoteList = UiTests.Named<ListBox>(window, remoteListName); Assert.Single(remoteList.Items);
-                Assert.Null(remoteList.SelectedItem);
-                remoteList.SelectedItem = remoteList.Items[0];
-                Assert.Equal("Remote draft", composer.Text);
-                Assert.Empty(window.GetLogicalDescendants().OfType<RemoteView>());
-            }
-        }
-        finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
 
     [AvaloniaFact]

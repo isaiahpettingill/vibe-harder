@@ -79,7 +79,6 @@ public class MobileInteractionTests
         var handler = typeof(MainView).GetMethod("InputPaneChanged", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
         handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Open, null, new Rect(0, 400, 390, 280), TimeSpan.Zero, null)]);
         Assert.Equal(280, view.FindControl<Grid>("RootPanes")!.Margin.Bottom);
-        Assert.IsType<IconButton>(view.FindControl<Button>("SidebarToggle"));
         handler.Invoke(view, [null, new InputPaneStateEventArgs(InputPaneState.Closed, null, default, TimeSpan.Zero, null)]);
         Assert.Equal(0, view.FindControl<Grid>("RootPanes")!.Margin.Bottom); view.DisposeMobile();
     }

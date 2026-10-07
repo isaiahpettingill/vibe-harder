@@ -2,7 +2,6 @@ using System.Net;
 using System.Net.Sockets;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
@@ -118,8 +117,6 @@ public class ChatMediaTests
             var markdown = diagrams[0].GetVisualAncestors().OfType<ChatMarkdown>().First();
             var html = markdown.ExportHtml();
             Assert.Contains("language-mermaid", html); Assert.Contains("<img src=\"" + WebUtility.HtmlEncode(url) + "\"", html);
-            await Task.Delay(100); window.UpdateLayout();
-            using (var frame = window.CaptureRenderedFrame()) frame!.Save(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts/ui-chat-media.png")), PngBitmapEncoderOptions.Default);
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }

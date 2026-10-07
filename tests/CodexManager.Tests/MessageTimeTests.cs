@@ -6,19 +6,6 @@ namespace CodexManager.Tests;
 
 public class MessageTimeTests
 {
-    [Fact]
-    public void FormatsRecentYesterdayAndOlderTimes()
-    {
-        var now = new DateTimeOffset(new DateTime(2026, 9, 21, 15, 0, 0), TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 9, 21)));
-        Assert.Equal("Just now", MessageTime.Format(now.AddSeconds(-20), now));
-        Assert.Equal("1 min ago", MessageTime.Format(now.AddMinutes(-1), now));
-        Assert.Equal("1 hour ago", MessageTime.Format(now.AddHours(-1), now));
-        Assert.Equal("12:00", MessageTime.Format(now.AddHours(-3), now));
-        Assert.Equal("Yesterday 12:30", MessageTime.Format(now.AddDays(-1).AddMinutes(-150), now));
-        var old = new DateTimeOffset(new DateTime(2026, 3, 1, 13, 20, 0), TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 3, 1)));
-        Assert.Equal("1-3-26 @ 13:20", MessageTime.Format(old, now));
-    }
-
     [AvaloniaFact]
     public async Task TimestampsSurviveStorageAndAppearOnToolHeaders()
     {

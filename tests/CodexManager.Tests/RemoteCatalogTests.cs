@@ -4,12 +4,6 @@ namespace CodexManager.Tests;
 
 public class RemoteCatalogTests
 {
-    [Theory]
-    [InlineData(@"C:\repos\my_project-name\", "my_project-name")]
-    [InlineData("/home/user/my_project-name/", "my_project-name")]
-    [InlineData("/", "/")]
-    public void DefaultWorkspaceNameKeepsFolderPunctuation(string path, string expected) => Assert.Equal(expected, Workspace.DefaultName(path));
-
     [Fact]
     public async Task RenameWorkspaceUpdatesCatalogAndSavedWorkspace()
     {

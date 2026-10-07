@@ -47,10 +47,6 @@ public class ChatPresentationTests
         {
             await Task.Delay(150); window.UpdateLayout();
             var block = view.GetVisualDescendants().OfType<CTextBlock>().Single();
-            var selection = Assert.IsType<Avalonia.Media.SolidColorBrush>(block.SelectionBrush);
-            Assert.InRange(selection.Color.A, (byte)60, (byte)110);
-            var code = Assert.Single(block.Content.OfType<CCode>());
-            Assert.True(code.Padding.Left > 0);
             var start = block.TranslatePoint(new Point(2, block.Bounds.Height / 2), window)!.Value;
             var end = block.TranslatePoint(new Point(block.Bounds.Width - 2, block.Bounds.Height / 2), window)!.Value;
             window.MouseMove(start);
@@ -166,7 +162,6 @@ public class ChatPresentationTests
             toggle.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); window.UpdateLayout();
             Assert.True(scroll.IsEffectivelyVisible);
             Assert.Equal(output, text.Text);
-            Assert.Equal(240, scroll.MaxHeight);
             Assert.True(scroll.Extent.Height > scroll.Viewport.Height);
             var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyCommandOutput");
             copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

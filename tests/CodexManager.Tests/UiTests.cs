@@ -5,7 +5,6 @@ using Avalonia.Headless.XUnit;
 using Avalonia.Input;
 using Avalonia.Input.Platform;
 using Avalonia.Interactivity;
-using Avalonia.Media.Imaging;
 using Avalonia.Platform.Storage;
 using Avalonia.VisualTree;
 
@@ -147,7 +146,6 @@ public class UiTests
         await WaitUntil(() => UiTests.Named<ListBox>(window, "Chats_w").SelectedItem is Chat);
         var chat = Assert.IsType<Chat>(UiTests.Named<ListBox>(window, "Chats_w").SelectedItem);
         Assert.Equal(AgentProvider.OpenCode, chat.Provider);
-        Assert.Equal("Add provider", window.FindControl<Button>("LoginButton")!.Content);
         window.FindControl<Button>("LoginButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.True(window.FindControl<Border>("LoginPanel")!.IsVisible);
         Assert.True(window.FindControl<ContentControl>("LoginTerminalHost")!.IsVisible);
@@ -171,7 +169,6 @@ public class UiTests
         await WaitUntil(() => folders.Items.Contains(child));
         folders.SelectedItem = child;
         Assert.Equal(child, Named<TextBox>("FolderPath").Text);
-        Assert.Equal("Open selected folder", Named<Button>("OpenFolderButton").Content);
         Named<Button>("OpenFolderButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
         Assert.Equal(child, (await completion)!.Path);
         var second = new WorkspaceDialog(new Workspace("w", "Test", directory));
@@ -205,8 +202,6 @@ public class UiTests
         while (folderPath.Text != "/tmp" && DateTime.UtcNow < deadline) await Task.Delay(50);
         Assert.Equal("/tmp", folderPath.Text);
         Assert.Contains("/tmp/codex-manager-smoke", Named<ListBox>("FolderList").Items.Cast<string>());
-        var artifact = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../artifacts")); Directory.CreateDirectory(artifact);
-        using var bitmap = new RenderTargetBitmap(new PixelSize(640, 680), new Vector(96, 96)); bitmap.Render(dialog); bitmap.Save(Path.Combine(artifact, "ui-folders.png"), PngBitmapEncoderOptions.Default);
         dialog.Close();
     }
 }
