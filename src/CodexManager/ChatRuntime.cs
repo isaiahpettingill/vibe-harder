@@ -516,6 +516,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         finally { chat.Busy = false; IsLoadingHistory = false; Changed?.Invoke(); SendQueuedWhenReady(); }
     }
     public Task Send(string text, Attachment[] attachments, bool autoResume = false) => IsChangingHistory ? Task.FromException(new IOException("Wait for the history change to finish.")) : reconnecting ? reconnectTask ?? Task.CompletedTask : chat.Busy ? activeTask ?? Task.CompletedTask : activeTask = SendCore(text, attachments, autoResume);
+    public const string ResumePrompt = "Environment restarted. Continue";
     private async Task SendCore(string text, Attachment[] attachments, bool autoResume)
     {
         activePlan = null;
@@ -552,7 +553,9 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             chat.Status = "Working…"; Changed?.Invoke();
             var content = new JsonArray();
             if (!string.IsNullOrWhiteSpace(restoredContext)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", "Saved conversation from this same chat, restored after the agent reconnected. Treat this as prior conversation, not a new request. Continue with the new user message below.\n\n<saved_conversation>\n" + restoredContext + "</saved_conversation>")));
-            if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
+            // A blank prompt reads to the agent as an interruption; say why it is being resumed.
+            if (continuation) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", ResumePrompt)));
+            else if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
             foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
             store.Setting("unmaterialized:" + chat.Id, "");
             following = FollowAsyncQuestions(turn.Token);

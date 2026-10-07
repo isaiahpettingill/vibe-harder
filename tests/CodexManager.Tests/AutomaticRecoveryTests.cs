@@ -6,14 +6,16 @@ namespace CodexManager.Tests;
 public class AutomaticRecoveryTests
 {
     [AvaloniaFact]
-    public async Task ResumeSpaceIsSentAsARealTextBlock()
+    public async Task ResumeTellsTheAgentTheEnvironmentRestarted()
     {
         var directory = Directory.CreateTempSubdirectory("resume-space-").FullName;
         using var store = new Store(directory); var workspace = new Workspace("w", "Resume", directory); store.Save(workspace);
         var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
-        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --commands");
+        var log = Path.Combine(directory, "prompts.log");
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --commands \"--prompt-log=" + log + "\"");
         await runtime.Send(" ", [], autoResume: true);
-        Assert.Contains(chat.Messages, m => m.Role == "assistant" && m.Text == " ");
+        // A blank prompt reads to the agent as an interruption, so the resume says what happened.
+        Assert.Equal("[{\"type\":\"text\",\"text\":\"Environment restarted. Continue\"}]", File.ReadAllLines(log).Single());
         Assert.Contains(chat.Messages, m => m.Role == "system" && m.Text == "Chat auto-resumed after unexpected restart");
         Assert.DoesNotContain(chat.Messages, m => m.Role == "user" && string.IsNullOrWhiteSpace(m.Text));
     }
