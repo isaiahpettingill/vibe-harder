@@ -26,6 +26,7 @@ public class MobileAppSecurityTests
         public TaskCompletionSource<string> Result { get; } = new();
         public bool? Requested { get; private set; }
         public Task<string> ChangeEnabled(bool enabled) { Requested = enabled; return Result.Task; }
+        public TimeSpan LockAfter { get; set; }
     }
 
     [AvaloniaFact]

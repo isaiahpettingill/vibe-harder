@@ -103,11 +103,18 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         {
             var biometric = new Button { Name = "BiometricUnlock", MinHeight = 44 };
             var securityStatus = new TextBlock { Name = "BiometricUnlockStatus", TextWrapping = TextWrapping.Wrap };
-            void UpdateSecurityLabel() => biometric.Content = security.Enabled ? "Turn off biometric unlock" : "Enable biometric unlock";
+            // Coming back within this delay, for example from a quick look at another app, needs no unlock.
+            var delays = MobileAppSecurity.LockDelays;
+            var lockAfter = new ComboBox { Name = "LockAfter", MinHeight = 44, HorizontalAlignment = HorizontalAlignment.Stretch, ItemsSource = delays.Select(d => d.Label).ToArray() };
+            lockAfter.SelectedIndex = Math.Max(0, Array.FindLastIndex(delays, d => d.Delay <= security.LockAfter));
+            lockAfter.SelectionChanged += (_, _) => { if (lockAfter.SelectedIndex >= 0) security.LockAfter = delays[lockAfter.SelectedIndex].Delay; };
+            var lockAfterRow = new StackPanel { Spacing = 4, Children = { new TextBlock { Text = "Lock again when away" }, lockAfter } };
+            void UpdateSecurityLabel() { biometric.Content = security.Enabled ? "Turn off biometric unlock" : "Enable biometric unlock"; lockAfterRow.IsVisible = security.Enabled; }
             UpdateSecurityLabel();
             panel.Children.Add(new TextBlock { Text = "App security", FontSize = 18 });
             panel.Children.Add(new TextBlock { Text = "Require biometrics or your device screen lock before accessing your remote sessions when opening or returning to the app. Screenshots remain available while unlocked.", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(biometric);
+            panel.Children.Add(lockAfterRow);
             panel.Children.Add(securityStatus);
             biometric.Click += async (_, _) =>
             {

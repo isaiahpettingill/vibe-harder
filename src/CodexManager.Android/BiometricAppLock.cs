@@ -24,8 +24,18 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
     private bool authenticated, automaticPrompt = true;
     private bool enabled;
     private int generation;
+    // Set while the app is away within its lock delay: the cover hides the chats, but coming
+    // back in time does not ask for authentication. Device uptime, so clock changes cannot skip it.
+    private long? leftAt;
+    private bool pickingFile;
     public bool Enabled => enabled;
     public bool Locked { get; private set; }
+    public TimeSpan LockAfter
+    {
+        get => TimeSpan.FromSeconds(preferences.GetLong("lockAfterSeconds", 30));
+        set { using var editor = preferences.Edit()!; editor.PutLong("lockAfterSeconds", (long)value.TotalSeconds)!.Apply(); }
+    }
+    private bool WithinLockDelay() => leftAt is { } left && SystemClock.ElapsedRealtime() - left is var away && away >= 0 && away < LockAfter.TotalMilliseconds;
 
     public BiometricAppLock(MainActivity activity)
     {
@@ -45,7 +55,10 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
         credential.Click += (_, _) => Authenticate(true); panel.AddView(credential);
         cover.AddView(panel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.WrapContent, GravityFlags.Center));
         activity.AddContentView(cover, new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MatchParent, ViewGroup.LayoutParams.MatchParent));
-        Locked = Enabled; UpdateCover();
+        // A restart soon after leaving counts as returning within the delay.
+        // Uptime restarts with the device, so a time saved before a reboot does not count.
+        if (preferences.GetLong("leftAt", -1) is >= 0 and var saved && preferences.GetInt("leftAtBoot", -1) == BootCount()) leftAt = saved;
+        Locked = Enabled; UpdateCover(); HideFromRecents();
     }
 
     private void UpdateCover()
@@ -71,14 +84,16 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
     {
         resumed = true;
         if (authenticated) { authenticated = false; Unlock(); }
+        if (Locked && !authenticating && !credentialPending && WithinLockDelay()) { leftAt = null; Unlock(); return; }
+        leftAt = null;
         if (Locked && automaticPrompt && !authenticating) { automaticPrompt = false; Authenticate(); }
     }
 
+    // A pause alone does not lock: opening a notification while in the app pauses and resumes it.
     public void Pause()
     {
         resumed = false;
-        var pickingFile = MobileAppSecurity.ConsumeFilePickerPause();
-        if (Enabled && !pickingFile) { Locked = true; UpdateCover(); }
+        pickingFile = MobileAppSecurity.ConsumeFilePickerPause();
     }
 
     public void Stop()
@@ -88,6 +103,17 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
         if (credentialPending) return;
         automaticPrompt = true; authenticated = false;
         CancelAuthentication("Authentication cancelled.");
+        if (!Enabled || pickingFile || Locked) return;
+        // Leaving the app: cover the chats now, and require authentication once the delay has passed.
+        leftAt = SystemClock.ElapsedRealtime();
+        using (var editor = preferences.Edit()!) editor.PutLong("leftAt", leftAt.Value)!.PutInt("leftAtBoot", BootCount())!.Apply();
+        Locked = true; UpdateCover();
+    }
+    private int BootCount() => global::Android.Provider.Settings.Global.GetInt(activity.ContentResolver, global::Android.Provider.Settings.Global.BootCount, -2);
+    // The app switcher keeps a screenshot of the last screen; leave the chats out of it.
+    private void HideFromRecents()
+    {
+        if (OperatingSystem.IsAndroidVersionAtLeast(33)) activity.SetRecentsScreenshotEnabled(!Enabled);
     }
 
     public Task<string> ChangeEnabled(bool enabled)
@@ -157,7 +183,7 @@ internal sealed class BiometricAppLock : IMobileAppSecurity, IDisposable
             {
                 using var editor = preferences.Edit()!;
                 if (!editor.PutBoolean("enabled", requested)!.Commit()) throw new IOException("Could not persist app lock.");
-                enabled = requested;
+                enabled = requested; HideFromRecents();
             }
             catch (Exception exception)
             {
