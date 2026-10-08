@@ -283,6 +283,12 @@ public sealed class RemoteChatSession : IChatSession
             ?? throw new IOException(host.LastError ?? "Could not load history. Reconnect and try again.");
         return result["messages"]!.AsArray().Where(r => r?["text"] is not null).Select(r => ReadMessage(r!)).ToArray();
     }
+    // Hosts from before outlines simply return none; the transcript then spans what is loaded.
+    public async Task<TranscriptOutline?> ReadOutline()
+    {
+        try { return TranscriptOutline.FromJson(chat.Id, await Call(new() { ["method"] = "chat/outline" })); }
+        catch (Exception error) when (error is IOException or RemoteOperationException) { return null; }
+    }
     public async Task<ChatSearchHit[]> Search(string query)
     {
         var result = await Call(new() { ["method"] = "chat/search", ["query"] = query }) ?? throw new IOException(host.LastError ?? "Search is unavailable. Reconnect and try again.");

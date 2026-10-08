@@ -20,7 +20,7 @@ public class RemoteOfflineTests
         Assert.StartsWith("Offline", sidebar.Text);
         Assert.Contains("127.0.0.1:" + port, sidebar.Text);
         Assert.True(sidebar.IsVisible);
-        await (Task)typeof(RemoteView).GetMethod("Call", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, [new JsonObject { ["method"] = "list" }])!;
+        await (Task)typeof(RemoteView).GetMethod("Call", BindingFlags.Instance | BindingFlags.NonPublic, [typeof(JsonObject)])!.Invoke(view, [new JsonObject { ["method"] = "list" }])!;
         Assert.StartsWith("Offline", sidebar.Text);
         view.SetConnectionCollapsed(true);
         Assert.DoesNotContain("Offline", sidebar.Text!);

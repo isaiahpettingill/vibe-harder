@@ -14,9 +14,28 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
     public static bool GetShowProgress(ItemsControl control) => control.GetValue(ShowProgressProperty);
     public static void SetShowProgress(ItemsControl control, bool value) => control.SetValue(ShowProgressProperty, value);
     private readonly ChatProgressIndicator progress = new() { Name = "TranscriptProgress", HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Left, Margin = new(20, 0, 0, 0) };
-    static TranscriptPanel() => ShowProgressProperty.Changed.AddClassHandler<ItemsControl>((owner, _) => owner.ItemsPanelRoot?.InvalidateMeasure());
+    // The whole chat's outline, so the scrollbar spans unloaded history too.
+    public static readonly AttachedProperty<TranscriptOutline?> OutlineProperty = AvaloniaProperty.RegisterAttached<TranscriptPanel, ItemsControl, TranscriptOutline?>("Outline");
+    public static TranscriptOutline? GetOutline(ItemsControl control) => control.GetValue(OutlineProperty);
+    public static void SetOutline(ItemsControl control, TranscriptOutline? value) => control.SetValue(OutlineProperty, value);
+    static TranscriptPanel()
+    {
+        ShowProgressProperty.Changed.AddClassHandler<ItemsControl>((owner, _) => owner.ItemsPanelRoot?.InvalidateMeasure());
+        OutlineProperty.Changed.AddClassHandler<ItemsControl>((owner, _) => (owner.ItemsPanelRoot as TranscriptPanel)?.OutlineChanged());
+    }
     private readonly Dictionary<int, Control> realized = [];
-    private readonly Dictionary<object, double> heights = new(ReferenceEqualityComparer.Instance);
+    // Measured heights by message id, so they survive the page reloads of history browsing.
+    private readonly Dictionary<object, double> heights = [];
+    private static object Key(object item) => item is Message message ? message.Id : item;
+    // Measured heights by sequence for the outline, and how far estimates were off on average.
+    private readonly Dictionary<int, double> sequenceHeights = [];
+    private string? outlineChat;
+    private double measuredTotal, estimatedTotal;
+    // How far estimates were off, applied to unloaded history. Taken only when pages or the outline
+    // change: updating it with every measured row would resize the scrollbar while scrolling.
+    private double scale = 1;
+    private void UpdateScale() => scale = estimatedTotal > 200 ? Math.Clamp(measuredTotal / estimatedTotal, 0.4, 3) : 1;
+    private double above, below;
     private object?[] previousItems = [];
     private double[] positions = [];
     private bool positionsDirty = true;
@@ -43,34 +62,99 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         {
             var next = new Vector(0, Math.Clamp(value.Y, 0, Math.Max(0, Extent.Height - Viewport.Height)));
             if (next == offset) return;
-            pendingAnchor = null;
+            pendingAnchor = null; Scrolled = true;
             bottom = next.Y >= Math.Max(0, Extent.Height - Viewport.Height) - 1;
             offset = next; InvalidateMeasure(); RaiseScrollInvalidated(EventArgs.Empty);
         }
     }
     public event EventHandler? ScrollInvalidated;
     public void RaiseScrollInvalidated(EventArgs e) => ScrollInvalidated?.Invoke(this, e);
-    private double HeightAt(int index) => GroupStart(index) != index ? 0 : Items[index] is { } item && heights.TryGetValue(item, out var height) ? height : groups.ContainsKey(index) ? 36 : 100;
+    private double HeightAt(int index) => GroupStart(index) != index ? 0 : Items[index] is { } item && heights.TryGetValue(Key(item), out var height) ? height : Guess(index);
+    private double Guess(int index) => Guess(Items[index], groups.ContainsKey(index));
+    private double Guess(object? item, bool group) => group ? 36 : item is Message message ? Estimate(message) : 100;
+    private double Estimate(Message message) =>
+        TranscriptOutline.Estimate(message.Role, message.Text.Length, message.Text.Count(c => c == '\n'), 1, width > 0 ? width : 600);
     private void EnsurePositions()
     {
         if (!positionsDirty && positions.Length == Items.Count + 1) return;
         if (positions.Length != Items.Count + 1) positions = new double[Items.Count + 1];
         positions[0] = 0;
         for (var i = 0; i < Items.Count; i++) positions[i + 1] = positions[i] + HeightAt(i);
+        (above, below) = Unloaded();
         positionsDirty = false;
     }
-    private double Top(int index) { EnsurePositions(); return positions[Math.Clamp(index, 0, Items.Count)]; }
+    // Estimated height of the chat before and after the loaded messages.
+    private (double Above, double Below) Unloaded()
+    {
+        if (ItemsControl is not { } owner || GetOutline(owner) is not { } outline || Items.Count == 0) return (0, 0);
+        var loaded = Items.OfType<Message>().Where(m => m.Sequence >= 0).Select(m => m.Sequence).ToArray();
+        if (loaded.Length == 0) return (0, 0);
+        int first = loaded.Min(), last = loaded.Max();
+        double before = 0, after = 0;
+        foreach (var row in outline.Rows())
+        {
+            if (row.EndSequence < first) before += RowHeight(row);
+            else if (row.StartSequence > last) after += RowHeight(row);
+        }
+        return (before, after);
+    }
+    private double RowHeight((int StartSequence, int EndSequence, OutlineEntry First, int Count) row) =>
+        sequenceHeights.TryGetValue(row.StartSequence, out var measured) ? measured
+            : Math.Round(scale * TranscriptOutline.Estimate(row.First.Role, row.First.Chars, row.First.Lines, row.Count, width > 0 ? width : 600));
+    private void OutlineChanged()
+    {
+        var chat = ItemsControl is { } owner ? GetOutline(owner)?.ChatKey : null;
+        if (chat != outlineChat) { sequenceHeights.Clear(); outlineChat = chat; }
+        // Keep what is on screen in place; only the scrollbar learns about the rest of the chat.
+        var anchor = bottom ? null : CaptureAnchor();
+        UpdateScale();
+        positionsDirty = true;
+        RestoreAnchor(anchor);
+        InvalidateMeasure();
+    }
+    // Set when the scroll viewer moved the offset (wheel, drag, keys), not when anchoring did after
+    // new items or measurements; only the former should load more history.
+    public bool Scrolled { get; set; }
+    // What the loaded window lacks for the current scroll position.
+    public (bool Older, bool Newer, int? Around) Needs
+    {
+        get
+        {
+            EnsurePositions();
+            if (Items.Count == 0) return default;
+            double top = above, end = above + positions[Items.Count], viewport = Viewport.Height;
+            // Dragged past the loaded window: load the messages at that point instead of paging there.
+            if ((offset.Y + viewport < top || offset.Y > end) && ItemsControl is { } owner && GetOutline(owner) is { } outline)
+                return (false, false, SequenceAt(outline, offset.Y + viewport / 2));
+            return (above > 0 && offset.Y < top + viewport, below > 0 && offset.Y + viewport > end - viewport, null);
+        }
+    }
+    private int? SequenceAt(TranscriptOutline outline, double y)
+    {
+        double position = 0; int? last = null;
+        foreach (var row in outline.Rows())
+        {
+            position += RowHeight(row); last = row.StartSequence;
+            if (position >= y) return row.StartSequence;
+        }
+        return last;
+    }
+    private double Top(int index) { EnsurePositions(); return above + positions[Math.Clamp(index, 0, Items.Count)]; }
     private int At(double y)
     {
-        EnsurePositions();
+        EnsurePositions(); y -= above;
         var low = 0; var high = Items.Count;
         while (low < high) { var mid = low + (high - low) / 2; if (positions[mid + 1] <= y) low = mid + 1; else high = mid; }
         return GroupStart(Math.Min(low, Math.Max(0, Items.Count - 1)));
     }
     private void SetHeight(int index, double height)
     {
-        if (Items[index] is not { } item || heights.TryGetValue(item, out var old) && old == height) return;
-        heights[item] = height; positionsDirty = true;
+        if (Items[index] is not { } item || heights.TryGetValue(Key(item), out var old) && old == height) return;
+        // Learn how far estimates are off, so unloaded history is sized closer to reality.
+        if (Items[index] is Message message && !groups.ContainsKey(index) && !heights.ContainsKey(Key(item)) && measuredTotal < 1e7)
+        { measuredTotal += height; estimatedTotal += Estimate(message); }
+        heights[Key(item)] = height; positionsDirty = true;
+        if (Items[index] is Message { Sequence: >= 0 } measured) sequenceHeights[measured.Sequence] = height;
     }
     public void RevealMessage(int index)
     {
@@ -79,7 +163,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         var start = GroupStart(index);
         if (groups.TryGetValue(start, out var group)) group[0].ActionGroupExpanded = true;
         if (realized.ContainsKey(start)) Release(start);
-        heights.Remove(Items[start]!);
+        heights.Remove(Key(Items[start]!));
         positionsDirty = true;
         ScrollIntoView(index); UpdateLayout();
         if (!realized.TryGetValue(start, out var container)) return;
@@ -128,7 +212,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         if (Math.Abs(width - viewport.Width) > 0.5)
         {
             if (!bottom && Items.Count > 0) pendingAnchor ??= (At(offset.Y), offset.Y - Top(At(offset.Y)));
-            heights.Clear(); positionsDirty = true; width = viewport.Width;
+            heights.Clear(); sequenceHeights.Clear(); measuredTotal = estimatedTotal = 0; positionsDirty = true; width = viewport.Width;
         }
         Viewport = viewport;
         progress.IsVisible = ItemsControl is { } owner && GetShowProgress(owner);
@@ -185,7 +269,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
             start = i;
         }
         foreach (var index in realized.Keys.Where(i => i < start || i > end).ToArray()) Release(index);
-        Extent = new(viewport.Width, Math.Max(viewport.Height, Top(Items.Count) + progressHeight));
+        Extent = new(viewport.Width, Math.Max(viewport.Height, Top(Items.Count) + progressHeight + below));
         offset = new(0, bottom ? Extent.Height - viewport.Height : Math.Clamp(Top(anchor) + within, 0, Extent.Height - viewport.Height));
         if (Extent != oldExtent || Viewport != oldViewport || offset != oldOffset) RaiseScrollInvalidated(EventArgs.Empty);
         return viewport;
@@ -203,13 +287,13 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         (object Item, double Within)? anchor = null;
         if (!bottom && pendingAnchor is { } pending && pending.Index < previousItems.Length)
             anchor = (previousItems[pending.Index]!, pending.Within);
-        else if (!bottom && previousItems.Length > 0)
+        else if (!bottom && previousItems.Length > 0 && offset.Y >= above)
         {
-            var within = offset.Y;
+            var within = offset.Y - above;
             for (var i = 0; i < previousItems.Length; i++)
             {
                 if (GroupStart(i) != i) continue;
-                var h = previousItems[i] is { } item && heights.TryGetValue(item, out var cached) ? cached : oldGroups.ContainsKey(i) ? 36 : 100;
+                var h = previousItems[i] is { } item && heights.TryGetValue(Key(item), out var cached) ? cached : Guess(previousItems[i], oldGroups.ContainsKey(i));
                 if (within < h || i == previousItems.Length - 1) { anchor = (previousItems[i]!, within); break; }
                 within -= h;
             }
@@ -231,8 +315,9 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
             else { RemoveInternalChild(control); ItemContainerGenerator!.ClearItemContainer(control); }
         }
         previousItems = items.ToArray();
-        var remaining = new HashSet<object>(items.Where(i => i is not null)!, ReferenceEqualityComparer.Instance);
-        foreach (var item in heights.Keys.Where(i => !remaining.Contains(i)).ToArray()) heights.Remove(item);
+        // Heights of messages paged out stay cached for when they come back; bound the cache.
+        if (heights.Count > 5000) heights.Clear();
+        UpdateScale();
         positionsDirty = true;
         RestoreAnchor(anchor);
         InvalidateMeasure();
@@ -251,7 +336,7 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
             if (i - start > 1)
             {
                 groups[start] = items.Skip(start).Take(i - start).Cast<Message>().ToArray();
-                if (!previous.TryGetValue(groups[start][0], out var old) || !old.SequenceEqual(groups[start])) heights.Remove(items[start]!);
+                if (!previous.TryGetValue(groups[start][0], out var old) || !old.SequenceEqual(groups[start])) heights.Remove(Key(items[start]!));
             }
         }
         if (previousItems.Length == 0) previousItems = items.ToArray();

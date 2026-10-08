@@ -307,7 +307,15 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var owner = chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == id)?["workspaceId"]?.GetValue<string>();
         if (owner is not null) workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == owner);
         if (userInitiated) RememberChat(id);
-        ApplyColors(); UpdateEmptyState();
+        ApplyColors(); UpdateEmptyState(); RefreshOutline();
+    }
+    // The whole chat's outline sizes the transcript's scrollbar. Hosts from before outlines return none.
+    private async void RefreshOutline()
+    {
+        if (chatId is not { } id) return;
+        if (TranscriptPanel.GetOutline(output)?.ChatKey != id) TranscriptPanel.SetOutline(output, null);
+        var result = await Call(new() { ["method"] = "chat/outline", ["chatId"] = id }, quiet: true);
+        if (id == chatId && !lifetime.IsCancellationRequested && TranscriptOutline.FromJson(id, result) is { } outline) TranscriptPanel.SetOutline(output, outline);
     }
     private readonly Func<bool> allowAll;
     private readonly Action? activate;
@@ -389,18 +397,19 @@ public sealed partial class RemoteView : UserControl, IDisposable
         var empty = BuildEmptyState(); Grid.SetColumn(empty, 2); Grid.SetRow(empty, 1); split.Children.Add(empty);
         var latest = new IconButton { Name = "RemoteLatest", Icon = "chevron-down", Label = "Return to latest message", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(0, 0, 20, 8), IsVisible = false };
         latest.Bind(BackgroundProperty, this.GetResourceObservable("AppSurface")); Grid.SetColumn(latest, 2); Grid.SetRow(latest, 1); split.Children.Add(latest);
-        var navigation = transcriptNavigation = new TranscriptNavigation(output, latest, () => viewingHistory, async newer =>
+        var navigation = transcriptNavigation = new TranscriptNavigation(output, latest, () => viewingHistory, async request =>
         {
             if (chatId is null || output.Items.Count == 0) return;
-            var visible = output.Items.OfType<Message>().ToArray(); var id = chatId;
-            var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, [newer ? "after" : "before"] = newer ? visible[^1].Sequence : visible[0].Sequence });
+            var visible = output.Items.OfType<Message>().ToArray(); var id = chatId; var newer = request.Newer;
+            var from = request.Around is { } around ? around + HistoryWindow.PageSize / 2 : newer ? visible[^1].Sequence : visible[0].Sequence;
+            var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, [newer ? "after" : "before"] = from });
             if (result is null || id != chatId) return;
             var page = result["messages"]!.AsArray().Select(row => ReadMessage(row!)).ToArray();
             if (page.Length == 0) return;
-            var merged = HistoryWindow.Navigate(visible, page, newer);
+            var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
             viewingHistory = true;
             TranscriptNavigation.ReplacePage(output, merged);
-            UpdateSendAction();
+            UpdateSendAction(); RefreshOutline();
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; UpdateSendAction(); if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
         approvals.Children.CollectionChanged += (_, _) => UpdateSendAction();
@@ -839,7 +848,9 @@ public sealed partial class RemoteView : UserControl, IDisposable
         }
         UpdateEmptyState();
     }
-    private async Task<JsonNode?> Call(JsonObject request)
+    private Task<JsonNode?> Call(JsonObject request) => Call(request, quiet: false);
+    // Quiet calls leave the status line alone when the host rejects the request.
+    private async Task<JsonNode?> Call(JsonObject request, bool quiet)
     {
         if (connectionCollapsed || connectionSuspended || lifetime.IsCancellationRequested) return null;
         var client = connection;
@@ -849,6 +860,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         try { var result = await client.Request(request, timeout.Token); return !lifetime.IsCancellationRequested && !connectionCollapsed && !connectionSuspended && ReferenceEquals(connection, client) ? result : null; }
         catch (RemoteOperationException error)
         {
+            if (quiet) return null;
             status.IsVisible = true; status.Text = error.Message;
             return request["method"]?.GetValue<string>() == "terminal/read" ? new JsonObject { ["error"] = error.Message } : null;
         }

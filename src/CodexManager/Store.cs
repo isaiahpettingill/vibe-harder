@@ -148,6 +148,23 @@ public sealed class Store : IDisposable
             if (!newer) result.Reverse(); return result.ToArray();
         }, token);
     }
+    public async Task<TranscriptOutline> ReadOutlineAsync(Chat chat, CancellationToken token = default)
+    {
+        if (chat.IsRemote) return new(chat.Id, []);
+        var id = chat.Id; var connectionString = db.ConnectionString;
+        await FlushAsync().WaitAsync(token);
+        return await Task.Run(() =>
+        {
+            using var connection = new SqliteConnection(connectionString); connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = "SELECT seq,role,length(text),length(text)-length(replace(text,char(10),'')) FROM messages WHERE chat_id=$id ORDER BY seq";
+            command.Parameters.AddWithValue("$id", id);
+            using var cancellation = token.Register(command.Cancel);
+            using var rows = command.ExecuteReader(); var result = new List<OutlineEntry>();
+            while (rows.Read()) { token.ThrowIfCancellationRequested(); result.Add(new(rows.GetInt32(0), rows.GetString(1), rows.GetInt32(2), rows.GetInt32(3))); }
+            return new TranscriptOutline(id, result.ToArray());
+        }, token);
+    }
     public async Task<ChatSearchHit[]> SearchMessagesAsync(Chat chat, string query, CancellationToken token)
     {
         if (string.IsNullOrWhiteSpace(query)) return [];

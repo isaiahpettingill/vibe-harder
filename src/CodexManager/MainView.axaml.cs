@@ -574,7 +574,7 @@ public partial class MainView : UserControl
         store.Setting("chat:" + chat.WorkspaceId, chat.Id);
         store.Setting("lastProvider", chat.Provider.ToString());
         MessageList.ItemsSource = runtimes.TryGetValue(chat.Id, out var loadingRuntime) && loadingRuntime.IsLoadingHistory ? chat.Messages.ToArray() : chat.Messages; AttachmentList.ItemsSource = chat.Attachments;
-        UpdateControls(); Composer.Focus();
+        UpdateControls(); Composer.Focus(); RefreshOutline(chat);
         ScrollTranscriptToEnd(force: true);
         viewingHistory = false; pageLoad?.Cancel(); pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
         // A remote chat's history comes from its host while it is shown.
@@ -1504,19 +1504,23 @@ public partial class MainView : UserControl
         }
         catch { pendingSaves.UnionWith(pending); throw; }
     }
-    private async Task BrowseHistory(bool newer)
+    private async Task BrowseHistory(HistoryRequest request)
     {
         if (current is not { } chat) return;
         pageLoad?.Cancel(); var cancellation = pageLoad = CancellationTokenSource.CreateLinkedTokenSource(discoveryLifetime.Token);
         var visible = MessageList.Items.OfType<Message>().ToArray(); if (visible.Length == 0) return;
+        var newer = request.Newer;
+        // A dragged scrollbar asks for the page around a point; otherwise extend the loaded side.
+        var from = request.Around is { } around ? around + HistoryWindow.PageSize / 2 : newer ? visible[^1].Sequence : visible[0].Sequence;
         try
         {
-            var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(newer ? visible[^1].Sequence : visible[0].Sequence, newer)
-                : await store.ReadPageAsync(chat, newer ? visible[^1].Sequence : visible[0].Sequence, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
+            var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(from, newer)
+                : await store.ReadPageAsync(chat, from, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
             if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
-            var merged = HistoryWindow.Navigate(visible, page, newer);
+            var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
             viewingHistory = true;
             TranscriptNavigation.ReplacePage(MessageList, merged); UpdateHistoryNavigation(); UpdateComposerAction();
+            RefreshOutline(chat);
         }
         catch (OperationCanceledException) { }
         catch (Exception error) { StatusText.Text = "Could not load history: " + error.Message; }

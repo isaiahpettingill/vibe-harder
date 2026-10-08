@@ -85,7 +85,7 @@ public class TranscriptScrollingTests
     {
         var list = Create(Enumerable.Range(0, 64).Select(i => new Message { Sequence = i, Text = "Message " + i }));
         var requested = new List<bool>();
-        _ = new TranscriptNavigation(list, new IconButton(), () => true, newer => { requested.Add(newer); return Task.CompletedTask; });
+        _ = new TranscriptNavigation(list, new IconButton(), () => true, request => { requested.Add(request.Newer); return Task.CompletedTask; });
         var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
         try
         {
@@ -140,14 +140,14 @@ public class TranscriptScrollingTests
             var browse = typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
             for (var i = 1; i <= 6; i++)
             {
-                await (Task)browse.Invoke(window.View, [false])!;
+                await (Task)browse.Invoke(window.View, [new HistoryRequest(false)])!;
                 window.UpdateLayout();
                 Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
                 Assert.Equal(336 - HistoryWindow.PageSize * i, ((Message)list.Items[0]!).Sequence);
             }
             for (var i = 5; i >= 0; i--)
             {
-                await (Task)browse.Invoke(window.View, [true])!;
+                await (Task)browse.Invoke(window.View, [new HistoryRequest(true)])!;
                 window.UpdateLayout();
                 Assert.Equal(Chat.HistoryPageSize, list.ItemCount);
                 Assert.Equal(336 - HistoryWindow.PageSize * i, ((Message)list.Items[0]!).Sequence);

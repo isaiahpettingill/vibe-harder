@@ -78,7 +78,7 @@ public class PresentationSleepTests
             // This test covers preserving that page across sleep, independently of layout timing.
             var browse = typeof(MainView).GetMethod("BrowseHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
             for (var page = 0; page < 4 && list.Items.OfType<Message>().FirstOrDefault()?.Sequence > 0; page++)
-                await (Task)browse.Invoke(window.View, [false])!;
+                await (Task)browse.Invoke(window.View, [new HistoryRequest(false)])!;
             await Wait(() => list.Items.OfType<Message>().FirstOrDefault()?.Sequence == 0);
             var pageEnd = list.Items.OfType<Message>().Last().Sequence;
             var pageCount = list.ItemCount;
