@@ -294,7 +294,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
         SaveBrowserDraft();
         messageRevisions.Clear(); timer.Interval = TimeSpan.FromMilliseconds(250);
         activateSelectedChat = userInitiated;
-        chatSearch.Close(); viewingHistory = false; output.ItemsSource = messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; messageProvider = null; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        // A page and scroll position saved while asleep belong to the previous chat; a notification
+        // can switch chats before the view wakes.
+        sleepingAnchor = null; sleepingPage = presentationSleeping ? messages : null;
+        chatSearch.Close(); viewingHistory = false; output.ItemsSource = presentationSleeping ? null : messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; messageProvider = null; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         if (OperatingSystem.IsBrowser())
         {
             restoringBrowserDraft = true;
@@ -377,6 +380,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
         output.ItemContainerTheme = (Avalonia.Styling.ControlTheme)Application.Current!.Resources["TranscriptItemTheme"]!;
         ScrollViewer.SetVerticalScrollBarVisibility(output, OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Visible);
         ScrollViewer.SetAllowAutoHide(output, false);
+        // Like the desktop transcript: no horizontal scrolling, so replies wrap to the screen
+        // width instead of being laid out wider and cut off at the right edge.
+        ScrollViewer.SetHorizontalScrollBarVisibility(output, Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled);
+        output.BorderThickness = new Thickness(0); output.Padding = new Thickness(0);
         Grid.SetColumn(chatSearch, 2); split.Children.Add(chatSearch); InitializeChatSearch();
         Grid.SetColumn(output, 2); Grid.SetRow(output, 1); split.Children.Add(output);
         var empty = BuildEmptyState(); Grid.SetColumn(empty, 2); Grid.SetRow(empty, 1); split.Children.Add(empty);
@@ -797,7 +804,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         }
         var requested = requestedWorkspace;
         var json = result.ToJsonString();
-        if (catalogJson == json && requested is null) return;
+        if (catalogJson == json && requested is null) { OpenRecentChatOnce(); return; }
         var selected = requested ?? chatRows.FirstOrDefault(c => c?["id"]?.GetValue<string>() == chatId)?["workspaceId"]?.GetValue<string>() ?? (workspaces.SelectedItem as RemoteItem)?.Id;
         selected ??= chatRows.FirstOrDefault(c => c?["archived"]?.GetValue<bool>() != true)?["workspaceId"]?.GetValue<string>();
         refreshing = true;
@@ -805,9 +812,12 @@ public sealed partial class RemoteView : UserControl, IDisposable
         workspaces.SelectedItem = workspaces.Items.OfType<RemoteItem>().FirstOrDefault(w => w.Id == selected) ?? workspaces.Items.OfType<RemoteItem>().FirstOrDefault();
         refreshing = false;
         FilterChats();
-        if (catalogJson != json) { catalogJson = json; CatalogChanged?.Invoke(result.DeepClone()); }
-        if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
+        // Before the catalog handlers run: they rebuild the host's sidebar and can re-enter.
+        var changed = catalogJson != json; catalogJson = json;
         OpenRecentChatOnce(); UpdateEmptyState();
+        if (changed) CatalogChanged?.Invoke(result.DeepClone());
+        if (requested is not null && (workspaces.SelectedItem as RemoteItem)?.Id == requested) { requestedWorkspace = null; WorkspaceOpened?.Invoke(requested); }
+        UpdateEmptyState();
     }
     private void FilterChats()
     {

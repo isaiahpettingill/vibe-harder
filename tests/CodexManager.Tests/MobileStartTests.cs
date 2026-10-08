@@ -25,7 +25,7 @@ public class MobileStartTests
         Assert.True(predicate());
     }
     private static T Named<T>(Control root, string name) where T : Control => root.GetLogicalDescendants().OfType<T>().First(c => c.Name == name);
-    private static JsonObject Row(string id, string workspace, DateTimeOffset updated) => new() { ["id"] = id, ["workspaceId"] = workspace, ["title"] = id, ["archived"] = false, ["updated"] = updated.ToString("O") };
+    private static JsonObject Row(string id, string workspace, DateTimeOffset updated) => new() { ["id"] = id, ["workspaceId"] = workspace, ["title"] = id, ["archived"] = false, ["updated"] = updated.ToString("O"), ["status"] = "Ready", ["busy"] = false, ["provider"] = "Codex" };
     private static JsonObject Chat() => new()
     {
         ["provider"] = "Codex", ["busy"] = false, ["messages"] = new JsonArray(), ["permissions"] = new JsonArray(),
@@ -148,6 +148,69 @@ public class MobileStartTests
             await Wait(() => start.IsVisible);
             Assert.False(open.IsVisible); Assert.True(empty.IsVisible);
             Assert.Null(view.SelectedChatId);
+        }
+        finally { window.Close(); }
+    }
+    [AvaloniaFact]
+    public async Task TappedPushOpensItsChatWhetherTheAppIsRunningOrStarting()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var (server, host, store) = await Host(request => request["method"]!.GetValue<string>() switch
+        {
+            "list" => new JsonObject
+            {
+                ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "one", ["name"] = "One" }, new JsonObject { ["id"] = "two", ["name"] = "Two" }),
+                ["chats"] = new JsonArray(Row("pushed", "one", now.AddHours(-3)), Row("newest", "two", now.AddMinutes(-1)))
+            },
+            "chat" => Chat(),
+            _ => new JsonObject()
+        });
+        await using var _ = server;
+        RemoteSettings.SaveHosts(store, [host]);
+        var key = MobilePush.Key(host);
+        RemoteView Remote(Window window) => window.GetLogicalDescendants().OfType<RemoteView>().Single(v => v.IsVisible);
+
+        // Running: the most recent chat is open when the notification is tapped.
+        var running = new MainView(store, remoteOnly: true);
+        var window = new Window { Content = running, Width = 400, Height = 800 }; window.Show();
+        try
+        {
+            await Wait(() => window.GetLogicalDescendants().OfType<RemoteView>().Any(v => v.IsVisible) && Remote(window).SelectedChatId == "newest");
+            running.OpenPushedChat(key, "pushed");
+            await Wait(() => Remote(window).SelectedChatId == "pushed");
+            await Task.Delay(2500); Assert.Equal("pushed", Remote(window).SelectedChatId);
+        }
+        finally { window.Close(); }
+
+        // Starting: the notification arrives before the view has loaded.
+        var starting = new MainView(store, remoteOnly: true);
+        starting.OpenPushedChat(key, "pushed");
+        window = new Window { Content = starting, Width = 400, Height = 800 }; window.Show();
+        try
+        {
+            await Wait(() => window.GetLogicalDescendants().OfType<RemoteView>().Any() && Remote(window).SelectedChatId is not null);
+            await Task.Delay(2500); Assert.Equal("pushed", Remote(window).SelectedChatId);
+        }
+        finally { window.Close(); }
+    }
+    [AvaloniaFact]
+    public void ChatOpenedWhileAsleepWakesToThatChatNotTheSavedPage()
+    {
+        using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", ""));
+        var window = new Window { Content = view, Width = 400, Height = 800 }; window.Show();
+        try
+        {
+            var output = (ListBox)typeof(RemoteView).GetField("output", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(view)!;
+            view.SelectChat("first");
+            // Scrolled back through the first chat's history when the app went to the background.
+            var olderPage = new[] { new Message { Role = "assistant", Text = "From the first chat" } };
+            output.ItemsSource = olderPage;
+            view.SetPresentationSleeping(true);
+            view.SelectChat("second");
+            view.SetPresentationSleeping(false);
+            Assert.Equal("second", view.SelectedChatId);
+            Assert.NotSame(olderPage, output.ItemsSource);
+            Assert.Empty(output.Items.OfType<Message>());
         }
         finally { window.Close(); }
     }
