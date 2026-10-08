@@ -20,6 +20,8 @@ public sealed class Store : IDisposable
     public Task<(string Plain, string Html)> ExportChatAsync(Chat chat) => throw RemoteOnly();
     public Task<HashSet<string>> SearchChatIdsAsync(string query, CancellationToken token) => throw RemoteOnly();
     public Task<ChatSearchHit[]> SearchMessagesAsync(Chat chat, string query, CancellationToken token) => throw RemoteOnly();
+    // Remote chats get their outline from the host.
+    public Task<TranscriptOutline> ReadOutlineAsync(Chat chat, CancellationToken token = default) => Task.FromResult(new TranscriptOutline(chat.Id, []));
     public void ClearHistory(Chat chat) => throw RemoteOnly();
     public void ApplyRecentPage(Chat chat, Message[] messages) => throw RemoteOnly();
     public void ReleaseHistory(Chat chat) => throw RemoteOnly();

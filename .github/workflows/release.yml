@@ -113,8 +113,10 @@ jobs:
           name: ${{ matrix.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
+  # The browser client is optional: a failed web build leaves it out of the release.
   web:
     runs-on: ubuntu-24.04
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -143,6 +145,7 @@ jobs:
       - run: sh tools/check-linux-instance.sh
   publish:
     needs: [desktop, musl, android, web, linux-installer]
+    if: ${{ !cancelled() && needs.desktop.result == 'success' && needs.musl.result == 'success' && needs.android.result == 'success' && needs.linux-installer.result == 'success' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
