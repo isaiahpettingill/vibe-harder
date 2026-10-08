@@ -7,6 +7,7 @@ namespace CodexManager.Tests;
 
 public class MessageProviderTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void RemoteLiveAndHistoryMessagesRetainTheSelectedProvider()
     {
@@ -21,9 +22,9 @@ public class MessageProviderTests
             providerField.SetValue(view, provider.Provider);
             var row = new JsonObject { ["id"] = provider.Name, ["role"] = "assistant", ["text"] = "Hello", ["sequence"] = 1 };
             var history = (Message)read.Invoke(view, [row])!;
-            Assert.Equal(provider.Name.ToUpperInvariant(), history.Label);
+            Assert.Equal(provider.Provider, history.Provider);
             apply.Invoke(view, [new JsonArray(row)]);
-            Assert.Equal(history.Label, messages.Last().Label);
+            Assert.Equal(provider.Provider, messages.Last().Provider);
         }
     }
 }

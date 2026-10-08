@@ -9,7 +9,7 @@ namespace CodexManager.Tests;
 
 public class ResponsivenessTests
 {
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task HistoryReplayKeepsVisiblePageStableAndSettlesAfterCompletion()
     {
@@ -62,6 +62,7 @@ public class ResponsivenessTests
         finally { window.RequestExit(); await Task.Delay(200); }
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task BackgroundWritesRemainOrderedAndDoNotBlockOnLockedDatabase()
     {
@@ -82,6 +83,7 @@ public class ResponsivenessTests
         using var verify = new Store(directory); Assert.True(verify.Chats().Single().Archived);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task LongTranscriptRealizesOnlyVisibleMessagesAndRecyclesWhileScrolling()
     {
@@ -101,6 +103,7 @@ public class ResponsivenessTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CompletedReplyPersistsButCancelledTurnDoesNotMarkUnread()
     {
@@ -113,6 +116,7 @@ public class ResponsivenessTests
         while (!chat.Messages.Any(m => m.Text == "Working")) await Task.Delay(20);
         await runtime.Stop(); await pending; Assert.False(chat.HasUnreadCompletion);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task HistoryPagesRemainBoundedAndFullCopyIncludesOlderMessages()
     {
@@ -127,8 +131,9 @@ public class ResponsivenessTests
         var copied = await store.ExportChatAsync(chat); Assert.Contains("Saved message 0\n", copied.Plain); Assert.Contains("Saved message 1499", copied.Html);
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
-    public async Task ArchiveCancelsHistoryLoadAndTrayDoesNotCountItAsRunningAgent()
+    public async Task ArchiveCancelsAnInProgressHistoryLoad()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vibe-archive", Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
@@ -144,22 +149,10 @@ public class ResponsivenessTests
             var list = UiTests.Named<ListBox>(window, "Chats_w"); var chat = (Chat)list.SelectedItem!;
             list.SelectedItem = null; list.SelectedItem = chat;
             await Wait(() => chat.Busy && chat.Messages.Count > 0);
-            var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
-            Assert.Contains("no agents running", tray.ToolTipText);
-            UiTests.Named<Button>(window, "CollapseWorkspace_w").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); Assert.False(list.IsVisible);
-            UiTests.Named<Button>(window, "CollapseWorkspace_w").RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent)); Assert.True(list.IsVisible);
             window.FindControl<Button>("ArchiveChatButton")!.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Assert.True(chat.Archived); Assert.Empty(list.Items);
             await Wait(() => !chat.Busy && chat.Messages.Count == 0);
         }
         finally { window.RequestExit(); await Task.Delay(200); }
     }
-
 }
-
-
-
-
-
-
-

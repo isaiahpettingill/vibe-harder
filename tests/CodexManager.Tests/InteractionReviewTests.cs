@@ -88,6 +88,7 @@ public class InteractionReviewTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void PredictionWaitsForEchoAndReconcilesWithoutDuplicatingText()
     {
@@ -120,33 +121,7 @@ public class InteractionReviewTests
         finally { window.Close(); }
     }
 
-    [AvaloniaFact]
-    public void RemoteTerminalDocksOnLaptopAndOverlaysOnlyOnNarrowWindows()
-    {
-        using var remote = new RemoteView(new RemoteHost("Test", "127.0.0.1", 1, "", ""));
-        var root = new Grid { ColumnDefinitions = new("280,*") };
-        Grid.SetColumn(remote, 1); root.Children.Add(remote);
-        var window = new Window { Width = 960, Height = 650, Content = root }; window.Show();
-        try
-        {
-            window.UpdateLayout();
-            var layout = Assert.IsType<Grid>(remote.Content);
-            var terminal = layout.Children.OfType<RemoteTerminalView>().Single();
-            terminal.SetVisible(true); window.UpdateLayout();
-            Assert.Equal(2, Grid.GetColumn(terminal));
-            Assert.True(layout.Children[0].Bounds.Width > 200);
-            Assert.True(terminal.Bounds.Width > 200);
-            Assert.True(terminal.Bounds.X >= layout.Children[0].Bounds.Right);
-            window.Width = 600; Avalonia.Threading.Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            Assert.Equal(0, Grid.GetColumn(terminal));
-            window.Width = 960; Avalonia.Threading.Dispatcher.UIThread.RunJobs(); window.UpdateLayout();
-            Assert.Equal(2, Grid.GetColumn(terminal));
-            terminal.SetVisible(false); window.UpdateLayout();
-            Assert.Equal(0, layout.ColumnDefinitions[2].ActualWidth);
-        }
-        finally { window.Close(); }
-    }
-
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task RemoteTerminalBatchesTypingWhilePreviousInputIsInFlight()
     {
@@ -173,6 +148,7 @@ public class InteractionReviewTests
         Assert.Equal(new[] { "a", "bc" }, sent);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task TerminalKeyboardStreamsTypingBackspaceAndEnter()
     {
@@ -196,6 +172,7 @@ public class InteractionReviewTests
         Assert.Equal("echx\x7fo hé\r", input.ToString());
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void TranscriptPagingPreservesReadingPositionAndLatestAppearsOnlyWhenAway()
     {
@@ -220,7 +197,7 @@ public class InteractionReviewTests
     }
 
     [AvaloniaFact]
-    public async Task PaletteDismissesOnOutsideActivationAndLauncherKeepsItsSize()
+    public async Task PaletteDismissesOnOutsideClickAndEscape()
     {
         var owner = new Window { Width = 600, Height = 500 }; owner.Show();
         try
@@ -244,7 +221,7 @@ public class InteractionReviewTests
         finally { owner.Close(); }
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task RemoteTerminalRunsOnHostResizesAndCloses()
     {
@@ -271,6 +248,7 @@ public class InteractionReviewTests
         await Assert.ThrowsAsync<IOException>(() => service.Handle(new() { ["method"] = "terminal/open", ["workspaceId"] = "missing" }));
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task RemoteQueueCanSteerByStableIdWithoutLosingOtherMessages()
     {

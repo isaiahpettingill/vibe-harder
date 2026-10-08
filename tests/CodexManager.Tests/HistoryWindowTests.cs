@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class HistoryWindowTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void BoundsRecentAndOlderPagesByTurnsAndMessages()
     {
@@ -21,6 +22,7 @@ public class HistoryWindowTests
         Assert.Equal(Chat.HistoryPageSize, HistoryWindow.Bound(toolHeavy, newer: true).Length);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ActiveChatUnloadsOlderTurnsButKeepsThemOnDisk()
     {
@@ -44,6 +46,7 @@ public class HistoryWindowTests
         Assert.Contains(older, m => m.Text == "Question 0");
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void NavigationKeepsTheVisibleEdgeWhilePagingInEitherDirection()
     {

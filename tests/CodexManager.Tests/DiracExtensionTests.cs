@@ -5,6 +5,7 @@ namespace CodexManager.Tests;
 public class DiracExtensionTests
 {
     private static string Command => "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --dirac";
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ReconnectedFollowUpRestoresConversationWithoutDuplicatingVisibleMessages()
     {
@@ -30,6 +31,7 @@ public class DiracExtensionTests
         using var live = System.Text.Json.JsonDocument.Parse(prompts[2]);
         Assert.Single(live.RootElement.EnumerateArray());
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task AdvertisedWhisperSteersWithoutEndingTheActiveTurn()
     {
@@ -46,6 +48,7 @@ public class DiracExtensionTests
         Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == "Use the other approach");
         await runtime.Stop(); await turn;
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CheckpointRestoreValidatesIdAndReloadsHistory()
     {

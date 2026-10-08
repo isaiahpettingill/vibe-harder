@@ -4,22 +4,30 @@ namespace CodexManager.Tests;
 
 public class RemoteCatalogTests
 {
-    [Fact]
-    public async Task RenameWorkspaceUpdatesCatalogAndSavedWorkspace()
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("  My_project-name  ", "My_project-name")]
+    [InlineData("Project with spaces", "Project with spaces")]
+    [InlineData("", null)]
+    [InlineData("  ", null)]
+    [InlineData(null, null)]
+    public async Task RenameWorkspaceUpdatesCatalogAndSavedWorkspace(string? requested, string? expected)
     {
         using var store = new Store(Directory.CreateTempSubdirectory("rename-workspace-").FullName);
         var owner = new Workspace("workspace", "Initial", store.DirectoryPath);
         store.Save(owner);
         var workspaces = new List<Workspace> { owner };
         using var service = new SessionService(store, workspaces, [], (_, _) => throw new InvalidOperationException());
-        await Assert.ThrowsAsync<IOException>(() => service.Handle(new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.Id, ["name"] = "  " }));
-        await service.Handle(new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.Id, ["name"] = "  My_project-name  " });
-        Assert.Equal("My_project-name", Assert.Single(workspaces).Name);
-        Assert.Equal("My_project-name", Assert.Single(store.Workspaces()).Name);
-        Assert.Equal("My_project-name", (await service.Handle(new() { ["method"] = "list" }))!["workspaces"]!.AsArray()[0]!["name"]!.GetValue<string>());
+        var rename = service.Handle(new() { ["method"] = "workspace/rename", ["workspaceId"] = owner.Id, ["name"] = requested });
+        if (expected is null) await Assert.ThrowsAsync<IOException>(() => rename); else await rename;
+        var name = expected ?? owner.Name;
+        Assert.Equal(name, Assert.Single(workspaces).Name);
+        Assert.Equal(name, Assert.Single(store.Workspaces()).Name);
+        Assert.Equal(name, (await service.Handle(new() { ["method"] = "list" }))!["workspaces"]!.AsArray()[0]!["name"]!.GetValue<string>());
         Assert.Equal(owner.Path, Assert.Single(workspaces).Path);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task CatalogUsesHostSidebarOrderAndWorkspaceVisibility()
     {

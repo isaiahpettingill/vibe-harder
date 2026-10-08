@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class VisualPerformanceTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void RemoteSidebarKeepsControlsAndModelsAcrossStatusChanges()
     {
@@ -41,6 +42,7 @@ public class VisualPerformanceTests
         finally { main.DisposeMobile(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void AnimationsStopWhenAncestorIsHiddenAndOnDetach()
     {
@@ -58,6 +60,7 @@ public class VisualPerformanceTests
         Assert.Equal(initial, VisibleAnimation.ActiveCount);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task MarkdownCoalescesStreamingAndRendersLatestTextAfterReattachment()
     {
@@ -78,6 +81,7 @@ public class VisualPerformanceTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void SidebarVirtualizesInsideItsOuterScroller()
     {

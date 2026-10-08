@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class ViewMemoryTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void SleepingRemoteReleasesItsTranscriptAndRestoresThePage()
     {
@@ -20,6 +21,7 @@ public class ViewMemoryTests
         view.SetPresentationSleeping(false); Assert.Same(page, output.ItemsSource);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void RemoteSnapshotsDoNotRetainEvictedMessages()
     {
@@ -40,6 +42,7 @@ public class ViewMemoryTests
         return new(message);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task CollapsedOutputReleasesRendererAndClosedViewIsCollectible()
     {
@@ -64,6 +67,7 @@ public class ViewMemoryTests
         window.Content = null; window.Close();
         return new(view);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ReleasedHistoryReloadsWithoutLosingSequenceOrText()
     {

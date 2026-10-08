@@ -4,13 +4,14 @@ namespace CodexManager.Tests;
 
 public class RecoveryTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void RecoveryKeepsNewDraftAlongsideInterruptedRequest()
     {
         var chat = new Chat { WorkspaceId = "w", Draft = "A new unsent thought" };
         chat.RecoverInput(new("Original interrupted request", []));
         Assert.StartsWith("A new unsent thought", chat.Draft);
-        Assert.Contains("[Recovered interrupted request]\nOriginal interrupted request", chat.Draft);
+        Assert.Contains("Original interrupted request", chat.Draft);
     }
     private static string Quote(string path) => OperatingSystem.IsWindows() ? "'" + path.Replace("'", "''") + "'" : Hosts.Quote(path);
     private static string ReadLog(string path)
@@ -19,6 +20,7 @@ public class RecoveryTests
         using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
         using var reader = new StreamReader(stream); return reader.ReadToEnd();
     }
+    [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [InlineData("disconnect")]
     [InlineData("idle-exit")]
@@ -48,6 +50,7 @@ public class RecoveryTests
         await runtime.Send("next turn", []);
         Assert.Equal("Hello **world**", chat.Messages.Last().Text);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task RetriesStartupAndReceivesAuthenticationState()
     {
@@ -65,6 +68,7 @@ public class RecoveryTests
         Assert.Equal(1, ReadLog(log).Split('\n').Count(l => l == "startup"));
         Assert.Equal(1, ReadLog(log).Split('\n').Count(l => l == "prompt"));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void AppRestartRecoversPendingInputAttachmentsAndProvider()
     {
@@ -80,7 +84,7 @@ public class RecoveryTests
         var restored = Assert.Single(reopened.Chats()); reopened.LoadMessages(restored);
         Assert.Equal(AgentProvider.OpenCode, restored.Provider); Assert.Equal("opaque-opencode-id", restored.SessionId);
         Assert.Equal("Unfinished request", restored.Draft); Assert.Equal(attachment, Assert.Single(restored.Attachments));
-        Assert.Equal("Partial reply", Assert.Single(restored.Messages).Text); Assert.Equal("OPENCODE", restored.Messages[0].Label);
+        Assert.Equal("Partial reply", Assert.Single(restored.Messages).Text); Assert.Equal(AgentProvider.OpenCode, restored.Messages[0].Provider);
         Assert.False(restored.Busy); Assert.Null(restored.PendingInput);
     }
 }

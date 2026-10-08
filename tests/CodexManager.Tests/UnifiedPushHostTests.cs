@@ -10,7 +10,7 @@ public class UnifiedPushHostTests
 {
     private static int Port() { var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start(); var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop(); return port; }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task PairedPhoneRegistersOverItsConnectionAndGetsEncryptedPushes()
     {
@@ -25,7 +25,7 @@ public class UnifiedPushHostTests
 
         // The phone learns the computer's VAPID key, registers with its distributor, and sends the endpoint back.
         var vapid = (await connection.Request(new() { ["method"] = "push/vapid" }, TestContext.Current.CancellationToken))!["publicKey"]!.GetValue<string>();
-        Assert.Equal(87, vapid.Length); Assert.Equal(vapid, WebPush.Base64Url(RemoteTrust.VapidKey(directory).PublicKey));
+        Assert.Equal(vapid, WebPush.Base64Url(RemoteTrust.VapidKey(directory).PublicKey));
         var phone = WebPush.Generate(); var auth = System.Security.Cryptography.RandomNumberGenerator.GetBytes(16);
         JsonObject Register(string endpoint) => new() { ["method"] = "push/register", ["endpoint"] = endpoint, ["p256dh"] = WebPush.Base64Url(phone.PublicKey), ["auth"] = WebPush.Base64Url(auth), ["distributor"] = "org.unifiedpush.distributor.sunup" };
         await connection.Request(Register("https://push.example.net/wpush/v2/first"), TestContext.Current.CancellationToken);

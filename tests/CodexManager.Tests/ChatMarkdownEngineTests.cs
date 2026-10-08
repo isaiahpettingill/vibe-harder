@@ -10,6 +10,7 @@ namespace CodexManager.Tests;
 
 public class ChatMarkdownEngineTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
@@ -26,6 +27,7 @@ public class ChatMarkdownEngineTests
         Assert.True(timer.Elapsed < TimeSpan.FromSeconds(3), $"Parsing took {timer.Elapsed}");
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void TablesComeFromTheAstAndKeepAlignmentEscapesAndInlineFormatting()
     {
@@ -40,6 +42,7 @@ public class ChatMarkdownEngineTests
         Assert.Equal("a|b", Assert.IsType<CTextBlock>(Assert.Single(cells[3].Children).Control).Text.Trim());
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void CommonMarkBlocksAndReferencesKeepTheirDocumentStructure()
     {
@@ -54,6 +57,7 @@ public class ChatMarkdownEngineTests
         Assert.DoesNotContain(blocks, block => block.Text.Contains("[r]:"));
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void InlineCodeEmphasisEntitiesAndAutolinksAreNotLost()
     {
@@ -67,6 +71,7 @@ public class ChatMarkdownEngineTests
         Assert.Contains("x < y &", block.Text);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void UnclosedStreamingFencesKeepTheirExactCodeWithoutParsingIt()
     {
@@ -78,6 +83,7 @@ public class ChatMarkdownEngineTests
         Assert.NotNull(editor.SyntaxHighlighting);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void RawHtmlIsVisibleTextRatherThanActiveControls()
     {

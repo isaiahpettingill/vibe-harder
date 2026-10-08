@@ -11,6 +11,7 @@ namespace CodexManager.Tests;
 
 public class TerminalLinkTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void CachedLinksAreInvalidatedByTerminalOutput()
     {
@@ -29,6 +30,7 @@ public class TerminalLinkTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void LocalFilePathsAreUnderlinedButRemotePathsAreNot()
     {
@@ -53,6 +55,7 @@ public class TerminalLinkTests
         return new Point((col + .5) * size.Width, (row + .5) * size.Height);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void DetectsUrlsAcrossSoftWrapsAndScrollbackWithoutJoiningHardLines()
     {
@@ -80,6 +83,7 @@ public class TerminalLinkTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void HandlesUnicodePunctuationAndRejectsUnsafeSchemes()
     {
@@ -104,6 +108,7 @@ public class TerminalLinkTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void ClickLaunchesButDragAndTerminalMouseModeDoNot()
     {

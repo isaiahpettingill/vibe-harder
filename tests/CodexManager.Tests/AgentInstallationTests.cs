@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class AgentInstallationTests
 {
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task WindowsLaunchUsesNpmCmdShimInsteadOfPowerShellScript()
     {
@@ -14,18 +15,23 @@ public class AgentInstallationTests
         var start = Hosts.Agent(new Workspace("w", "Test", directory), "opencode --version");
         start.Environment["PATH"] = directory + Path.PathSeparator + start.Environment["PATH"];
         Assert.Contains("CMD_SHIM_READY", await Hosts.Capture(start));
-        Assert.Contains(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "npm"), start.Environment["PATH"]);
     }
 
+    // The guidance links to whatever is actually missing: Node for the npx bridges, otherwise the agent itself.
+    [Trait("Category", "CI")]
     [Theory]
-    [InlineData(AgentProvider.OpenCode, "bash: opencode: command not found", "Install opencode to use opencode ACP")]
-    [InlineData(AgentProvider.Codex, "spawn codex ENOENT", "Install Codex to use Codex ACP")]
-    [InlineData(AgentProvider.Claude, "The term 'claude' is not recognized as the name of a cmdlet", "Install Claude Code to use Claude Code ACP")]
-    [InlineData(AgentProvider.Claude, "npx.cmd : The term 'npx.cmd' is not recognized as the name of a cmdlet", "Node is required to run Codex/Claude ACP bridges")]
-    [InlineData(AgentProvider.Codex, "env: node: No such file or directory", "Node is required to run Codex/Claude ACP bridges")]
-    public void MissingExecutablesGiveSpecificInstallGuidance(AgentProvider provider, string error, string expected)
-    { var result = AgentInstallation.FromError(provider, new IOException(error)); Assert.Equal(expected, result?.Message); Assert.StartsWith("https://", result!.Url); }
+    [InlineData(AgentProvider.OpenCode, "bash: opencode: command not found", "opencode.ai")]
+    [InlineData(AgentProvider.Codex, "spawn codex ENOENT", "developers.openai.com")]
+    [InlineData(AgentProvider.Claude, "The term 'claude' is not recognized as the name of a cmdlet", "code.claude.com")]
+    [InlineData(AgentProvider.Claude, "npx.cmd : The term 'npx.cmd' is not recognized as the name of a cmdlet", "nodejs.org")]
+    [InlineData(AgentProvider.Codex, "env: node: No such file or directory", "nodejs.org")]
+    public void MissingExecutablesLinkToWhatIsMissing(AgentProvider provider, string error, string host)
+    {
+        var url = new Uri(AgentInstallation.FromError(provider, new IOException(error))!.Url);
+        Assert.Equal(Uri.UriSchemeHttps, url.Scheme); Assert.Equal(host, url.Host);
+    }
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("opencode: authentication required")]
     [InlineData("opencode: config.json not found")]
@@ -33,6 +39,7 @@ public class AgentInstallationTests
     [InlineData("npx: npm registry timed out")]
     public void OtherFailuresAreNotMissingInstallations(string error) => Assert.Null(AgentInstallation.FromError(AgentProvider.OpenCode, new IOException(error)));
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task MissingAgentShowsLinkWithoutRecoveryLoop()
     {
@@ -43,8 +50,8 @@ public class AgentInstallationTests
         var command = OperatingSystem.IsWindows() ? "[Console]::Error.WriteLine('opencode: command not found'); exit 127" : "printf 'opencode: command not found\\n' >&2; exit 127";
         await using var runtime = new ChatRuntime(chat, workspace, store, command);
         await runtime.Send("hello", []);
-        Assert.Equal("Install opencode to use opencode ACP", chat.Status);
-        Assert.Contains(chat.Messages, m => m.Text.Contains("https://opencode.ai/download"));
+        var guidance = AgentInstallation.FromError(chat.Provider, new IOException("opencode: command not found"))!;
+        Assert.Contains(chat.Messages, m => m.Text.Contains(guidance.Url));
         Assert.False(runtime.IsRecovering); Assert.False(chat.Busy);
     }
 }

@@ -5,6 +5,7 @@ namespace CodexManager.Tests;
 
 public class AuthenticationExpiryTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("OAuth token has expired")]
     [InlineData("refresh_token_reused")]
@@ -17,6 +18,7 @@ public class AuthenticationExpiryTests
         Assert.False(ChatRuntime.IsNetworkFailure(new IOException(message)));
     }
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("context window exceeded")]
     [InlineData("Rate limit exceeded (429)")]
@@ -24,7 +26,7 @@ public class AuthenticationExpiryTests
     [InlineData("Permission denied writing file")]
     public void DoesNotMistakeOtherFailuresForExpiredCredentials(string message) => Assert.False(AgentProviders.IsAuthenticationError(new IOException(message)));
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task EveryProviderStopsForNestedExpiredAuthenticationAndKeepsInput()
     {
@@ -48,6 +50,7 @@ public class AuthenticationExpiryTests
         }
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void RecognizesStructuredUnauthorizedStatus()
     {

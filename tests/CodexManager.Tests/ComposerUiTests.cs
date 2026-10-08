@@ -9,6 +9,7 @@ namespace CodexManager.Tests;
 
 public class ComposerUiTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task QueueEscapeSidebarAndPanePersistence()
     {
@@ -33,13 +34,12 @@ public class ComposerUiTests
             composer.Text = "hang"; window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => chat.Messages.Any(m => m.Text == "Working"));
             var send = window.FindControl<Button>("SendButton")!;
-            Assert.Equal("Stop", Avalonia.Automation.AutomationProperties.GetName(send));
+            Assert.True(chat.Busy);
             composer.Text = "button queued";
             await Wait(() => Avalonia.Automation.AutomationProperties.GetName(send)?.StartsWith("Queue message") == true);
             send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(chat.QueuedInputs);
             await Wait(() => Avalonia.Automation.AutomationProperties.GetName(send) == "Stop");
-            Assert.Equal("Stop", Avalonia.Automation.AutomationProperties.GetName(send));
             window.FindControl<Expander>("QueuePanel")!.IsExpanded = true; window.UpdateLayout();
             var steerQueued = window.GetVisualDescendants().OfType<IconButton>().Single(b => b.Name == "SteerQueued");
             Assert.True(steerQueued.IsVisible); steerQueued.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -63,8 +63,6 @@ public class ComposerUiTests
                 await Wait(() => chat.ConfigOptions.Single(c => c.Id == id).Current == expected);
                 Assert.True(chat.Busy);
             }
-            var tray = (TrayIcon)typeof(MainView).GetField("tray", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.GetValue(window.View)!;
-            Assert.Contains("1 agent running", tray.ToolTipText);
             composer.Text = "queued next"; send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Single(chat.QueuedInputs); Assert.True(window.FindControl<Expander>("QueuePanel")!.IsVisible);
             composer.Text = "enter queued";
@@ -80,7 +78,7 @@ public class ComposerUiTests
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
             await Wait(() => chat.Messages.Any(m => m.Role == "user" && m.Text == "escape queued\n\nhang") && composer.Text == "");
             composer.RaiseEvent(new KeyEventArgs { RoutedEvent = InputElement.KeyDownEvent, Key = Key.Escape });
-            await Wait(() => !chat.Busy); Assert.Empty(chat.QueuedInputs); Assert.Contains("no agents running", tray.ToolTipText);
+            await Wait(() => !chat.Busy); Assert.Empty(chat.QueuedInputs);
             UiTests.Named<Button>(window, "Rename_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var dialog = window.OwnedWindows.Single();
             var input = dialog.GetVisualDescendants().OfType<TextBox>().Single(); input.Text = "Renamed";

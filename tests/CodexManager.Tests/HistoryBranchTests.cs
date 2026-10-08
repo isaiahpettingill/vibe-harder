@@ -14,6 +14,7 @@ public class HistoryBranchTests
         var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "original", Provider = AgentProvider.Claude }; store.Save(chat);
         return (store, workspace, chat, "node \"" + Path.Combine(AppContext.BaseDirectory, "history-acp.mjs") + "\" \"" + file + "\" " + flags);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task EditingReplacesCurrentHistoryAndRetainsTheOriginalProviderBranch()
     {
@@ -30,6 +31,7 @@ public class HistoryBranchTests
         Assert.Single(store.Chats());
         Assert.Equal(4, JsonNode.Parse(File.ReadAllText(Path.Combine(workspace.Path, "provider.json")))!["original"]!.AsArray().Count);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ForkAtOutputCreatesIndependentChatAndPersistsMessageIds()
     {
@@ -42,6 +44,7 @@ public class HistoryBranchTests
         Assert.Equal(4, chat.Messages.Count); Assert.Equal(2, fork.Messages.Count); Assert.Equal(2, store.Chats().Count);
         Assert.Equal("a1", (await store.ReadPageAsync(fork)).Last().ProviderMessageId);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task FullChatForkAndFirstMessageEditUseSeparateSessions()
     {
@@ -52,7 +55,7 @@ public class HistoryBranchTests
         await runtime.BranchHistory(first.Id, first.Sequence, options["checkpoint"]!.GetValue<string>(), false);
         Assert.Empty(await store.ReadPageAsync(chat)); Assert.NotEqual("original", chat.SessionId);
     }
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [InlineData("--reject-fork")]
     [InlineData("--reject-load")]
@@ -67,6 +70,7 @@ public class HistoryBranchTests
         Assert.Equal("original", chat.SessionId); Assert.Equal(original, (await store.ReadPageAsync(chat)).Select(m => m.Id));
         Assert.Single(store.Chats()); Assert.False(runtime.IsChangingHistory); Assert.False(chat.Busy);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task UnsupportedAdapterAndStaleSelectionDoNotRewriteHistory()
     {

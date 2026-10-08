@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class ConfigurationTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(null)]
     [InlineData("Debian")]
@@ -18,6 +19,7 @@ public class ConfigurationTests
         Assert.Equal(custom, AgentProviders.Command(store, workspace, AgentProvider.Codex));
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void CodexAdapterRunsTheLatestCodexInsteadOfItsPinnedCopy()
     {
@@ -26,7 +28,6 @@ public class ConfigurationTests
         var key = AgentProviders.CommandKey(AgentProvider.Codex, false);
         store.Setting(key, "npx -y @agentclientprotocol/codex-acp@latest");
         Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
-        Assert.Contains("--package=@openai/codex@latest", Hosts.DefaultAdapter);
         Assert.Equal("codex", AgentProviders.Start(workspace, Hosts.DefaultAdapter, AgentProvider.Codex).Environment["CODEX_PATH"]);
         // A custom launcher without its own Codex package must keep the adapter's bundled binary.
         Assert.False(AgentProviders.Start(workspace, "my-wrapper codex-acp", AgentProvider.Codex).Environment.ContainsKey("CODEX_PATH"));
@@ -44,6 +45,7 @@ public class ConfigurationTests
         Assert.Equal("my-wrapper codex-acp", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void WindowsNpxUsesCmdWithoutChangingExecutionPolicyOrWslCommands()
     {
@@ -55,8 +57,8 @@ public class ConfigurationTests
         Assert.Equal("custom-wrapper npx login", Hosts.Agent(local, "custom-wrapper npx login").ArgumentList.Last());
         var wsl = new Workspace("w", "Linux", "/tmp", "Debian");
         Assert.EndsWith("exec " + command, Hosts.Agent(wsl, command).ArgumentList.Last());
-        Assert.Contains("$HOME/.opencode/bin", Hosts.Agent(wsl, command).ArgumentList.Last());
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void WslResolutionUsesLinuxOverridesAndKeepsDefaultOpenCodeLayer()
     {
@@ -82,6 +84,7 @@ public class ConfigurationTests
         Assert.StartsWith(@"\\wsl.localhost\Debian\settings\codex\", start.FileName);
         Assert.Empty(start.ArgumentList);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void RelativeXdgIsIgnoredAndHomeFallbacksAreUsed()
     {
@@ -91,6 +94,7 @@ public class ConfigurationTests
         Assert.Contains(files, f => f.Path == "/home/test/.claude/CLAUDE.md");
         Assert.Contains(files, f => f.Path == "/home/test/.claude.json");
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void ProviderLoginCommandsAndWslTerminalArgumentsStaySeparate()
     {

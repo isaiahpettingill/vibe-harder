@@ -25,7 +25,7 @@ public class CliTests
         return (process.ExitCode, await output, await error);
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CommandLineListsChatsSendsWaitsAndAnswersApprovals()
     {
@@ -86,7 +86,7 @@ public class CliTests
         }
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CommandLinePairsWithAComputerAndDrivesItsChats()
     {

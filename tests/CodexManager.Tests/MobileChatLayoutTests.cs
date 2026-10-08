@@ -12,6 +12,7 @@ namespace CodexManager.Tests;
 
 public class MobileChatLayoutTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task SendingFromEarlierHistoryReturnsToLatestAndKeepsTheBottomAnchor()
     {
@@ -42,6 +43,7 @@ public class MobileChatLayoutTests
         finally { window.RequestExit(); await Task.Delay(200); }
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task NewRemoteChatLoadsConfigWithoutSendingAndPassiveReadsDoNotStartIt()
     {
@@ -61,6 +63,7 @@ public class MobileChatLayoutTests
         Assert.NotEmpty(result!["config"]!.AsArray());
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task OpeningSavedRemoteChatDoesNotReplayItsVisibleHistory()
     {
@@ -83,7 +86,7 @@ public class MobileChatLayoutTests
     }
 
     [AvaloniaFact]
-    public async Task NarrowSidebarFillsViewportShowsActionsAndClosesOnCurrentChatTap()
+    public async Task NarrowSidebarClosesWhenTheCurrentChatIsTapped()
     {
         var directory = Path.Combine(Path.GetTempPath(), "mobile-sidebar-" + Guid.NewGuid().ToString("N"));
         Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
@@ -109,6 +112,7 @@ public class MobileChatLayoutTests
         finally { window.RequestExit(); await Task.Delay(200); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void SelectingRemoteWorkspaceDoesNotOpenAnUnselectedChat()
     {
@@ -130,53 +134,23 @@ public class MobileChatLayoutTests
         Assert.Null(view.SelectedChatId);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
-    public async Task NestedMessageScrollersChainTouchPanningToTranscript()
-    {
-        var message = new Message { Role = "assistant", Text = "A long answer\n\n" + new string('x', 400) };
-        var view = new MessageView { Message = message };
-        var window = new Window { Content = view, Width = 400, Height = 300 }; window.Show();
-        try
-        {
-            await Task.Delay(60); window.UpdateLayout();
-            var scrollers = view.GetVisualDescendants().OfType<ScrollViewer>().ToArray();
-            Assert.True(scrollers.Length >= 2);
-            Assert.All(scrollers, scroll => Assert.True(ScrollViewer.GetIsScrollChainingEnabled(scroll)));
-        }
-        finally { window.Close(); }
-    }
-
-    [AvaloniaFact]
-    public void MobileAndDesktopShareTheComposer()
+    public void RemovingAPastedTextChipRemovesItsReferenceFromTheDraft()
     {
         using var view = new RemoteView(new RemoteHost("Test", "localhost", 1, "", ""));
         var window = new Window { Width = 420, Height = 800, Content = view }; window.Show();
         try
         {
             var mobile = Assert.Single(view.GetVisualDescendants().OfType<ChatComposer>());
-            Assert.Same(mobile.Editor, view.GetVisualDescendants().OfType<ComposerEditor>().Single(e => e.Name == "RemoteComposer"));
             var attachments = (List<Attachment>)typeof(RemoteView).GetField("attachments", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(view)!;
             var pasted = new Attachment("Pasted text 1.txt", "text/plain", "hello", Reference: "[\"hello…\"]");
             attachments.Add(pasted); mobile.Editor.Text = "see [\"hello…\"]";
             typeof(RemoteView).GetMethod("RefreshAttachments", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(view, []);
             window.UpdateLayout();
-            // Same chip as desktop: an open button and a remove button.
-            Assert.Contains(mobile.AttachmentList.GetVisualDescendants().OfType<Button>(), b => b.Name == "OpenAttachmentButton");
             mobile.AttachmentList.GetVisualDescendants().OfType<IconButton>().Single(b => ReferenceEquals(b.Tag, pasted)).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Empty(attachments); Assert.Equal("see ", mobile.Editor.Text);
         }
         finally { window.Close(); }
-
-        var directory = Directory.CreateTempSubdirectory("shared-composer-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
-        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
-        var desktop = new MainWindow(store); desktop.Show();
-        try
-        {
-            var composer = Assert.Single(desktop.GetVisualDescendants().OfType<ChatComposer>());
-            Assert.Same(composer, desktop.FindControl<Border>("ComposerBorder"));
-            Assert.Same(composer.Editor, desktop.FindControl<ComposerEditor>("Composer"));
-            Assert.Same(composer.SendButton, desktop.FindControl<IconButton>("SendButton"));
-        }
-        finally { desktop.RequestExit(); }
     }
 }

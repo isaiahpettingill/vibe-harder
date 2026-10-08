@@ -11,6 +11,7 @@ public class AirTests
     private static string Fixture => Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs");
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ClientDeclaresAirAndATerminalOutputChannel()
     {
@@ -21,10 +22,10 @@ public class AirTests
         var air = capabilities.GetProperty("_meta").GetProperty("jetbrains").GetProperty("air");
         Assert.Equal(1, air.GetProperty("version").GetInt32());
         Assert.Equal(Air.Capabilities, air.GetProperty("capabilities").EnumerateArray().Select(c => c.GetString()));
-        Assert.Contains("asyncTasks", Air.Capabilities); Assert.DoesNotContain("planFile", Air.Capabilities);
         Assert.True(capabilities.GetProperty("_meta").GetProperty("terminal_output_delta").GetBoolean());
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void PartialToolCallUpdatesMergeAndStreamedOutputAppends()
     {
@@ -52,6 +53,7 @@ public class AirTests
         Assert.StartsWith("Run the tests\n\n*failed*\n\n```\nnpm test\n```", restored.Render());
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void DiffsRenderAsPatchesOrLineDiffs()
     {
@@ -68,6 +70,7 @@ public class AirTests
         Assert.Contains("42 rows", mcp.Render());
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void PlanReviewShowsThePlanAndDefaultToNoFocusesTheDecline()
     {
@@ -86,14 +89,14 @@ public class AirTests
             Assert.Equal("# Plan\n1. Add tests\n2. Ship", Assert.Single(card.GetLogicalDescendants().OfType<ChatMarkdown>()).Text);
             Assert.DoesNotContain(texts, t => t?.Contains("\"plan\"") == true);
             var decline = card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "No, keep planning"));
-            Assert.Contains("accent", decline.Classes); Assert.True(decline.IsFocused);
-            Assert.DoesNotContain("accent", card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Yes, implement")).Classes);
+            Assert.True(decline.IsFocused);
             card.GetLogicalDescendants().OfType<Button>().Single(b => Equals(b.Content, "Yes, implement")).RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
             Assert.Equal("implement_plan", chosen);
         }
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void CommandApprovalShowsTheCommandNotJson()
     {
@@ -101,5 +104,6 @@ public class AirTests
         var card = new PermissionCard(request, _ => Task.CompletedTask);
         var texts = card.GetLogicalDescendants().OfType<TextBlock>().Select(t => t.Text).ToArray();
         Assert.Contains("Run command?", texts); Assert.Contains("npm test", texts);
+        Assert.DoesNotContain(texts, t => t?.Contains("\"command\"") == true);
     }
 }

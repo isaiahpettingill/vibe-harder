@@ -9,6 +9,7 @@ namespace CodexManager.Tests;
 
 public class RobustnessTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task IncrementalChatOmitsUnchangedTextAndAttachmentsAndIncludesEdits()
     {
@@ -34,7 +35,7 @@ public class RobustnessTests
         Assert.Equal("edited", edited["messages"]![0]!["text"]!.GetValue<string>());
         Assert.NotEqual(revision, edited["messages"]![0]!["revision"]!.GetValue<string>());
     }
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CollapsedConnectionDoesNotPollAtStartupOrAfterWake()
     {
@@ -64,6 +65,7 @@ public class RobustnessTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task StorageFailureFailsFlushAndRejectsLaterWrites()
     {
@@ -73,6 +75,7 @@ public class RobustnessTests
         Assert.Throws<IOException>(() => store.Setting("afterFailure", "value"));
         Assert.Throws<IOException>(() => store.Dispose());
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task RepeatedMessageSnapshotsCoalesceWhileStorageIsBlocked()
     {

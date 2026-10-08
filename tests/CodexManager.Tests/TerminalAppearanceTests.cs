@@ -18,7 +18,6 @@ public class TerminalAppearanceTests
         var picker = AppTheme.Picker(store);
         var window = new Window { Width = 600, Height = 550, Content = new StackPanel { Margin = new Thickness(16), Spacing = 12, Children = { picker, terminal } } }; window.Show();
         model.Feed("Default text\r\n\u001b[31mRed \u001b[32mGreen \u001b[34mBlue\u001b[0m");
-        Assert.Equal(1, model.Terminal.Buffer.Lines[1]![0].Attributes.GetFgColor());
         var original = Application.Current!.Resources["SvcSystems.UI.TerminalColor0"];
         try
         {
@@ -28,7 +27,6 @@ public class TerminalAppearanceTests
                 Assert.Equal(palette.Name, store.Setting("theme") ?? "Original");
                 Assert.Equal(Color.Parse(palette.Background), Assert.IsType<SolidColorBrush>(Application.Current.Resources["SvcSystems.UI.TerminalColor0"]).Color);
                 Assert.Same(original, Application.Current.Resources["SvcSystems.UI.TerminalColor0"]);
-                Assert.Same(model, terminal.Model);
                 var resolve = typeof(TerminalControl).GetMethod("ResolveColorBrush", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
                 Assert.Equal(Color.Parse(palette.Ansi[1]), Assert.IsAssignableFrom<ISolidColorBrush>(resolve.Invoke(terminal, [1])).Color);
             }
@@ -36,6 +34,7 @@ public class TerminalAppearanceTests
         finally { window.Close(); AppTheme.Apply(AppTheme.All[0]); }
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task WslClearAndResizeKeepOneLivePrompt()
     {

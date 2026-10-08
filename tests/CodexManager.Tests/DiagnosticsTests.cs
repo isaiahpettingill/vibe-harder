@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class DiagnosticsTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void ErrorLogsRotateAndCapIndividualEntries()
     {
@@ -16,6 +17,7 @@ public class DiagnosticsTests
         }
         finally { Directory.Delete(directory, true); }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void AnUnwritableLogLocationDoesNotThrowAnotherException()
     {

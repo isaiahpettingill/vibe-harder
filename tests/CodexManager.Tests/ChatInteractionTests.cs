@@ -6,6 +6,7 @@ namespace CodexManager.Tests;
 
 public class ChatInteractionTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public async Task RemoteExportCopiesEveryPageWithoutStartingAnAgent()
     {
@@ -24,6 +25,7 @@ public class ChatInteractionTests
         }
         Assert.Equal(Enumerable.Range(0, 137).Select(i => "Message " + i), text);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task CopiedChatsKeepCommandsButOmitToolOutput()
     {

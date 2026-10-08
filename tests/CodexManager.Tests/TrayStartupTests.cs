@@ -6,6 +6,7 @@ namespace CodexManager.Tests;
 
 public class TrayStartupTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]

@@ -7,6 +7,7 @@ namespace CodexManager.Tests;
 
 public class PresentationSleepTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task BackgroundToolUpdatesKeepInputsAfterHistoryEviction()
     {
@@ -44,6 +45,7 @@ public class PresentationSleepTests
         while (!predicate() && DateTime.UtcNow < deadline) await Task.Delay(20);
         Assert.True(predicate());
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task SwitchingBackWithinGraceKeepsHistoryThenInactiveHistoryUnloads()
     {
@@ -65,6 +67,7 @@ public class PresentationSleepTests
         }
         finally { window.RequestExit(); await Task.Delay(200); }
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task SleepKeepsTheOlderPageBeingReadAndLatestCanReload()
     {
@@ -98,6 +101,7 @@ public class PresentationSleepTests
         }
         finally { window.RequestExit(); await Task.Delay(200); }
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task SleepingUnloadsTranscriptWhileAgentRunsAndWakeRestoresIt()
     {

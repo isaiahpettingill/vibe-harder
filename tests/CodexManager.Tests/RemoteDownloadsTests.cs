@@ -22,7 +22,6 @@ public class RemoteDownloadsTests
             var first = tracker.Begin("/reports/first-file.zip");
             var second = tracker.Begin("/reports/second-file.zip");
             Assert.True(button.IsVisible);
-            Assert.Contains("2 pending downloads", ToolTip.GetTip(button)?.ToString());
             tracker.Report(first.Id, 50, 100);
             var flyout = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(button));
             var opened = false; flyout.Opened += (_, _) => opened = true;

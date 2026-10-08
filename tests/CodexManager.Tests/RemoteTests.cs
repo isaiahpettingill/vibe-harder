@@ -9,8 +9,9 @@ namespace CodexManager.Tests;
 
 public class RemoteTests
 {
+    [Trait("Category", "CI")]
     [Fact]
-    public async Task RemoteQuestionAppearsAboveComposerAndAnswerIsValidated()
+    public async Task RemoteQuestionIsListedAndAnswersAreValidatedAgainstItsSchema()
     {
         var directory = Path.Combine(Path.GetTempPath(), "vibe-question-test", Guid.NewGuid().ToString("N")); Directory.CreateDirectory(directory);
         using var store = new Store(directory);
@@ -41,6 +42,7 @@ public class RemoteTests
         Assert.Equal("two", (await pending.Task)["content"]!["option"]!.GetValue<string>());
         service.ForgetElicitation(id);
     }
+    [Trait("Category", "CI")]
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
@@ -96,12 +98,14 @@ public class RemoteTests
         using var revoked = new RemoteConnection(host);
         await Assert.ThrowsAnyAsync<Exception>(() => revoked.Connect(timeout.Token));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task RejectsOversizedFrameBeforeReadingPayload()
     {
         using var stream = new MemoryStream(new byte[] { 0x7f, 0xff, 0xff, 0xff });
         await Assert.ThrowsAsync<IOException>(() => RemoteWire.Read(stream, CancellationToken.None));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void ExpiredInviteCannotAuthorizeADevice()
     {

@@ -12,6 +12,7 @@ namespace CodexManager.Tests;
 
 public class UiTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task WorkspaceHistoryFiltersRemovesAndStartsLastProvider()
     {
@@ -42,6 +43,7 @@ public class UiTests
         Assert.Equal("1", saved.Setting("historyRemoved:gone"));
         Assert.Single(saved.Chats());
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ClosingWorkspaceKeepsChatsAndReopeningRestoresHierarchy()
     {
@@ -98,6 +100,7 @@ public class UiTests
         await WaitUntil(() => window.FindControl<Button>("SendButton")!.IsEnabled);
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task FailedSendKeepsInputTypedWhileConnecting()
     {
@@ -121,6 +124,7 @@ public class UiTests
     }
     private static string FixtureCommand => "node " + (OperatingSystem.IsWindows() ? "'" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs").Replace("'", "''") + "'" : Hosts.Quote(Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs")));
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task PaletteFiltersCommandsAndLoginUsesIntegratedTerminal()
     {
@@ -186,6 +190,7 @@ public class UiTests
         while (!ready() && DateTime.UtcNow < until) await Task.Delay(30);
         Assert.True(ready());
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task WslFolderPickerDiscoversDistrosAndNavigates()
     {

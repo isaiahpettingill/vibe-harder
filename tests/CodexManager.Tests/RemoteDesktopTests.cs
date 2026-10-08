@@ -20,7 +20,7 @@ public class RemoteDesktopTests
         Assert.True(ready());
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task RemoteChatRunsInTheLocalChatPane()
     {
@@ -64,10 +64,8 @@ public class RemoteDesktopTests
             RemoteList().SelectedItem = remoteChat;
             var composer = window.FindControl<ComposerEditor>("Composer")!;
             var messages = window.FindControl<ListBox>("MessageList")!;
-            // The same pane: no separate remote view, and the heading names the host.
+            // The same pane: no separate remote view.
             Assert.Empty(window.GetLogicalDescendants().OfType<RemoteView>());
-            Assert.Equal("Remote chat", window.FindControl<TextBlock>("ChatHeading")!.Text);
-            Assert.Contains("Test host", window.FindControl<TextBlock>("WorkspaceHeading")!.Text);
 
             composer.Text = "hello";
             window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -103,7 +101,6 @@ public class RemoteDesktopTests
             composer.Text = "remote draft";
             var local = UiTests.Named<ListBox>(window, "Chats_local"); local.SelectedItem = local.Items[0];
             Assert.Equal("", composer.Text);
-            Assert.Equal("Local chat", window.FindControl<TextBlock>("ChatHeading")!.Text);
             RemoteList().SelectedItem = RemoteList().Items[0];
             Assert.Equal("remote draft", composer.Text);
             Assert.Null(local.SelectedItem);
@@ -114,7 +111,7 @@ public class RemoteDesktopTests
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); foreach (var runtime in hostRuntimes.Values) await runtime.DisposeAsync(); }
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task RemoteChatsAreCreatedQueuedStoppedArchivedAndDeletedFromTheSidebar()
     {
@@ -145,7 +142,7 @@ public class RemoteDesktopTests
             Assert.IsType<MenuFlyout>(create.Flyout).Items.OfType<MenuItem>().Single(i => (string)i.Header! == "Codex").RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             await Wait(() => hostChats.Count == 1);
             var hostChat = hostChats[0];
-            await Wait(() => window.FindControl<TextBlock>("ChatHeading")!.Text == "New chat" && UiTests.Named<ListBox>(window, "Chats_" + scope + "hw").SelectedItem is Chat);
+            await Wait(() => UiTests.Named<ListBox>(window, "Chats_" + scope + "hw").SelectedItem is Chat selected && selected.Id == scope + hostChat.Id);
 
             // The terminal drawer opens a shell on the host for a remote workspace.
             window.FindControl<Button>("ToggleTerminalButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

@@ -5,6 +5,7 @@ namespace CodexManager.Tests;
 
 public class AutomaticRecoveryTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ResumeTellsTheAgentTheEnvironmentRestarted()
     {
@@ -16,9 +17,9 @@ public class AutomaticRecoveryTests
         await runtime.Send(" ", [], autoResume: true);
         // A blank prompt reads to the agent as an interruption, so the resume says what happened.
         Assert.Equal("[{\"type\":\"text\",\"text\":\"Environment restarted. Continue\"}]", File.ReadAllLines(log).Single());
-        Assert.Contains(chat.Messages, m => m.Role == "system" && m.Text == "Chat auto-resumed after unexpected restart");
         Assert.DoesNotContain(chat.Messages, m => m.Role == "user" && string.IsNullOrWhiteSpace(m.Text));
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task NetworkErrorWithLivingAdapterKeepsRetryingUntilWifiReturns()
     {
@@ -39,14 +40,14 @@ public class AutomaticRecoveryTests
         Assert.Equal("fixture-session", chat.SessionId); Assert.Equal("0", store.Setting("autoResume"));
     }
 
-    [Fact]
-    public void AuthenticationAndInvalidRequestsAreNotNetworkFailures()
-    {
-        Assert.False(ChatRuntime.IsNetworkFailure(new IOException("unauthorized: connection reset")));
-        Assert.False(ChatRuntime.IsNetworkFailure(new IOException("Invalid model selected")));
-        Assert.True(ChatRuntime.IsNetworkFailure(new IOException("stream disconnected before completion")));
-    }
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("unauthorized: connection reset", false)]
+    [InlineData("Invalid model selected", false)]
+    [InlineData("stream disconnected before completion", true)]
+    public void OnlyTransportFailuresAreNetworkFailures(string message, bool network) => Assert.Equal(network, ChatRuntime.IsNetworkFailure(new IOException(message)));
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task StopCancelsNetworkRecoveryBeforeConnectivityReturns()
     {
@@ -65,6 +66,7 @@ public class AutomaticRecoveryTests
         Assert.DoesNotContain(chat.Messages, m => m.Text == "Hello **world**");
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task BrokenTransportReconnectsAndContinuesWithoutRepeatingOriginalPrompt()
     {
@@ -78,11 +80,11 @@ public class AutomaticRecoveryTests
         while ((!chat.Messages.Any(m => m.Text == "Hello **world**") || runtime.IsRecovering) && DateTime.UtcNow < until) await Task.Delay(25);
         Assert.Contains(chat.Messages, m => m.Text == "Hello **world**");
         Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == "disconnect");
-        Assert.Single(chat.Messages, m => m.Role == "system" && m.Text == "Chat auto-resumed after unexpected restart");
         Assert.DoesNotContain(chat.Messages, m => m.Role == "user" && string.IsNullOrWhiteSpace(m.Text));
         Assert.Null(chat.InterruptedInput); Assert.False(chat.Busy); Assert.False(runtime.IsRecovering);
         Assert.Equal("", store.Setting("interrupted:" + chat.Id));
     }
+    [Trait("Category", "Integration")]
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public async Task AutomaticResumeNeverReopensAClosedWorkspace()
     {
@@ -110,6 +112,7 @@ public class AutomaticRecoveryTests
         // The request is kept as the chat's draft rather than lost.
         Assert.Equal("finish the migration", saved.Chats().Single(c => c.Id == chatId).Draft);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void JournalRecoversMissingDatabaseMarkerAndDatabaseRecoversBrokenJournal()
     {

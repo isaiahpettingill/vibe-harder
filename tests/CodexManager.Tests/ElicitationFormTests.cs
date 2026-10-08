@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class ElicitationFormTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void InlineCardReturnsEditedChoiceAndNote()
     {
@@ -60,14 +61,13 @@ public class ElicitationFormTests
         "rates_note":{"type":"string","title":"Additional answer or note","_meta":{"codex":{"questionId":"rates","role":"user_note"},"_askUserQuestionCustomAnswer":true,"jetbrains":{"air":{"version":1,"customAnswer":true}}}}},"required":["rates"]}}
         """;
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void WriteInAnswersAttachToTheirQuestionInEachAgentsFormat()
     {
         // Claude: the companion is the write-in, rendered under its own question, never as a loose field.
         var claude = Answer(ClaudeQuestion, card =>
         {
-            Assert.Equal(2, card.GetLogicalDescendants().OfType<TextBox>().Count(t => t.Name == "OtherAnswer"));
-            Assert.DoesNotContain(card.GetLogicalDescendants().OfType<TextBlock>(), t => t.FontWeight == Avalonia.Media.FontWeight.Medium && t.Text is "Other" or "Other *");
             card.GetLogicalDescendants().OfType<TextBox>().First().Text = "SQLite";
             Assert.True(Radio(card, "Other").IsChecked, "typing should select Other; Postgres=" + Radio(card, "Postgres").IsChecked);
             card.GetLogicalDescendants().OfType<CheckBox>().First().IsChecked = true;
@@ -92,36 +92,35 @@ public class ElicitationFormTests
         Assert.Equal("only this year", codexNote["content"]!["rates_note"]!.GetValue<string>());
     }
 
-    [Fact]
-    public void SupportsCodexAndClaudeChoiceSchemasAndValidatesAnswers()
+    private static readonly Dictionary<string, string> Schemas = new()
     {
-        var codex = JsonNode.Parse("""
-            {"mode":"form","message":"Choose an approach","requestedSchema":{"type":"object","properties":{"approach":{"type":"string","oneOf":[{"const":"simple","title":"Simple"},{"const":"broad","title":"Broad"}]},"note":{"type":"string"}},"required":["approach"]}}
-            """)!.AsObject();
-        Assert.Null(ElicitationForm.Validate(codex, new JsonObject { ["approach"] = "broad", ["note"] = "More tests" }));
-        Assert.NotNull(ElicitationForm.Validate(codex, new JsonObject { ["approach"] = "unknown" }));
-        Assert.NotNull(ElicitationForm.Validate(codex, new JsonObject()));
+        // codex-acp: a required single choice plus a free note.
+        ["choice"] = """{"mode":"form","message":"Choose an approach","requestedSchema":{"type":"object","properties":{"approach":{"type":"string","oneOf":[{"const":"simple","title":"Simple"},{"const":"broad","title":"Broad"}]},"note":{"type":"string"}},"required":["approach"]}}""",
+        // claude-agent-acp: a required multi-select with an "Other" companion.
+        ["multi"] = """{"mode":"form","requestedSchema":{"type":"object","properties":{"features":{"type":"array","items":{"type":"string","anyOf":[{"const":"search","title":"Search"},{"const":"sort","title":"Sort"}]},"minItems":1},"features_custom":{"type":"string","title":"Other"}},"required":["features"]}}""",
+        ["bounds"] = """{"mode":"form","requestedSchema":{"type":"object","properties":{"port":{"type":"integer","minimum":1,"maximum":65535},"name":{"type":"string","minLength":2,"pattern":"^[a-z]+$"}},"required":["port","name"]}}""",
+    };
 
-        var claude = JsonNode.Parse("""
-            {"mode":"form","requestedSchema":{"type":"object","properties":{"features":{"type":"array","items":{"type":"string","anyOf":[{"const":"search","title":"Search"},{"const":"sort","title":"Sort"}]},"minItems":1},"features_custom":{"type":"string","title":"Other"}},"required":["features"]}}
-            """)!.AsObject();
-        Assert.Null(ElicitationForm.Validate(claude, new JsonObject { ["features"] = new JsonArray("search", "sort"), ["features_custom"] = "Export" }));
-        Assert.NotNull(ElicitationForm.Validate(claude, new JsonObject { ["features"] = new JsonArray() }));
-        Assert.NotNull(ElicitationForm.Validate(claude, new JsonObject { ["features"] = new JsonArray("delete") }));
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("choice", """{"approach":"broad","note":"More tests"}""", true)]
+    [InlineData("choice", """{"approach":"unknown"}""", false)]
+    [InlineData("choice", """{}""", false)]
+    [InlineData("multi", """{"features":["search","sort"],"features_custom":"Export"}""", true)]
+    [InlineData("multi", """{"features":[]}""", false)]
+    [InlineData("multi", """{"features":["delete"]}""", false)]
+    [InlineData("bounds", """{"port":8080,"name":"web"}""", true)]
+    [InlineData("bounds", """{"port":1.5,"name":"web"}""", false)]
+    [InlineData("bounds", """{"port":70000,"name":"web"}""", false)]
+    [InlineData("bounds", """{"port":8080,"name":"A"}""", false)]
+    [InlineData("bounds", """{"port":8080,"name":"Web"}""", false)]
+    public void AnswersAreValidatedAgainstTheRequestedSchema(string schema, string answer, bool valid)
+    {
+        var request = JsonNode.Parse(Schemas[schema])!.AsObject();
+        Assert.Equal(valid, ElicitationForm.Validate(request, JsonNode.Parse(answer)!.AsObject()) is null);
     }
 
-    [Fact]
-    public void ChecksNumbersAndBoundsPatternEvaluation()
-    {
-        var request = JsonNode.Parse("""
-            {"mode":"form","requestedSchema":{"type":"object","properties":{"port":{"type":"integer","minimum":1,"maximum":65535},"name":{"type":"string","minLength":2,"pattern":"^[a-z]+$"}},"required":["port","name"]}}
-            """)!.AsObject();
-        Assert.Null(ElicitationForm.Validate(request, new JsonObject { ["port"] = 8080, ["name"] = "web" }));
-        Assert.NotNull(ElicitationForm.Validate(request, new JsonObject { ["port"] = 1.5, ["name"] = "web" }));
-        Assert.NotNull(ElicitationForm.Validate(request, new JsonObject { ["port"] = 70000, ["name"] = "web" }));
-        Assert.NotNull(ElicitationForm.Validate(request, new JsonObject { ["port"] = 8080, ["name"] = "A" }));
-    }
-
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task TypingInAQuestionKeepsFocusWhileTheChatUpdates()
     {
@@ -149,6 +148,7 @@ public class ElicitationFormTests
         finally { window.RequestExit(); var end = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < end) await Task.Delay(25); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void EnterSendsTheAnswerAndCtrlEnterAddsALine()
     {

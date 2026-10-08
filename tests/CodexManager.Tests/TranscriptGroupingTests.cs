@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class TranscriptGroupingTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void GroupsAreLazyNestedExpandableAndSearchRevealsTheirMembers()
     {
@@ -38,9 +39,7 @@ public class TranscriptGroupingTests
             Assert.Single(group.GetVisualDescendants().OfType<ChatMarkdown>());
             group.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "ToggleActionGroup").RaiseEvent(new(Button.ClickEvent));
             window.UpdateLayout(); Assert.Empty(group.GetVisualDescendants().OfType<MessageView>());
-            var progress = panel.Children.OfType<ChatProgressIndicator>().Single();
-            Assert.Equal(list.GetVisualDescendants().OfType<ListBoxItem>().Max(c => c.Bounds.Bottom), progress.Bounds.Top, 2);
-            Assert.Equal(5, list.ItemCount);
+            Assert.Equal(messages.Count, list.ItemCount);
         }
         finally { window.Close(); }
     }

@@ -4,7 +4,7 @@ namespace CodexManager.Tests;
 
 public class QueueTests
 {
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task FailedReconnectKeepsQueuedMessages()
     {
@@ -19,6 +19,7 @@ public class QueueTests
         Assert.DoesNotContain(chat.Messages, m => m.Role == "user");
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task MessagesQueuedDuringReconnectSendWhenReady()
     {
@@ -39,6 +40,7 @@ public class QueueTests
         Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == "queued while reconnecting");
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task EscapeInterruptsWithAllQueuedMessagesAndAttachments()
     {
@@ -59,6 +61,7 @@ public class QueueTests
         Assert.Equal(attachment, Assert.Single(sent.Attachments));
         await runtime.Stop();
     }
+    [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
@@ -79,6 +82,7 @@ public class QueueTests
         Assert.Equal(steering, !original.IsCompleted);
         await runtime.Stop();
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task QueueDrainsAfterCompletionButSurvivesStopAndRestart()
     {
@@ -102,6 +106,7 @@ public class QueueTests
         using var reopened = new Store(directory); Assert.Equal("keep queued", reopened.Chats().Single().QueuedInputs.Single().Text);
         Assert.Null(reopened.Chats().Single().InterruptedInput);
     }
+    [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]

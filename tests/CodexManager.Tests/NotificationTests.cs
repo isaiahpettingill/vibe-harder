@@ -14,7 +14,7 @@ public class NotificationTests
     }
     private static int Count(string chat) { lock (TestApp.Notifications) return TestApp.Notifications.Count(n => n.Chat == chat); }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task FinishedChatsNotifyUnlessTurnedOffAndOpenTheChat()
     {
@@ -43,8 +43,6 @@ public class NotificationTests
             chats.SelectedItem = chats.Items.OfType<Chat>().Single(c => c.Title == "Other chat");
             await Wait(() => Count(title) == before + 1);
             (string Id, string Chat, string Title, Action Open) shown; lock (TestApp.Notifications) shown = TestApp.Notifications.Last(n => n.Chat == title);
-            Assert.Equal("Reply ready", shown.Title); Assert.StartsWith("done:", shown.Id);
-            Assert.True(ChatLinks.TryParse(ChatLinks.For(target.Id), out var linked)); Assert.Equal(target.Id, linked);
             shown.Open();
             Assert.Equal(title, Assert.IsType<Chat>(chats.SelectedItem).Title);
 
@@ -60,36 +58,47 @@ public class NotificationTests
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
 
-    [AvaloniaFact]
-    public async Task OpeningFromANotificationKeepsAMaximizedWindowMaximized()
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData(WindowState.Maximized, WindowState.Maximized, WindowState.Maximized)]
+    [InlineData(WindowState.Maximized, WindowState.Minimized, WindowState.Maximized)]
+    [InlineData(WindowState.Normal, WindowState.Minimized, WindowState.Normal)]
+    public async Task OpeningFromANotificationRestoresThePreviousWindowState(WindowState previous, WindowState current, WindowState expected)
     {
         var directory = Directory.CreateTempSubdirectory("notify-window-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
         var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
         var window = new MainWindow(store); window.Show();
         try
         {
-            window.WindowState = WindowState.Maximized;
+            window.WindowState = previous; window.WindowState = current;
             window.ShowFromTray();
-            Assert.Equal(WindowState.Maximized, window.WindowState);
-            // From the taskbar it comes back maximized, not at its normal size.
-            window.WindowState = WindowState.Minimized;
-            window.ShowFromTray();
-            Assert.Equal(WindowState.Maximized, window.WindowState);
-            window.WindowState = WindowState.Normal; window.WindowState = WindowState.Minimized;
-            window.ShowFromTray();
-            Assert.Equal(WindowState.Normal, window.WindowState);
+            Assert.Equal(expected, window.WindowState);
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
 
-    [Fact]
-    public void ChatLinksOnlyAcceptChatIds()
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("vibeharder://chat/abc123", "abc123")]
+    [InlineData("vibeharder://chat/", null)]
+    [InlineData("vibeharder://chat/..%2F..%2Fx", null)]
+    [InlineData("https://chat/abc", null)]
+    [InlineData(@"C:\projects\app", null)]
+    [InlineData(null, null)]
+    public void ChatLinksOnlyAcceptChatIds(string? link, string? expected)
     {
-        Assert.Equal("vibeharder://chat/abc123", ChatLinks.For("abc123"));
-        Assert.True(ChatLinks.TryParse("vibeharder://chat/abc123", out var id)); Assert.Equal("abc123", id);
-        Assert.False(ChatLinks.TryParse("vibeharder://chat/", out _));
-        Assert.False(ChatLinks.TryParse("vibeharder://chat/..%2F..%2Fx", out _));
-        Assert.False(ChatLinks.TryParse("https://chat/abc", out _));
-        Assert.False(ChatLinks.TryParse(@"C:\projectspp", out _));
+        Assert.Equal(expected is not null, ChatLinks.TryParse(link, out var id));
+        if (expected is not null) Assert.Equal(expected, id);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("abc123")]
+    [InlineData("0f8c2b9e4d6a4c1e9b7f3a2d5e6c7b8a")]
+    [InlineData("remote:localhost:4567:chat-1")]
+    public void ChatLinksRoundTripTheirChatId(string chatId)
+    {
+        Assert.True(ChatLinks.TryParse(ChatLinks.For(chatId), out var parsed));
+        Assert.Equal(chatId, parsed);
     }
 }

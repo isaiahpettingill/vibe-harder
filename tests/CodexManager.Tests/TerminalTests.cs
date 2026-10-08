@@ -5,6 +5,7 @@ namespace CodexManager.Tests;
 
 public class TerminalTests
 {
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task CustomWindowsShellRunsQuotedExecutableThroughCmd()
     {
@@ -18,6 +19,7 @@ public class TerminalTests
         store.Setting("terminalCommand:windows", $"\"{powershell.Executable}\" -NoLogo -NoProfile");
         await RoundTrip(new Workspace("w", "Custom", directory), store);
     }
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task ConfiguredWslShellRunsInItsWorkspace()
     {
@@ -26,6 +28,7 @@ public class TerminalTests
         store.Setting("terminalCommand:wsl:Debian", "exec sh -i");
         await RoundTrip(new Workspace("w", "WSL", "/tmp", "Debian"), store);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void LoginUrlSurvivesSplitReadsAndAnsiWithoutLosingQueryParameters()
     {
@@ -37,12 +40,14 @@ public class TerminalTests
         Assert.Equal(link, output.Link);
         Assert.DoesNotContain("\u001b", output.Text, StringComparison.Ordinal);
     }
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task NativePtyAcceptsInputAndResizes()
     {
         var workspace = new Workspace("w", "Native", Path.GetTempPath());
         await RoundTrip(workspace);
     }
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task WslPtyStartsInLinuxWorkspace()
     {

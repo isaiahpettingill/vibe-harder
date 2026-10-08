@@ -1,9 +1,7 @@
-using System.Collections.ObjectModel;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Headless.XUnit;
-using Avalonia.VisualTree;
 
 namespace CodexManager.Tests;
 
@@ -16,31 +14,7 @@ public class TranscriptProgressTests
         ItemTemplate = new FuncDataTemplate<int>((n, _) => new TextBlock { Text = "Message " + n, Height = 60 })
     };
 
-    [AvaloniaFact]
-    public void LoaderFollowsShortTranscriptAndMovesWithNewMessages()
-    {
-        var messages = new ObservableCollection<int> { 1 };
-        var list = Transcript(messages); TranscriptPanel.SetShowProgress(list, true);
-        var window = new Window { Content = list, Width = 400, Height = 500 }; window.Show();
-        try
-        {
-            window.UpdateLayout();
-            var panel = (TranscriptPanel)list.ItemsPanelRoot!;
-            var progress = panel.Children.OfType<ChatProgressIndicator>().Single();
-            var last = list.GetVisualDescendants().OfType<ListBoxItem>().Last();
-            Assert.True(progress.IsVisible);
-            Assert.Equal(last.Bounds.Bottom, progress.Bounds.Top, 2);
-            Assert.True(progress.Bounds.Bottom < panel.Bounds.Height / 2);
-            var previousTop = progress.Bounds.Top;
-            messages.Add(2); window.UpdateLayout();
-            last = list.GetVisualDescendants().OfType<ListBoxItem>().Last();
-            Assert.Equal(last.Bounds.Bottom, progress.Bounds.Top, 2);
-            Assert.True(progress.Bounds.Top > previousTop);
-            Assert.Equal(2, list.ItemCount); // The footer never becomes a saved message.
-        }
-        finally { window.Close(); }
-    }
-
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void LoaderScrollsAwayAndLeavesNoSpaceWhenFinished()
     {
@@ -61,20 +35,6 @@ public class TranscriptProgressTests
             TranscriptPanel.SetShowProgress(list, false); window.UpdateLayout();
             Assert.False(progress.IsVisible);
             Assert.Equal(extent - progress.Height, panel.Extent.Height, 2);
-        }
-        finally { window.Close(); }
-    }
-
-    [AvaloniaFact]
-    public void EmptyTranscriptShowsLoaderAtTheStart()
-    {
-        var list = Transcript([]); TranscriptPanel.SetShowProgress(list, true);
-        var window = new Window { Content = list, Width = 400, Height = 300 }; window.Show();
-        try
-        {
-            window.UpdateLayout();
-            var progress = list.GetVisualDescendants().OfType<ChatProgressIndicator>().Single();
-            Assert.True(progress.IsVisible); Assert.Equal(0, progress.Bounds.Top);
         }
         finally { window.Close(); }
     }

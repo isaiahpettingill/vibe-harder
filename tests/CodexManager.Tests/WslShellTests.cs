@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class WslShellTests
 {
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task LaunchNeverRunsTheInteractiveShellAndFindsNvmDefaultNode()
     {
@@ -36,6 +37,7 @@ public class WslShellTests
         Assert.True(timer.Elapsed < TimeSpan.FromSeconds(15), timer.Elapsed.ToString());
     }
 
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task InstalledPiCanStartThroughTheWslBridge()
     {

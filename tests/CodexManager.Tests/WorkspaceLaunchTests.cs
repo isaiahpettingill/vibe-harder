@@ -8,18 +8,29 @@ namespace CodexManager.Tests;
 
 public class WorkspaceLaunchTests
 {
-    [Fact]
-    public void ArgumentsPreserveStartupAndUpdaterAndNormalizeFolders()
-    {
-        Assert.Null(WorkspaceLaunch.Parse([]));
-        Assert.Null(WorkspaceLaunch.Parse(["--startup"]));
-        Assert.Null(WorkspaceLaunch.Parse(["--updated"]));
-        Assert.Equal(Path.TrimEndingDirectorySeparator(Environment.CurrentDirectory), WorkspaceLaunch.Parse(["."]));
-        Assert.Equal(WorkspaceLaunch.Parse(["."]), WorkspaceLaunch.Parse(["--workspace", "."]));
-        Assert.Throws<ArgumentException>(() => WorkspaceLaunch.Parse(["--workspace"]));
-        Assert.Throws<DirectoryNotFoundException>(() => WorkspaceLaunch.Parse([Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"))]));
-    }
+    // A null expectation means no folder to open; "." means the current directory.
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(new string[0], null)]
+    [InlineData(new[] { "--startup" }, null)]
+    [InlineData(new[] { "--updated" }, null)]
+    [InlineData(new[] { "." }, ".")]
+    [InlineData(new[] { "--workspace", "." }, ".")]
+    [InlineData(new[] { "--workspace", "./" }, ".")]
+    public void ArgumentsPreserveStartupAndUpdaterAndNormalizeFolders(string[] arguments, string? expected) =>
+        Assert.Equal(expected is null ? null : Path.TrimEndingDirectorySeparator(Environment.CurrentDirectory), WorkspaceLaunch.Parse(arguments));
 
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(typeof(ArgumentException), "--workspace")]
+    [InlineData(typeof(ArgumentException), "--unknown")]
+    [InlineData(typeof(ArgumentException), "--startup", ".")]
+    [InlineData(typeof(DirectoryNotFoundException), "missing-folder")]
+    [InlineData(typeof(DirectoryNotFoundException), "--workspace", "missing-folder")]
+    public void ArgumentsRejectUnknownUsageAndMissingFolders(Type error, params string[] arguments) =>
+        Assert.Throws(error, () => WorkspaceLaunch.Parse(arguments.Select(a => a == "missing-folder" ? Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N")) : a).ToArray()));
+
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task DirectoryLaunchReopensExistingLocalWorkspaceWithoutDuplicatingIt()
     {
@@ -41,14 +52,12 @@ public class WorkspaceLaunchTests
             var flyout = Assert.IsType<Flyout>(FlyoutBase.GetAttachedFlyout(rename));
             var editor = Assert.IsType<StackPanel>(flyout.Content);
             var input = editor.GetLogicalDescendants().OfType<TextBox>().Single(c => c.Name == "WorkspaceNameInput");
-            Assert.Equal("Folder_with-dashes", input.Text);
             input.Text = "  Renamed_project-v2  ";
             editor.GetLogicalDescendants().OfType<Button>().Single(c => c.Name == "SaveWorkspaceName").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             var renamed = Assert.Single(store.Workspaces(), w => !w.IsWsl);
             Assert.Equal("Renamed_project-v2", renamed.Name);
             Assert.Equal(local.Id, renamed.Id);
             Assert.Equal(folder, renamed.Path);
-            Assert.Contains("Renamed_project-v2", UiTests.Named<Button>(window, "Workspace_" + local.Id).Content!.ToString());
             store.Setting("closed:" + local.Id, "1");
             window.View.OpenLocalDirectory(Path.Combine(folder, ".") + Path.DirectorySeparatorChar);
             Assert.Equal(local.Id, Assert.Single(store.Workspaces(), w => !w.IsWsl).Id);

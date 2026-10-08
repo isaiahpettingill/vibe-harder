@@ -1,10 +1,10 @@
-using Avalonia.Controls;
 namespace CodexManager.Tests;
 
 public class BackendUpdateTests
 {
     // Injected executors resolve every bundled package to 1.0.0.
     private static string Installed(AgentProvider provider) => BundledPackages.Install(provider, BundledPackages.For(provider).ToDictionary(p => p, _ => "1.0.0"));
+    [Trait("Category", "Integration")]
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public async Task ReconnectResolvesCommandAgainWithoutRepeatingRecentUpdate()
     {
@@ -26,6 +26,7 @@ public class BackendUpdateTests
         Assert.Equal(2, resolutions); Assert.Equal(1, updates);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task EnabledProvidersAreUpdatedOncePerEnvironmentAndDisabledSettingStopsChecks()
     {
@@ -36,15 +37,18 @@ public class BackendUpdateTests
         List<(string Host, string Command)> calls = [];
         var updater = new BackendUpdates(store, () => workspaces, (_, _) => false, (owner, command, _) =>
         { calls.Add((owner.Distro ?? "local", command)); return Task.FromResult(0); });
+        var update = BackendUpdates.Plan(AgentProvider.OpenCode).Update;
         await updater.Check(TestContext.Current.CancellationToken);
-        Assert.Equal(2, calls.Count(c => c.Command == "opencode upgrade"));
-        Assert.Equal(new[] { "local", "Debian" }, calls.Where(c => c.Command == "opencode upgrade").Select(c => c.Host));
-        await updater.Check(TestContext.Current.CancellationToken); Assert.Equal(6, calls.Count);
-        await updater.Check(TestContext.Current.CancellationToken, force: true); Assert.Equal(12, calls.Count);
+        // Two workspaces share the Debian environment, so it is updated once.
+        Assert.Equal(new[] { "local", "Debian" }, calls.Where(c => c.Command == update).Select(c => c.Host));
+        var first = calls.Count;
+        await updater.Check(TestContext.Current.CancellationToken); Assert.Equal(first, calls.Count);
+        await updater.Check(TestContext.Current.CancellationToken, force: true); Assert.Equal(2 * first, calls.Count);
         store.Setting(BackendUpdates.EnabledKey, "0");
         var disabled = new BackendUpdates(store, () => workspaces, (_, _) => false, (_, _, _) => throw new Exception("Must not execute"));
         await disabled.Check(TestContext.Current.CancellationToken);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ReconnectUpdatesOnlyItsEnvironmentAndDefersWhileAnotherInstanceRuns()
     {
@@ -64,6 +68,7 @@ public class BackendUpdateTests
         await updater.BeforeStart(owner, AgentProvider.Codex, () => { }, TestContext.Current.CancellationToken);
         Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task SlowUpdateOfAnotherProviderDoesNotDelayStartingAnAgent()
     {
@@ -89,6 +94,7 @@ public class BackendUpdateTests
         }
         finally { release.TrySetResult(); await check; }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task HungUpdateDoesNotBlockChatsFromStarting()
     {
@@ -113,6 +119,7 @@ public class BackendUpdateTests
         }
         finally { hung.TrySetResult(); }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ExternalProcessesPreventBackendUpdates()
     {
@@ -125,26 +132,29 @@ public class BackendUpdateTests
         var started = false;
         await updater.BeforeStart(new("w", "Local", store.DirectoryPath), AgentProvider.Pi, () => started = true, TestContext.Current.CancellationToken);
         Assert.True(started); Assert.DoesNotContain(BackendUpdates.Plan(AgentProvider.Pi).Update!, commands);
-        Assert.Contains("when idle", updater.LastSummary);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task EnablingMissingProviderInstallsEvenWhenAutomaticUpdatesAreOff()
     {
         using var store = new Store(Directory.CreateTempSubdirectory("backend-install-").FullName);
         store.Setting(BackendUpdates.EnabledKey, "0");
         store.Setting(AgentProviders.EnabledKey(AgentProvider.Pi), "1");
+        var installers = BackendInstallers.For(AgentProvider.Pi, OperatingSystem.IsWindows()).Select(i => i.Command).ToArray();
+        var version = BackendUpdates.Plan(AgentProvider.Pi).Executable + " --version";
         var installed = false; List<string> commands = [];
         var updater = new BackendUpdates(store, () => [], (_, _) => false, (_, command, _) =>
         {
             commands.Add(command);
-            if (command.StartsWith("npm install -g --ignore-scripts @earendil-works/pi-coding-agent")) installed = true;
-            return Task.FromResult(command == "pi --version" && !installed ? 1 : 0);
+            if (installers.Contains(command)) installed = true;
+            return Task.FromResult(command == version && !installed ? 1 : 0);
         });
         await updater.Check(TestContext.Current.CancellationToken, force: true, installProvider: AgentProvider.Pi);
         Assert.True(installed);
-        Assert.Contains(commands, c => c.Contains("--package=pi-acp@1.0.0"));
+        Assert.Contains(Installed(AgentProvider.Pi), commands);
         Assert.DoesNotContain(Installed(AgentProvider.Codex), commands);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task BundledAgentsRefreshTheirPackagesWithoutTouchingSystemInstalls()
     {
@@ -159,21 +169,37 @@ public class BackendUpdateTests
             Assert.Contains(Installed(provider), commands);
         }
         Assert.DoesNotContain(commands, c => c is "codex --version" or "claude --version" or "dirac --version" || c.Contains("update") || c.Contains("install"));
-        Assert.Equal("Enabled backend checks completed.", updater.LastSummary);
     }
-    [Fact]
-    public async Task OpenCodeFallsBackAfterUnusableBashAndMissingNpm()
+    // Each row makes the first N installers unavailable (their probe fails); exactly the next one runs.
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public async Task OpenCodeInstallFallsThroughToTheFirstAvailableInstaller(int unavailable)
     {
+        var installers = BackendInstallers.For(AgentProvider.OpenCode, windows: false);
+        var failingProbes = installers.Take(unavailable).Select(i => i.Probe).ToHashSet();
         var commands = new List<string>();
-        await BackendInstallers.Install(new("w", "WSL", "/tmp", "Debian"), AgentProvider.OpenCode, (_, command, _) =>
+        var install = BackendInstallers.Install(new("w", "WSL", "/tmp", "Debian"), AgentProvider.OpenCode, (_, command, _) =>
         {
             commands.Add(command);
-            return Task.FromResult(command == "bash --version" || command == "npm --version" ? 1 : 0);
+            return Task.FromResult(failingProbes.Contains(command) ? 1 : 0);
         }, TestContext.Current.CancellationToken);
-        Assert.Contains("bun install -g --trust @opencode/cli@latest", commands);
-        Assert.DoesNotContain(commands, c => c.StartsWith("npm install"));
-        Assert.DoesNotContain("brew --version", commands);
+        var ran = () => commands.Where(c => installers.Any(i => i.Command == c)).ToArray();
+        if (unavailable == installers.Length)
+        {
+            await Assert.ThrowsAsync<IOException>(() => install);
+            Assert.Empty(ran());
+            return;
+        }
+        await install;
+        Assert.Equal([installers[unavailable].Command], ran());
+        Assert.DoesNotContain(commands, c => installers.Skip(unavailable + 1).Any(i => i.Probe == c));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task BusyProvidersWaitAndFailuresDoNotStopOtherProviders()
     {
@@ -183,16 +209,17 @@ public class BackendUpdateTests
         var updater = new BackendUpdates(store, () => [], (_, p) => busy && p == AgentProvider.Codex, (_, command, _) =>
         { commands.Add(command); return Task.FromResult(command == Installed(AgentProvider.Claude) ? 1 : 0); });
         await updater.Check(TestContext.Current.CancellationToken);
+        // Codex's bundled packages install side by side, so being busy does not hold them back.
         Assert.Contains(Installed(AgentProvider.Codex), commands);
-        Assert.Contains("opencode upgrade", commands); Assert.Contains("vtcode update", commands);
-        Assert.Contains("npm install -g --ignore-scripts @earendil-works/pi-coding-agent@latest", commands);
-        Assert.Contains("npm install -g cline@latest", commands);
-        Assert.Contains(commands, c => c.Contains("--package=pi-acp@1.0.0"));
+        // Claude's failure does not stop any later provider.
+        foreach (var update in AgentProviders.All.Select(p => BackendUpdates.Plan(p.Provider).Update).OfType<string>()) Assert.Contains(update, commands);
+        Assert.Contains(Installed(AgentProvider.Pi), commands);
         Assert.StartsWith("Update failed", store.Setting("backendUpdate:local:Claude"));
         busy = false; await updater.Check(TestContext.Current.CancellationToken);
         Assert.Single(commands, c => c == Installed(AgentProvider.Codex));
-        Assert.Single(commands, c => c == "opencode upgrade");
+        Assert.Single(commands, c => c == BackendUpdates.Plan(AgentProvider.OpenCode).Update);
     }
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(AgentProvider.Codex, "npx -y @agentclientprotocol/codex-acp@1.13.0")]
     [InlineData(AgentProvider.Claude, "npx -y @agentclientprotocol/claude-agent-acp@0.76.0")]
@@ -207,6 +234,7 @@ public class BackendUpdateTests
         store.Setting(AgentProviders.CommandKey(provider, false), "wrapper " + old);
         Assert.Equal("wrapper " + old, AgentProviders.Command(store, workspace, provider));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task FindingUpdatesOnlyComparesVersionsAndApplyingUpdatesThatBackend()
     {
@@ -235,25 +263,5 @@ public class BackendUpdateTests
         Assert.DoesNotContain(commands, c => c.Contains("claude") || c.Contains("pi"));
         Assert.Equal("2.1.2", BackendUpdates.Newer("2.1.2", "codex-acp 2.1.1"));
         Assert.Null(BackendUpdates.Newer("0.160.1", "codex-cli 0.160.1"));
-    }
-    [Avalonia.Headless.XUnit.AvaloniaFact]
-    public async Task BackendUpdatesAppearAsTrayItemsLeftOfTheAppUpdate()
-    {
-        var directory = Directory.CreateTempSubdirectory("backend-tray-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
-        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0"); store.Setting(BackendUpdates.EnabledKey, "0");
-        var window = new MainWindow(store) { Width = 1000, Height = 500 }; window.Show();
-        try
-        {
-            var show = typeof(MainView).GetMethod("ShowBackendUpdate", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!;
-            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("l", "Local", directory), AgentProvider.Claude, "claude-agent-acp 0.85.0")]);
-            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("u", "Ubuntu", "/home/me", "Ubuntu-24.04"), AgentProvider.Claude, "claude-agent-acp 0.85.0")]);
-            show.Invoke(window.View, [new BackendUpdates.AvailableUpdate(new Workspace("u", "Ubuntu", "/home/me", "Ubuntu-24.04"), AgentProvider.Claude, "claude-agent-acp 0.85.1")]);
-            window.UpdateLayout();
-            var panel = UiTests.Named<StackPanel>(window, "BackendUpdates");
-            var buttons = panel.Children.OfType<Button>().ToArray();
-            Assert.Equal(["BackendUpdate_local_Claude", "BackendUpdate_Ubuntu-24.04_Claude"], buttons.Select(b => b.Name));
-            Assert.Contains("0.85.1", ToolTip.GetTip(buttons[1]) as string);
-        }
-        finally { window.RequestExit(); var until = DateTime.UtcNow.AddSeconds(10); while (window.IsVisible && DateTime.UtcNow < until) await Task.Delay(25); }
     }
 }

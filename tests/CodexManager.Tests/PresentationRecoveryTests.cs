@@ -7,6 +7,7 @@ namespace CodexManager.Tests;
 
 public class PresentationRecoveryTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ReloadingFailedChatPresentationKeepsActiveAgentAndDraft()
     {
@@ -30,7 +31,7 @@ public class PresentationRecoveryTests
             Assert.Same(chat, UiTests.Named<ListBox>(window, "Chats_w").SelectedItem);
             await window.View.RecoverAfterError(failure); await window.View.RecoverAfterError(failure);
             Assert.True(window.IsVisible); Assert.True(chat.Busy);
-            Assert.Contains(window.GetLogicalDescendants().OfType<Button>(), b => Equals(b.Content, "Reload chat") && b.IsVisible);
+            Assert.Contains(window.GetLogicalDescendants().OfType<Border>(), b => b.Name == "ChatRecoveryNotice" && b.IsVisible);
             var list = UiTests.Named<ListBox>(window, "Chats_w"); list.SelectedItem = list.Items.OfType<Chat>().Single(c => c.Id == "other");
             Assert.DoesNotContain(window.GetLogicalDescendants().OfType<Border>(), b => b.Name == "ChatRecoveryNotice");
             Assert.True(chat.Busy);

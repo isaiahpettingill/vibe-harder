@@ -11,6 +11,7 @@ namespace CodexManager.Tests;
 
 public class MobileInteractionTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public async Task AttachmentsPreserveTextImagesAndBinaryFiles()
     {
@@ -24,6 +25,7 @@ public class MobileInteractionTests
         await Assert.ThrowsAsync<IOException>(() => AttachmentFiles.Read("large.txt", new MemoryStream(new byte[AttachmentFiles.MaximumBytes + 1]), TestContext.Current.CancellationToken));
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task NewSessionsDefaultToFullAccessAndCanBeChangedAfterwards()
     {
@@ -43,6 +45,7 @@ public class MobileInteractionTests
         Assert.Equal("ask", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task RemoteFolderPickerBrowsesHostAndOpensSelectedChild()
     {
@@ -71,6 +74,7 @@ public class MobileInteractionTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void KeyboardInsetsReserveSpaceAndRestoreItWhenClosed()
     {
@@ -83,6 +87,7 @@ public class MobileInteractionTests
         Assert.Equal(0, view.FindControl<Grid>("RootPanes")!.Margin.Bottom); view.DisposeMobile();
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void NativeInsetsClearStaleKeyboardSpaceAndDoNotDoubleCountResize()
     {

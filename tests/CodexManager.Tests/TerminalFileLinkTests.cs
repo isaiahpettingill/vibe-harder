@@ -2,12 +2,14 @@ namespace CodexManager.Tests;
 
 public class TerminalFileLinkTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void RemoteFilesAreNotLinks()
     {
         Assert.Empty(TerminalFileLinks.Find("/home/me/main.cs C:\\repo\\main.cs", null));
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void WslFilesUseTheirDistributionNetworkPathAndStripLocations()
     {
@@ -18,6 +20,7 @@ public class TerminalFileLinkTests
         Assert.Empty(TerminalFileLinks.Find("https://example.com/file.cs", workspace));
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void QuotedWindowsPathsKeepSpaces()
     {

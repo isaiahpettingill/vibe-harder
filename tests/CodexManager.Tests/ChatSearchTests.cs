@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class ChatSearchTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public async Task SearchesFullHistoryLiterallyWithoutStartingAnAgent()
     {

@@ -17,6 +17,7 @@ namespace CodexManager.Tests;
 
 public class WebAccessTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task WebSettingIsOptInAndDoesNotReconfigureNativeConnections()
     {
@@ -38,6 +39,7 @@ public class WebAccessTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task CompletedBundleIsReusedWithoutDownloading()
     {
@@ -48,7 +50,7 @@ public class WebAccessTests
         await File.WriteAllTextAsync(Path.Combine(bundle, ".complete"), WebAssets.Version, TestContext.Current.CancellationToken);
         Assert.Equal(bundle, await WebAssets.Ensure(directory, _ => Assert.Fail("A completed cache must not download again."), TestContext.Current.CancellationToken));
     }
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ServesAssetsPairsAuthenticatesAndRevokesBrowser()
     {
@@ -120,6 +122,7 @@ public class WebAccessTests
         await Assert.ThrowsAnyAsync<Exception>(async () => await WebSocketWire.Read(authenticated, timeout.Token));
         Assert.Equal(3, handled);
     }
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("../escape.js")]
     [InlineData("/escape.js")]
@@ -132,6 +135,7 @@ public class WebAccessTests
         using (var zip = ZipFile.Open(file, ZipArchiveMode.Create)) zip.CreateEntry(name);
         Assert.Throws<IOException>(() => WebAssets.Extract(file, Path.Combine(directory, "output"), TestContext.Current.CancellationToken));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void RequiresExactReleaseAndChecksum()
     {

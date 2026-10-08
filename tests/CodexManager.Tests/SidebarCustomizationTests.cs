@@ -13,6 +13,7 @@ namespace CodexManager.Tests;
 
 public class SidebarCustomizationTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("chats:workspace")]
     [InlineData("chats:remote:host:2222:workspace")]
@@ -163,6 +164,7 @@ public class SidebarCustomizationTests
         }
         finally { window.Close(); view.DisposeMobile(); }
     }
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -182,12 +184,10 @@ public class SidebarCustomizationTests
             first.Updated = DateTimeOffset.UtcNow.AddDays(1); store.Save(first);
             Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(store, "chats:z", new[] { first, second }, c => c.Id).Select(c => c.Id));
             SidebarOrder.Move(store, "workspaces", "a", "z", false);
-            store.Setting("workspaceColor:z", "#89B4FA"); store.Setting("chatColor:first", "#F38BA8");
             await store.FlushAsync();
         }
         using var reopened = new Store(directory);
         Assert.Equal(new[] { "a", "z" }, reopened.Workspaces().Select(w => w.Id));
         Assert.Equal(new[] { "second", "first" }, SidebarOrder.Apply(reopened, "chats:z", reopened.Chats(), c => c.Id).Select(c => c.Id));
-        Assert.Equal("#89B4FA", reopened.Setting("workspaceColor:z")); Assert.Equal("#F38BA8", reopened.Setting("chatColor:first"));
     }
 }

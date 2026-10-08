@@ -19,6 +19,7 @@ public class TranscriptOutlineTests
         ItemTemplate = new FuncDataTemplate<Message>((m, _) => new TextBlock { Text = m!.Text, Height = 60 })
     };
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task ScrollbarSpansTheWholeChatAndDraggingLoadsThatPartWithoutJumping()
     {
@@ -48,11 +49,14 @@ public class TranscriptOutlineTests
             for (var step = 0; step < 40 && requests.Count == 0; step++) { scroll.Offset = new Vector(0, scroll.Offset.Y - 150); window.UpdateLayout(); await Task.Delay(10); }
             Assert.Contains(requests, r => !r.Newer && r.Around is null);
             Assert.NotEmpty(list.GetRealizedContainers());
+            // Let that page load settle; scrolling while a page is still loading is ignored.
+            for (var i = 0; i < 5; i++) { await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background); window.UpdateLayout(); }
 
             // Dragging the thumb to the middle loads the messages there, and the view stays put.
             var middle = scroll.Extent.Height / 2;
             scroll.Offset = new Vector(0, middle); window.UpdateLayout();
-            await Task.Delay(50); window.UpdateLayout();
+            for (var wait = 0; wait < 100 && !requests.Any(r => r.Around is not null); wait++) await Task.Delay(20);
+            window.UpdateLayout();
             var around = Assert.Single(requests, r => r.Around is not null).Around!.Value;
             Assert.InRange(around, Total / 2 - 100, Total / 2 + 100);
             Assert.InRange(scroll.Offset.Y, middle - scroll.Viewport.Height, middle + scroll.Viewport.Height);

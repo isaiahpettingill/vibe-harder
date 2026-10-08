@@ -6,16 +6,33 @@ namespace CodexManager.Tests;
 
 public class NewFolderTests
 {
+    [Trait("Category", "CI")]
     [Fact]
-    public async Task HostCreatesOneFolderAndRejectsTraversalAndDuplicates()
+    public async Task HostCreatesOneFolderAndRejectsDuplicatesAndMissingParents()
     {
         var parent = Directory.CreateTempSubdirectory("new-workspace-").FullName;
         var created = await Hosts.CreateDirectory(null, parent, "Project with spaces");
         Assert.Equal(Path.Combine(parent, "Project with spaces"), created); Assert.True(Directory.Exists(created));
         await Assert.ThrowsAsync<IOException>(() => Hosts.CreateDirectory(null, parent, "Project with spaces"));
-        foreach (var name in new[] { "", "..", "../outside", "a/b", "a\\b" })
-            await Assert.ThrowsAsync<ArgumentException>(() => Hosts.CreateDirectory(null, parent, name));
         await Assert.ThrowsAsync<DirectoryNotFoundException>(() => Hosts.CreateDirectory(null, Path.Combine(parent, "missing"), "child"));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("")]
+    [InlineData(" ")]
+    [InlineData(".")]
+    [InlineData("..")]
+    [InlineData("../outside")]
+    [InlineData("..\\outside")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    [InlineData("a\tb")]
+    public async Task HostRejectsFolderNamesThatAreNotASingleChild(string name)
+    {
+        var parent = Directory.CreateTempSubdirectory("new-workspace-").FullName;
+        await Assert.ThrowsAsync<ArgumentException>(() => Hosts.CreateDirectory(null, parent, name));
+        Assert.Empty(Directory.EnumerateFileSystemEntries(parent));
     }
 
     [AvaloniaFact]

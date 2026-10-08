@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class AppInstanceTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(null)]
     [InlineData("/tmp/a folder/日本語")]

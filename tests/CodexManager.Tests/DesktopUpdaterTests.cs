@@ -6,6 +6,7 @@ namespace CodexManager.Tests;
 
 public class DesktopUpdaterTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
@@ -37,6 +38,7 @@ public class DesktopUpdaterTests
         };
     }
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("win-x64", "aot")]
     [InlineData("win-arm64", "bundled")]
@@ -57,6 +59,7 @@ public class DesktopUpdaterTests
         Assert.Null(DesktopUpdater.SelectRelease(release, new Version(1, 0, 0), runtime, mode));
     }
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("digest", "sha256:wrong")]
     [InlineData("browser_download_url", "https://example.com/update.exe")]
@@ -74,6 +77,7 @@ public class DesktopUpdaterTests
             => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(bytes) });
     }
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData(false, 3)]
     [InlineData(true, 3)]
@@ -100,6 +104,7 @@ public class DesktopUpdaterTests
         finally { Directory.Delete(root, true); }
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void InstallerQuotesPathsAsLiteralData()
     {

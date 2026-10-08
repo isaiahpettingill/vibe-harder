@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class ProviderAuthenticationTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void VtStatusDistinguishesCredentialsFromMissingAndLocalOrManagedPlaceholders()
     {
@@ -12,15 +13,22 @@ public class ProviderAuthenticationTests
         Assert.Empty(ProviderAuthentication.Filter([option], []).Single().Values);
         Assert.Equal(2, ProviderAuthentication.Filter([option], null).Single().Values.Count);
     }
-    [Fact]
-    public void VtLoginMigratesTheBrokenDefaultButKeepsCustomCommands()
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(AgentProvider.VTCode, null, false)]
+    [InlineData(AgentProvider.VTCode, "vtcode login", false)]
+    [InlineData(AgentProvider.VTCode, "  vtcode login  ", false)]
+    [InlineData(AgentProvider.VTCode, "vtcode login openrouter", true)]
+    [InlineData(AgentProvider.Claude, "npx -y @anthropic-ai/claude-code@2.1.268 auth login", false)]
+    [InlineData(AgentProvider.Claude, "claude setup-token", true)]
+    [InlineData(AgentProvider.Dirac, "npx -y dirac-cli@0.5.13 auth", false)]
+    public void SavedLoginCommandsReplaceOnlyKnownBrokenDefaults(AgentProvider provider, string? saved, bool kept)
     {
         using var store = new Store(Directory.CreateTempSubdirectory("vt-login-").FullName);
         var workspace = new Workspace("w", "Test", store.DirectoryPath);
-        Assert.Equal("vtcode login openai", AgentProviders.LoginCommand(store, workspace, AgentProvider.VTCode));
-        store.Setting("VTCode:localLoginCommand", "vtcode login");
-        Assert.Equal("vtcode login openai", AgentProviders.LoginCommand(store, workspace, AgentProvider.VTCode));
-        store.Setting("VTCode:localLoginCommand", "vtcode login openrouter");
-        Assert.Equal("vtcode login openrouter", AgentProviders.LoginCommand(store, workspace, AgentProvider.VTCode));
+        var fallback = AgentProviders.LoginCommand(store, workspace, provider);
+        if (saved is not null) store.Setting(provider + ":localLoginCommand", saved);
+        Assert.Equal(kept ? saved : fallback, AgentProviders.LoginCommand(store, workspace, provider));
+        if (!kept && saved is not null) Assert.NotEqual(saved.Trim(), fallback);
     }
 }

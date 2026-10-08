@@ -7,6 +7,7 @@ namespace CodexManager.Tests;
 
 public class MobileAppSecurityTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void FilePickerExemptsOnlyOnePauseAndAlwaysCleansUp()
     {
@@ -29,6 +30,7 @@ public class MobileAppSecurityTests
         public TimeSpan LockAfter { get; set; }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task SettingWaitsForAuthenticationAndPreservesStateOnCancellation()
     {
@@ -43,8 +45,7 @@ public class MobileAppSecurityTests
             Assert.True(security.Enabled);
             security.Result.SetResult("Authentication cancelled.");
             await Task.Yield();
-            Assert.True(button.IsEnabled);
-            Assert.Equal("Turn off biometric unlock", button.Content);
+            Assert.True(button.IsEnabled); Assert.True(security.Enabled);
             Assert.Equal("Authentication cancelled.", settings.GetLogicalDescendants().OfType<TextBlock>().Single(b => b.Name == "BiometricUnlockStatus").Text);
         }
         finally { MobileAppSecurity.Current = null; }

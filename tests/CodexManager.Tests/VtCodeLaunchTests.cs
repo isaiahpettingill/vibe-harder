@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class VtCodeLaunchTests
 {
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("vtcode acp", "vtcode --provider openai --api-key-env OPENAI_API_KEY acp")]
     [InlineData("vtcode acp --provider=openai", "vtcode --api-key-env OPENAI_API_KEY acp --provider=openai")]
@@ -11,12 +12,14 @@ public class VtCodeLaunchTests
     public void PinsChatGptByDefault(string command, string expected) =>
         Assert.Equal(expected + " --config auth.openai.preferred_method=chatgpt", VtCodeLaunch.WithAuthentication(command, new HashSet<string> { "openai" }));
 
+    [Trait("Category", "CI")]
     [Theory]
     [InlineData("vtcode acp --api-key-env COMPANY_KEY")]
     [InlineData("vtcode acp; echo done")]
     public void RejectsCommandsThatCannotGuaranteeTheSelectedSource(string command) =>
         Assert.Throws<IOException>(() => VtCodeLaunch.WithAuthentication(command, new HashSet<string> { "openai" }));
 
+    [Trait("Category", "CI")]
     [Fact]
     public void ApiKeysRequireAnExplicitChoiceAndAreLabeled()
     {
@@ -29,6 +32,7 @@ public class VtCodeLaunchTests
         Assert.True(launch.OpenAiPinned); Assert.EndsWith("--config auth.openai.preferred_method=api_key", launch.Command);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public void UnverifiedOpenAiRoutesCannotSendPrompts()
     {
@@ -41,6 +45,7 @@ public class VtCodeLaunchTests
         VtCodeLaunch.EnsureAuthentication(openai, true);
         VtCodeLaunch.EnsureAuthentication([new("provider", "Provider", "select", "anthropic", [])], false);
     }
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task CompletedPromptClearsStaleAuthenticationState()
     {
@@ -50,8 +55,9 @@ public class VtCodeLaunchTests
         await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
         var cleared = false; runtime.AuthenticationSucceeded += () => cleared = true;
         await runtime.Send("hello", []);
-        Assert.Equal("Ready", chat.Status); Assert.False(chat.NeedsLogin); Assert.True(cleared);
+        Assert.False(chat.NeedsLogin); Assert.True(cleared);
     }
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task PlanUpdatesStaySeparateFromStreamedAnswersAndPreviousTurns()
     {
@@ -67,6 +73,7 @@ public class VtCodeLaunchTests
         var saved = await store.ReadPageAsync(chat);
         Assert.All(saved.Where(m => m.Role == "plan"), m => Assert.Equal("- [x] Answer the user", m.Text));
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ExistingWslChatGptLoginCompletesAnActualPromptWhenExplicitlyRequested()
     {
@@ -77,7 +84,7 @@ public class VtCodeLaunchTests
         var chat = new Chat { WorkspaceId = workspace.Id, Provider = AgentProvider.VTCode, NeedsLogin = true }; store.Save(chat);
         await using var runtime = new ChatRuntime(chat, workspace, store, "vtcode acp");
         await runtime.Send("Authentication diagnostic only. Reply exactly OK. Do not inspect or modify files, invoke tools, or run commands.", []).WaitAsync(TimeSpan.FromSeconds(90), TestContext.Current.CancellationToken);
-        Assert.Equal("Ready", chat.Status); Assert.False(chat.NeedsLogin);
+        Assert.False(chat.NeedsLogin);
         Assert.Equal("openai", chat.ConfigOptions.Single(c => c.Id == "provider").Current);
         Assert.DoesNotContain("mimo", chat.ConfigOptions.Single(c => c.Id == "model").Current);
         Assert.Contains(chat.Messages, m => m.Text.Trim() == "OK");

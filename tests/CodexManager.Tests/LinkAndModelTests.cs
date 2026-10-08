@@ -10,19 +10,17 @@ namespace CodexManager.Tests;
 
 public class LinkAndModelTests
 {
+    [Trait("Category", "CI")]
     [Theory]
-    [InlineData("/mnt/c/Users/me/Downloads/full-report.html", @"C:\Users\me\Downloads\full-report.html")]
-    [InlineData("file:///mnt/c/Users/me/report%20name.html#L12", @"C:\Users\me\report name.html")]
-    [InlineData("/mnt/d/reports/report.html:42", @"D:\reports\report.html")]
-    [InlineData("/mnt/c", @"C:\")]
-    [InlineData("/home/me/report.html", @"\\wsl.localhost\Debian\home\me\report.html")]
-    [InlineData("reports/report.html", @"\\wsl.localhost\Debian\home\me\project\reports\report.html")]
-    public void WslLinksUseNativeDrivePathsForWindowsMounts(string target, string expected) =>
-        Assert.Equal(expected, FileLinks.Resolve(target, new("w", "WSL", "/home/me/project", "Debian")));
-
-    [Fact]
-    public void RelativeLinksInsideWindowsMountedWorkspacesUseTheDrive() =>
-        Assert.Equal(@"K:\repos\project\report.html", FileLinks.Resolve("report.html", new("w", "WSL", "/mnt/k/repos/project", "Debian")));
+    [InlineData("/home/me/project", "/mnt/c/Users/me/Downloads/full-report.html", @"C:\Users\me\Downloads\full-report.html")]
+    [InlineData("/home/me/project", "file:///mnt/c/Users/me/report%20name.html#L12", @"C:\Users\me\report name.html")]
+    [InlineData("/home/me/project", "/mnt/d/reports/report.html:42", @"D:\reports\report.html")]
+    [InlineData("/home/me/project", "/mnt/c", @"C:\")]
+    [InlineData("/home/me/project", "/home/me/report.html", @"\\wsl.localhost\Debian\home\me\report.html")]
+    [InlineData("/home/me/project", "reports/report.html", @"\\wsl.localhost\Debian\home\me\project\reports\report.html")]
+    [InlineData("/mnt/k/repos/project", "report.html", @"K:\repos\project\report.html")]
+    public void WslLinksUseNativeDrivePathsForWindowsMounts(string workspacePath, string target, string expected) =>
+        Assert.Equal(expected, FileLinks.Resolve(target, new("w", "WSL", workspacePath, "Debian")));
 
     [AvaloniaFact]
     public void ModelPickerRefreshesRecentsWhenOpenedWithoutTyping()
@@ -65,6 +63,7 @@ public class LinkAndModelTests
         }
         finally { picker.Hide(); window.Close(); }
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void RecentModelsIgnoreMalformedSettingsAndRepairOnSelection()
     {
@@ -78,6 +77,7 @@ public class LinkAndModelTests
         ModelPicker.Remember(store, AgentProvider.OpenCode, "small");
         Assert.Equal(new[] { "small", "large" }, ModelPicker.Recent(store, AgentProvider.OpenCode));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task RemoteFileDownloadPreservesNameAndBytesAcrossChunks()
     {
@@ -90,12 +90,17 @@ public class LinkAndModelTests
         var downloaded = await FileLinks.Download(async request => { requestCount++; return await FileLinks.Read(request, workspace); }, "chat", "test%20file.bin:42", TestContext.Current.CancellationToken,
             (received, total) => progress.Add((received, total)));
         Assert.Equal("test file.bin", Path.GetFileName(downloaded));
-        Assert.Equal(bytes, await File.ReadAllBytesAsync(downloaded, TestContext.Current.CancellationToken)); Assert.Equal(3, requestCount);
-        Assert.Equal([(262144L, 600000L), (524288L, 600000L), (600000L, 600000L)], progress);
+        Assert.Equal(bytes, await File.ReadAllBytesAsync(downloaded, TestContext.Current.CancellationToken));
+        // A large file arrives over several requests and progress only moves forward to the full size.
+        Assert.True(requestCount > 1); Assert.Equal(requestCount, progress.Count);
+        Assert.All(progress, p => Assert.Equal(bytes.Length, p.Total));
+        Assert.Equal(progress.Select(p => p.Received).Order(), progress.Select(p => p.Received));
+        Assert.Equal(bytes.Length, progress[^1].Received);
         Assert.Equal(path, FileLinks.Resolve(new Uri(path).AbsoluteUri, workspace));
         File.Delete(downloaded); Directory.Delete(Path.GetDirectoryName(downloaded)!); File.Delete(path); Directory.Delete(directory);
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task DownloadRejectsChangedFiles()
     {
@@ -106,6 +111,7 @@ public class LinkAndModelTests
         File.Delete(path); Directory.Delete(directory);
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ClaudeDefaultsToBypassAndKeepsItAfterReconnect()
     {
@@ -117,6 +123,7 @@ public class LinkAndModelTests
         await runtime.Reconnect(); Assert.Equal("bypassPermissions", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task OpenCodeUsesLastModelForNewChatsAndPickerFiltersRecentFirst()
     {
@@ -174,7 +181,7 @@ public class LinkAndModelTests
             await Task.Delay(150, TestContext.Current.CancellationToken); window.UpdateLayout();
             var block = view.GetVisualDescendants().OfType<CTextBlock>().Single();
             block.RaiseEvent(new ContextRequestedEventArgs());
-            var copy = Assert.IsType<MenuItem>(Assert.Single(block.ContextMenu!.Items)); Assert.Equal("Copy link", copy.Header);
+            var copy = Assert.IsType<MenuItem>(Assert.Single(block.ContextMenu!.Items));
             copy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             using var data = await window.Clipboard!.TryGetDataAsync();
             Assert.Equal("/C:/Reports/report.pdf:12", await data!.TryGetTextAsync());

@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class StoreTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public void ExistingDatabaseMigratesWithoutChangingCodexSessions()
     {
@@ -23,6 +24,7 @@ public class StoreTests
         Assert.Equal("Keep this draft", chat.Draft); Assert.False(chat.Archived);
         upgraded.Save(chat);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void RoundTripPreservesDistroSessionDraftAndOrderedTranscript()
     {
@@ -48,6 +50,7 @@ public class StoreTests
         reopened.Delete(resumed);
         Assert.Empty(reopened.Chats()); Assert.Single(reopened.Workspaces());
     }
+    [Trait("Category", "CI")]
     [Fact]
     public void WslArgumentsKeepPathAsOneArgument()
     {

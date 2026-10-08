@@ -13,6 +13,7 @@ public class CodexAsyncQuestionTests
         payload = new { type = "function_call", name, arguments = JsonSerializer.Serialize(arguments), call_id = callId }
     });
 
+    [Trait("Category", "CI")]
     [Fact]
     public void RolloutCallsBecomeQuestionsAndRepliesUseCodexEnvelope()
     {
@@ -37,6 +38,7 @@ public class CodexAsyncQuestionTests
         Assert.Equal("plain text", CodexAsyncQuestions.Display("plain text"));
     }
 
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task QuestionsAskedDuringATurnAreShownAndAnsweredAfterIt()
     {
@@ -57,7 +59,7 @@ public class CodexAsyncQuestionTests
         await runtime.Send("async-question:" + rollout, []).WaitAsync(TimeSpan.FromSeconds(15));
         var request = await asked.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.Equal("Which rates apply?", request.GetProperty("requestedSchema").GetProperty("properties").GetProperty("q0").GetProperty("title").GetString());
-        Assert.Equal("Needs input", chat.Status);
+        Assert.True(chat.NeedsPermission);
         var texts = chat.Messages.Select(m => m.Text).ToArray();
         Assert.Contains("Heads up: **staging** is down.", texts);
         Assert.Contains("**Which rates apply?**\n- 1x / 1x / 1x\n- Ask the manager\n\n**Anything else?**", texts);
@@ -71,6 +73,6 @@ public class CodexAsyncQuestionTests
         var reply = chat.Messages.Last(m => m.Role == "user");
         Assert.Equal("> Which rates apply?\n\nAsk the manager\n\n> Anything else?\n\nNo", reply.Text);
         Assert.Empty(chat.QueuedInputs);
-        Assert.NotEqual("Needs input", chat.Status);
+        Assert.False(chat.NeedsPermission);
     }
 }

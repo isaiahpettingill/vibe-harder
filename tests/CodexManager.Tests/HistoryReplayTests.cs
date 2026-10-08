@@ -6,6 +6,7 @@ namespace CodexManager.Tests;
 
 public class HistoryReplayTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ReadOnlyOpenCodeReplay()
     {

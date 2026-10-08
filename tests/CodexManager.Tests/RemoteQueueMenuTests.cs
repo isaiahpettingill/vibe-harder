@@ -9,16 +9,23 @@ namespace CodexManager.Tests;
 
 public class RemoteQueueMenuTests
 {
-    [AvaloniaFact]
-    public async Task MessageMenuOffersCopyAndAttachmentsWithoutHistorySupport()
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("user", "{\"reason\":\"Unsupported\"}", 0)]
+    [InlineData("user", null, 0)]
+    [InlineData("user", "{\"edit\":true}", 1)]
+    [InlineData("assistant", "{\"edit\":true}", 0)]
+    [InlineData("assistant", "{\"point\":true}", 2)]
+    public async Task MessageMenuAlwaysCopiesAndAddsOnlyTheHistoryActionsTheHostOffers(string role, string? options, int historyActions)
     {
         var anchor = new Button(); var window = new Window { Content = anchor }; window.Show();
         try
         {
-            var message = new Message { Role = "user", Text = "Copy this message" };
+            var message = new Message { Role = role, Text = "Copy this message" };
             message.Attachments.Add(new Attachment("notes.txt", "text/plain", "notes"));
-            var menu = await HistoryActions.Show(anchor, message, _ => Task.FromResult<JsonNode?>(new JsonObject { ["reason"] = "Unsupported" }), _ => { });
-            Assert.Equal(new[] { "Copy text", "Show attachments" }, menu.Items.OfType<MenuItem>().Select(i => i.Header));
+            var menu = await HistoryActions.Show(anchor, message, _ => Task.FromResult(options is null ? null : JsonNode.Parse(options)), _ => { });
+            // Copy and Show attachments are local and never depend on the host.
+            Assert.Equal(2 + historyActions, menu.Items.OfType<MenuItem>().Count());
             menu.Items.OfType<MenuItem>().First().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             using var data = await window.Clipboard!.TryGetDataAsync();
             Assert.Equal(message.Text, await data!.TryGetTextAsync()); menu.Hide();
@@ -26,6 +33,7 @@ public class RemoteQueueMenuTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task RemoteQueueEditPreservesIdentityAttachmentsAndOrder()
     {

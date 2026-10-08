@@ -2,6 +2,7 @@ namespace CodexManager.Tests;
 
 public class WorkspaceHistoryTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public async Task HistoryRemovalPreservesChatsAndReopeningRestoresEntry()
     {
@@ -23,6 +24,7 @@ public class WorkspaceHistoryTests
         Assert.Equal(existing, Assert.Single(history.Entries()));
     }
 
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task UninstalledDistroIsDeletedButADisconnectedDriveIsUnknown()
     {
@@ -37,6 +39,7 @@ public class WorkspaceHistoryTests
         }
     }
 
+    [Trait("Category", "CI")]
     [Avalonia.Headless.XUnit.AvaloniaFact]
     public async Task StartupClosesWorkspacesWhoseFolderWasDeletedAndKeepsTheirChats()
     {

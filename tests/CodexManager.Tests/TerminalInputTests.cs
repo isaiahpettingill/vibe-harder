@@ -13,6 +13,7 @@ namespace CodexManager.Tests;
 
 public class TerminalInputTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task MobileKeysSendRawInputAndRespectApplicationCursorMode()
     {
@@ -48,6 +49,7 @@ public class TerminalInputTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task CopyShortcutPreservesSelectionAndDoesNotSendControlC()
     {
@@ -72,6 +74,7 @@ public class TerminalInputTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaTheory]
     [InlineData(Key.Insert, Avalonia.Input.RawInputModifiers.Shift, PhysicalKey.Insert)]
     [InlineData(Key.V, Avalonia.Input.RawInputModifiers.Control, PhysicalKey.V)]
@@ -93,6 +96,7 @@ public class TerminalInputTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task PasteUsesBracketedPasteForInteractivePrograms()
     {

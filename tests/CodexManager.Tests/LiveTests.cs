@@ -10,6 +10,7 @@ namespace CodexManager.Tests;
 
 public class LiveTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task LiveWindowsAndWslSendThroughAppAndResume()
     {

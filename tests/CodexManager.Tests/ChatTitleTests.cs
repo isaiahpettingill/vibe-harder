@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class ChatTitleTests
 {
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task AgentNamedSessionsReplaceTheFirstLineUnlessTheUserRenamedTheChat()
     {

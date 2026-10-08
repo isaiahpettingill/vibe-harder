@@ -8,6 +8,7 @@ namespace CodexManager.Tests;
 
 public class TerminalRecoveryTests
 {
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task BrokenPtyReadReportsCompletionExactlyOnce()
     {
@@ -33,6 +34,7 @@ public class TerminalRecoveryTests
         };
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task LostBrokerSessionCompletesInsteadOfRetryingForever()
     {
@@ -51,6 +53,7 @@ public class TerminalRecoveryTests
         finally { lifetime.Cancel(); try { await server; } catch (OperationCanceledException) { } }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task BrokerAnswersConcurrentRequestsWithoutDroppingConnections()
     {
@@ -74,6 +77,7 @@ public class TerminalRecoveryTests
         finally { lifetime.Cancel(); try { await server; } catch (OperationCanceledException) { } }
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task BrokerExitsOnceIdleAfterItsLastRequest()
     {
@@ -88,6 +92,7 @@ public class TerminalRecoveryTests
         Assert.False(lifetime.IsCancellationRequested);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task RemoteTerminalRetriesTransientHostErrors()
     {
@@ -106,6 +111,7 @@ public class TerminalRecoveryTests
         Assert.True(view.InputReady);
     }
 
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task RemoteTerminalCanReopenAfterLosingItsSession()
     {

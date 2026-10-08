@@ -4,6 +4,7 @@ namespace CodexManager.Tests;
 
 public class AdditionalAgentTests
 {
+    [Trait("Category", "CI")]
     [Fact]
     public async Task HostAdvertisesOnlyEnabledProvidersAndRejectsDisabledCreation()
     {
@@ -11,21 +12,19 @@ public class AdditionalAgentTests
         var workspace = new Workspace("w", "Test", store.DirectoryPath);
         var chats = new List<Chat>();
         using var service = new SessionService(store, [workspace], chats, (_, _) => throw new InvalidOperationException("Must not start an agent"));
-        var list = await service.Handle(new JsonObject { ["method"] = "list" });
-        Assert.Equal(3, list!["providers"]!.AsArray().Count);
-        foreach (var option in AgentProviders.All.Where(p => AgentProviders.IsAdditional(p.Provider)))
-        {
-            Assert.False(AgentProviders.IsEnabled(store, option.Provider));
-            await Assert.ThrowsAsync<IOException>(() => service.Handle(new JsonObject { ["method"] = "create", ["workspaceId"] = "w", ["provider"] = option.Provider.ToString() }));
-            Assert.False(string.IsNullOrWhiteSpace(AgentProviders.LoginCommand(store, workspace, option.Provider)));
-        }
+        async Task<string[]> Listed() => (await service.Handle(new JsonObject { ["method"] = "list" }))!["providers"]!.AsArray().Select(p => p!.GetValue<string>()).Order().ToArray();
+        var additional = AgentProviders.All.Where(p => AgentProviders.IsAdditional(p.Provider)).Select(p => p.Provider.ToString()).ToArray();
+        var standard = AgentProviders.All.Select(p => p.Provider.ToString()).Except(additional).Order().ToArray();
+        Assert.NotEmpty(additional);
+        Assert.Equal(standard, await Listed());
+        foreach (var provider in additional)
+            await Assert.ThrowsAsync<IOException>(() => service.Handle(new JsonObject { ["method"] = "create", ["workspaceId"] = "w", ["provider"] = provider }));
         Assert.Empty(chats);
         store.Setting("additionalAgentsEnabled", "1");
-        list = await service.Handle(new JsonObject { ["method"] = "list" });
-        Assert.Equal(7, list!["providers"]!.AsArray().Count);
-        Assert.Equal(7, AgentProviders.Enabled(store).Count());
+        Assert.Equal(AgentProviders.All.Select(p => p.Provider.ToString()).Order(), await Listed());
     }
 
+    [Trait("Category", "CI")]
     [Fact]
     public async Task IndividualSwitchesOverrideLegacySettingAndCanDisableEveryProvider()
     {
@@ -58,11 +57,14 @@ public class AdditionalAgentTests
     public void VtCodeEnablesAcpForLocalAndWslProcesses()
     {
         var local = AgentProviders.Start(new Workspace("w", "Test", Path.GetTempPath()), "vtcode acp", AgentProvider.VTCode);
-        Assert.Equal("1", local.Environment["VT_ACP_ENABLED"]);
-        Assert.Equal("1", local.Environment["VT_ACP_ZED_ENABLED"]);
-        if (!OperatingSystem.IsWindows()) return;
-        var wsl = AgentProviders.Start(new Workspace("w", "Test", "/tmp", "Debian"), "vtcode acp", AgentProvider.VTCode);
-        Assert.Contains("exec env 'VT_ACP_ENABLED=1' 'VT_ACP_ZED_ENABLED=1' 'NO_COLOR=1' vtcode acp", wsl.ArgumentList.Last());
+        var wsl = OperatingSystem.IsWindows() ? AgentProviders.Start(new Workspace("w", "Test", "/tmp", "Debian"), "vtcode acp", AgentProvider.VTCode).ArgumentList.Last() : null;
+        // WSL processes do not inherit the Windows environment, so the switches travel on the command line.
+        foreach (var name in new[] { "VT_ACP_ENABLED", "VT_ACP_ZED_ENABLED" })
+        {
+            Assert.Equal("1", local.Environment[name]);
+            if (wsl is not null) Assert.Contains($"'{name}=1'", wsl);
+        }
+        if (wsl is not null) Assert.EndsWith(" vtcode acp", wsl);
     }
 
 }

@@ -6,6 +6,7 @@ namespace CodexManager.Tests;
 public class AcpFileSystemTests
 {
     private static JsonElement Request(string path, string? content = null, int line = 1, int limit = int.MaxValue, string session = "s") => JsonSerializer.SerializeToElement(new { sessionId = session, path, content, line, limit });
+    [Trait("Category", "Integration")]
     [Fact]
     public async Task WslFileRoundTripWhenExplicitlyRequested()
     {
@@ -20,6 +21,7 @@ public class AcpFileSystemTests
         var local = FileLinks.Resolve(path, workspace);
         File.Delete(local); Directory.Delete(Path.GetDirectoryName(local)!);
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ReadsRangesCreatesFilesAndRejectsStaleWritesAndWrongSessions()
     {
@@ -40,6 +42,7 @@ public class AcpFileSystemTests
         await Assert.ThrowsAsync<FileNotFoundException>(() => files.Write(Request(path, "must not recreate"), TestContext.Current.CancellationToken));
         Assert.False(File.Exists(path));
     }
+    [Trait("Category", "CI")]
     [Fact]
     public async Task FileCapabilitiesAndErrorsRoundTripWithoutBlockingTheReader()
     {

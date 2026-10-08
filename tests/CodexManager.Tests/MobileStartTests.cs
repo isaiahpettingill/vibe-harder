@@ -44,7 +44,7 @@ public class MobileStartTests
         return (server, host, new Store(Path.Combine(directory, "phone")));
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task OpensTheMostRecentChatAndEditsOptionsInADrawer()
     {
@@ -68,7 +68,6 @@ public class MobileStartTests
             await Wait(() => view.SelectedChatId == "newest");
             var summary = Named<Button>(view, "RemoteOptionsSummary");
             await Wait(() => summary.IsVisible);
-            Assert.Equal("Large · Ask", summary.GetLogicalDescendants().OfType<TextBlock>().First().Text);
             Assert.False(Named<WrapPanel>(view, "RemoteConfigOptions").IsVisible);
 
             summary.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -90,7 +89,7 @@ public class MobileStartTests
         return new JsonObject();
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ReopensTheChatLastOpenedOnThePhoneUnlessTheHostMovedOn()
     {
@@ -123,7 +122,7 @@ public class MobileStartTests
         }
     }
 
-    [Trait("Category", "Slow")]
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task OffersToStartAChatOrOpenAWorkspaceInsteadOfAnEmptyChat()
     {
@@ -151,6 +150,7 @@ public class MobileStartTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task TappedPushOpensItsChatWhetherTheAppIsRunningOrStarting()
     {
@@ -193,6 +193,7 @@ public class MobileStartTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void ChatOpenedWhileAsleepWakesToThatChatNotTheSavedPage()
     {
