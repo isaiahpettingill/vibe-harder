@@ -6,6 +6,7 @@
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
   <!-- UnifiedPush: find installed distributors and their link activity (package visibility). -->
   <queries>
+    <intent><action android:name="android.speech.action.RECOGNIZE_SPEECH" /></intent>
     <intent><action android:name="org.unifiedpush.android.distributor.REGISTER" /></intent>
     <intent><action android:name="org.unifiedpush.android.distributor.UNREGISTER" /></intent>
     <intent><action android:name="org.unifiedpush.android.distributor.LINK" /></intent>

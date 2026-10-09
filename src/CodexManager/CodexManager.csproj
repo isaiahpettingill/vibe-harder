@@ -24,7 +24,16 @@
     <ProjectReference Include="../CodexManager.UI/CodexManager.UI.csproj" />
     <PackageReference Include="Avalonia.Desktop" Version="12.1.2" />
     <PackageReference Include="Avalonia.Headless" Version="12.1.2" />
+    <!-- Speak to type on Linux; the native runtime ships only in glibc Linux builds. -->
+    <PackageReference Include="Whisper.net" Version="1.9.1" />
+    <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" Condition="$(RuntimeIdentifier.StartsWith('linux-')) And !$(RuntimeIdentifier.StartsWith('linux-musl'))" />
     <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
     <None Update="Assets/Platforms/*.md;Assets/Brands/*.txt;Assets/Brands/*.md;Assets/Fonts/*.txt;Assets/app.*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Whisper.net.Runtime copies every platform's native libraries; a Linux build needs only its own. -->
+  <Target Name="KeepOwnWhisperRuntime" BeforeTargets="AssignTargetPaths" Condition="$(RuntimeIdentifier.StartsWith('linux-'))">
+    <ItemGroup>
+      <None Remove="@(None)" Condition="$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/')) And !$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/$(RuntimeIdentifier)/'))" />
+    </ItemGroup>
+  </Target>
 </Project>

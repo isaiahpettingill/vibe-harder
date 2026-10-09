@@ -47,6 +47,8 @@ public static class AppIcons
         Data = name is "openai" or "claude" or "steer" or "agent" or "mode" or "permission" or "command" ? Additional(name switch { "steer" => "forward", "mode" => "edit-compact", "permission" => "shield-compact", "command" => "run-with-deps", _ => name }) : Geometry(name switch
         {
             "provider" => PackIconCodiconsKind.Server,
+            "mic" => PackIconCodiconsKind.Mic,
+            "mic-filled" => PackIconCodiconsKind.MicFilled,
             "yolo" => PackIconCodiconsKind.Rocket,
             "auto-approve" => PackIconCodiconsKind.Check,
             "budget" => PackIconCodiconsKind.Dashboard,

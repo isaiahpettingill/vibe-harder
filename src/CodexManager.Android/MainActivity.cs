@@ -13,6 +13,7 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
 {
     private bool resumePending;
     private BiometricAppLock? appLock;
+    private AndroidSpeech? speech;
     private AndroidTerminalKeyboard? terminalKeyboard;
     private AndroidPermissionNotifications? notifications;
     private AndroidUnifiedPush? push;
@@ -55,6 +56,7 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
         push.Refresh();
         pendingPush = Intent;
         appLock = new BiometricAppLock(this);
+        SpeechInput.Current = speech = new AndroidSpeech(this);
         MobileAppSecurity.Current = appLock;
         Window?.DecorView.ViewTreeObserver?.AddOnGlobalLayoutListener(this);
         connectivity = GetSystemService(ConnectivityService) as global::Android.Net.ConnectivityManager;
@@ -108,6 +110,7 @@ public sealed class MainActivity : AvaloniaMainActivity, global::Android.Views.V
     protected override void OnActivityResult(int requestCode, Result resultCode, global::Android.Content.Intent? data)
     {
         if (requestCode == BiometricAppLock.CredentialRequest) appLock?.CredentialResult(resultCode);
+        else if (requestCode == AndroidSpeech.Request) speech?.Result(resultCode, data);
         else if (requestCode == AndroidUnifiedPush.LinkRequest) push?.LinkResult(resultCode, data);
         else base.OnActivityResult(requestCode, resultCode, data);
     }

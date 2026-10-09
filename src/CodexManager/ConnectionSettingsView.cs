@@ -124,6 +124,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
                 finally { UpdateSecurityLabel(); biometric.IsEnabled = true; }
             };
         }
+        if (remoteOnly && SpeechSettings.Create(store) is { } speech) { panel.Children.Add(new TextBlock { Text = "Speak to type", FontSize = 18 }); panel.Children.Add(speech); }
         if (MobilePush.Current is { } push)
         {
             panel.Children.Add(new TextBlock { Text = "Notifications", FontSize = 18 });

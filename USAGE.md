@@ -62,6 +62,7 @@ Folders, chats, selected folder/chat, drafts, attachments, ACP session IDs, and 
 - Agents that support the JetBrains AIR extensions (the bundled Codex and Claude adapters) report background tasks, such as a dev server started in the background. The task shows on the card that started it, with its status and a Stop button, and the agent is kept running until its tasks end.
 - When an agent wakes up on its own (for example when a background task finishes), the chat shows "Working in background" and is marked done afterwards.
 - Desktop notifications tell you when a chat you are not looking at finishes or comes back from background work. Turn them off in Settings. Clicking one opens the chat.
+- **Speak to type:** the microphone button in the message box dictates into the draft. Android uses the system speech recognizer, Windows its voice typing (Win+H), and macOS its dictation. Linux transcribes on the computer with a Whisper model (148 MB) that you download in Settings; recording uses `parecord` or `arecord`. Turn the button off in Settings.
 - On Android, paired computers can push the same notifications through UnifiedPush. Install a distributor app such as Sunup; the app registers with each paired computer automatically. Turn this off, or choose another distributor, in the connection settings. Pairing works the same without it. Phones are not notified while someone is using the computer, meaning keyboard or mouse input in the last two minutes.
 
 ## Command line

@@ -195,7 +195,7 @@ public partial class MainView : UserControl
             ToggleTerminalButton.Icon = TerminalDrawer.IsVisible ? "chevron-left" : "terminal";
             ToggleTerminalButton.Label = TerminalDrawer.IsVisible ? "Hide terminal (Ctrl+`)" : "Show terminal (Ctrl+`)";
         };
-        FontSettings.Apply(store); AppTheme.Apply(store);
+        FontSettings.Apply(store); AppTheme.Apply(store); SpeechInput.Apply(store);
         if (double.TryParse(store.Setting("terminalWidth"), System.Globalization.CultureInfo.InvariantCulture, out var terminalWidth)) TerminalDrawer.Width = Math.Clamp(terminalWidth, 220, 800);
         RootPanes.ColumnDefinitions[0].MinWidth = 170; RootPanes.ColumnDefinitions[0].MaxWidth = 600;
         RootPanes.ColumnDefinitions[2].MinWidth = 420;
@@ -1182,6 +1182,7 @@ public partial class MainView : UserControl
         ToolTip.SetTip(notify, "Desktop notifications, and push notifications on paired phones that enabled them.");
         notify.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(ChatNotifications.EnabledKey, notify.IsChecked == true ? "1" : "0"));
         panel.Children.Add(notify);
+        if (SpeechSettings.Create(store) is { } speech) panel.Children.Add(speech);
         panel.Children.Add(new TextBlock { Text = "Enable both for unattended recovery after a restart. Explicitly stopped chats stay stopped. Agents still use their existing permission settings.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var diagnostics = new Button { Content = "Open diagnostic logs" };
         diagnostics.Click += (_, _) => ApplyChange(() => { Directory.CreateDirectory(AppDiagnostics.DirectoryPath); FileLinks.Reveal(AppDiagnostics.DirectoryPath); }); panel.Children.Add(diagnostics);

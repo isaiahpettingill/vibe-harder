@@ -31,6 +31,7 @@ internal static class Program
             if (!instance.ActivateExisting(directory).GetAwaiter().GetResult()) { Console.Error.WriteLine("Could not reach the running Vibe Harder app. Try again."); Environment.ExitCode = 1; }
             return;
         }
+        SpeechInput.Current = DesktopSpeech.Create();
         var pending = new Queue<string?>();
         if (directory is not null) pending.Enqueue(directory);
         void Deliver()
