@@ -483,7 +483,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 if (chat.ConfigOptions.FirstOrDefault(c => c.Id == id)?.Current == value)
                     store.Setting(ChatConfigKey(id), value);
             }
-            else if (store.Setting(ChatConfigKey(id)) is null)
+            // Without any preference the chat keeps what the agent chose. A preference the agent
+            // does not list yet stays: agents can list some models first and the rest a moment
+            // later, and recording the agent's own last-used model here would replace the chat's
+            // and workspace's choice for good.
+            else if (value is null && store.Setting(ChatConfigKey(id)) is null)
                 store.Setting(ChatConfigKey(id), option.Current);
         }
     }

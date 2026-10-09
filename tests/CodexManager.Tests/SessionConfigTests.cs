@@ -85,6 +85,32 @@ public class SessionConfigTests
         Assert.Equal("large", first.ConfigOptions.Single(c => c.Id == "model").Current);
     }
 
+    // An agent can start a session listing only some models, and the rest a moment later. The
+    // chat must still take its workspace's model then, not keep the agent's own last-used one.
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task SavedModelIsAppliedWhenTheAgentListsItLate()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("model-late-").FullName);
+        var workspace = new Workspace("one", "One", store.DirectoryPath); store.Save(workspace);
+        var fixture = "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config";
+        var first = new Chat { WorkspaceId = workspace.Id };
+        await using (var runtime = new ChatRuntime(first, workspace, store, fixture))
+        {
+            await runtime.Connect();
+            await runtime.SetConfig(first.ConfigOptions.Single(c => c.Id == "model"), "large");
+        }
+        var second = new Chat { WorkspaceId = workspace.Id };
+        await using var late = new ChatRuntime(second, workspace, store, fixture + " --late-models");
+        await late.Connect();
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while (second.ConfigOptions.Single(c => c.Id == "model").Current != "large" && DateTime.UtcNow < until) await Task.Delay(25);
+        Assert.Equal("large", second.ConfigOptions.Single(c => c.Id == "model").Current);
+        // And it stays the chat's model after reconnecting.
+        await late.Reconnect();
+        Assert.Equal("large", second.ConfigOptions.Single(c => c.Id == "model").Current);
+    }
+
     [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [MemberData(nameof(Providers))]

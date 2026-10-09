@@ -35,6 +35,8 @@ createInterface({input:process.stdin}).on('line',line=>{
    response(m.id,{outcome:turn?'injected':'promptRequired'});break;
   case 'session/new':
    if(process.argv.includes('--commands')) emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:{sessionUpdate:'available_commands_update',availableCommands:[{name:'goal',description:'Set an objective',input:{hint:'objective'}},{name:'compact',description:'Compact history'}]}}});
+   // Like adapters that list only some models at first and send the full list a moment later.
+   if(process.argv.includes('--late-models')){const partial=configOptions.map(c=>c.id==='model'?{...c,currentValue:'small',options:c.options.filter(o=>o.value==='small')}:c);response(m.id,{sessionId:'fixture-session',configOptions:partial});setTimeout(()=>emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:'fixture-session',update:{sessionUpdate:'config_option_update',configOptions}}}),100);break;}
    response(m.id,{sessionId:'fixture-session',...(process.argv.includes('--config')?{configOptions}:{})});break;
   case 'session/set_config_option':
    configOptions.find(c=>c.id===m.params.configId).currentValue=m.params.value;
