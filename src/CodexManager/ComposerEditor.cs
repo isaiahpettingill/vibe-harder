@@ -24,6 +24,9 @@ public sealed class ComposerEditor : TextEditor
         HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled; VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
         Options.EnableHyperlinks = false; Options.EnableEmailHyperlinks = false; Options.AllowScrollBelowDocument = false;
         Options.HighlightCurrentLine = false; Options.EnableTextDragDrop = false;
+        // Turning off text drag and drop also makes AvaloniaEdit refuse every drop over the editor.
+        // Files dragged onto the message box must still reach the chat's attachment handler.
+        DragDrop.SetAllowDrop(TextArea, true);
         TextChanged += (_, _) => { if (empty != (Document.TextLength == 0)) { empty = !empty; InvalidateVisual(); } };
         // AvaloniaEdit's own client reports 1-based columns and ignores selection requests while
         // nothing is selected. Android keyboards replace the word being composed by selecting it,

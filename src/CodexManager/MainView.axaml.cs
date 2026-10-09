@@ -215,7 +215,9 @@ public partial class MainView : UserControl
 #endif
         // Files dropped anywhere on the chat (transcript or composer) attach to the open chat.
         DragDrop.SetAllowDrop(ChatPane, true);
-        ChatPane.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = current is null ? DragDropEffects.None : DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
+        void AcceptDrag(object? sender, DragEventArgs e) { e.DragEffects = current is null ? DragDropEffects.None : DragDropEffects.Copy; e.Handled = true; }
+        ChatPane.AddHandler(DragDrop.DragEnterEvent, AcceptDrag, RoutingStrategies.Bubble, true);
+        ChatPane.AddHandler(DragDrop.DragOverEvent, AcceptDrag, RoutingStrategies.Bubble, true);
         ChatPane.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
@@ -1517,10 +1519,19 @@ public partial class MainView : UserControl
         {
             var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(from, newer)
                 : await store.ReadPageAsync(chat, from, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
-            if (cancellation.IsCancellationRequested || current != chat || page.Length == 0) return;
+            if (cancellation.IsCancellationRequested || current != chat) return;
+            if (page.Length == 0)
+            {
+                // Nothing newer is saved: the rest is in the live messages.
+                if (newer && viewingHistory && TranscriptNavigation.ShowsAnchorFrom(MessageList, chat.Messages)) { viewingHistory = false; TranscriptNavigation.ReplacePage(MessageList, chat.Messages); UpdateHistoryNavigation(); UpdateComposerAction(); }
+                return;
+            }
             var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
-            viewingHistory = true;
-            TranscriptNavigation.ReplacePage(MessageList, merged); UpdateHistoryNavigation(); UpdateComposerAction();
+            // Paging newer to the end of the saved history rejoins the live chat, which also has
+            // messages not saved yet, once the message being read is among them.
+            var live = newer && page.Length < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(MessageList, chat.Messages);
+            viewingHistory = !live;
+            TranscriptNavigation.ReplacePage(MessageList, live ? chat.Messages : merged); UpdateHistoryNavigation(); UpdateComposerAction();
             RefreshOutline(chat);
         }
         catch (OperationCanceledException) { }

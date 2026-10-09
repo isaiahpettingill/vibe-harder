@@ -61,6 +61,16 @@ public sealed class TranscriptPanel : VirtualizingPanel, ILogicalScrollable
         set
         {
             var next = new Vector(0, Math.Clamp(value.Y, 0, Math.Max(0, Extent.Height - Viewport.Height)));
+            // Wheel, keys and touch scroll a little at a time: they stop at the edge of the loaded
+            // messages until the next page arrives, so no history is skipped. Only a large jump,
+            // a dragged scrollbar, goes straight to an unloaded part of the chat.
+            if (Items.Count > 0 && Math.Abs(next.Y - offset.Y) < Viewport.Height * 1.5)
+            {
+                EnsurePositions();
+                if (above > 0 && next.Y < above) next = new Vector(0, Math.Min(offset.Y, above));
+                var end = above + positions[Items.Count] - Viewport.Height;
+                if (below > 0 && next.Y > end) next = new Vector(0, Math.Max(offset.Y, end));
+            }
             if (next == offset) return;
             pendingAnchor = null; Scrolled = true;
             bottom = next.Y >= Math.Max(0, Extent.Height - Viewport.Height) - 1;

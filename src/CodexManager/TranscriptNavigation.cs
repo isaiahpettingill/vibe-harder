@@ -23,6 +23,12 @@ public sealed class TranscriptNavigation
         list.AddHandler(InputElement.PointerWheelChangedEvent, async (_, e) =>
         {
             if (list.Scroll is not { } scroll) return;
+            // Held at the edge of the loaded messages, the offset stops changing; keep paging.
+            if (list.ItemsPanelRoot is TranscriptPanel { IsFollowingEnd: false } panel && panel.Needs is var needs)
+            {
+                if (e.Delta.Y > 0 && needs.Older) { await Load(new(false)); return; }
+                if (e.Delta.Y < 0 && needs.Newer) { await Load(new(true)); return; }
+            }
             if (e.Delta.Y > 0 && scroll.Offset.Y < 64) await Load(new(false));
             else if (e.Delta.Y < 0 && history() && scroll.Extent.Height - scroll.Viewport.Height - scroll.Offset.Y < 64) await Load(new(true));
         }, RoutingStrategies.Tunnel);
@@ -70,6 +76,9 @@ public sealed class TranscriptNavigation
         catch (Exception error) { AppDiagnostics.Record("History navigation", error); }
         finally { paging = false; Update(); }
     }
+    // Whether the message being read is among `messages`, so switching to them keeps the place.
+    public static bool ShowsAnchorFrom(ListBox list, IEnumerable<Message> messages) =>
+        list.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault()?.CaptureAnchor() is { Item: Message anchor } && messages.Any(m => m.Id == anchor.Id);
     public static void ReplacePage(ListBox list, IReadOnlyList<Message> page)
     {
         var panel = list.GetVisualDescendants().OfType<TranscriptPanel>().FirstOrDefault();

@@ -76,6 +76,31 @@ public class ComposerInputTests
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
+    // A file dragged in from another app (a file manager) over the message box or the transcript
+    // goes through the platform's drag and drop, which refuses drops where they are not allowed.
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData("Composer")]
+    [InlineData("MessageList")]
+    public async Task FilesDraggedFromAnotherAppAttachWhereverTheyAreDropped(string target)
+    {
+        var directory = Directory.CreateTempSubdirectory("composer-drag-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Test", directory)); store.Save(new Chat { WorkspaceId = "w" });
+        var window = new MainWindow(store) { Width = 1000, Height = 700 }; window.Show();
+        try
+        {
+            window.UpdateLayout();
+            var attachments = window.FindControl<ItemsControl>("AttachmentList")!;
+            var control = window.FindControl<Control>(target)!;
+            var point = control.TranslatePoint(new Point(control.Bounds.Width / 2, control.Bounds.Height / 2), window)!.Value;
+            var data = new DataTransfer(); data.Add(DataTransferItem.CreateFile(PortalFile.Create(Png())));
+            foreach (var type in new[] { Avalonia.Input.Raw.RawDragEventType.DragEnter, Avalonia.Input.Raw.RawDragEventType.DragOver, Avalonia.Input.Raw.RawDragEventType.Drop })
+                Avalonia.Headless.HeadlessWindowExtensions.DragDrop(window, point, type, data, DragDropEffects.Copy | DragDropEffects.Move);
+            await Wait(() => attachments.ItemCount == 1);
+        }
+        finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
     [Trait("Category", "CI")]
     [Fact]
     public void PastePreviewUsesTheOpeningWordsAndEditedCopiesAreSent()

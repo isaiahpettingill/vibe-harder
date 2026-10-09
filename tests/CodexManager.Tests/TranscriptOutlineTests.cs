@@ -65,4 +65,43 @@ public class TranscriptOutlineTests
         }
         finally { window.Close(); }
     }
+    // Wheel-sized steps: one row, a few rows, and a screenful at a time.
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData(40)]
+    [InlineData(150)]
+    [InlineData(400)]
+    public async Task ScrollingUpInStepsShowsEveryMessageWithoutSkipping(double step)
+    {
+        var list = Create(Page(Total - 64, 64));
+        TranscriptPanel.SetOutline(list, Outline);
+        _ = new TranscriptNavigation(list, new IconButton(), () => true, request =>
+        {
+            var visible = list.Items.OfType<Message>().ToArray();
+            var page = request.Newer ? Page(visible[^1].Sequence + 1, 20) : Page(Math.Max(0, visible[0].Sequence - 20), Math.Min(20, visible[0].Sequence));
+            TranscriptNavigation.ReplacePage(list, HistoryWindow.Navigate(visible, page, request.Newer));
+            return Task.CompletedTask;
+        });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            ((TranscriptPanel)list.ItemsPanelRoot!).FollowEnd(); window.UpdateLayout();
+            var scroll = list.Scroll!; var seen = new HashSet<int>();
+            // What is actually on screen, not just realized rows kept warm above it.
+            void Record()
+            {
+                foreach (var container in list.GetRealizedContainers())
+                    if (container.DataContext is Message message && container.Bounds.Bottom > 0 && container.Bounds.Top < scroll.Viewport.Height) seen.Add(message.Sequence);
+            }
+            Record();
+            for (var turn = 0; turn < 4000 && !seen.Contains(0); turn++)
+            {
+                scroll.Offset = new Vector(0, scroll.Offset.Y - step); window.UpdateLayout();
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background); window.UpdateLayout();
+                Record();
+            }
+            var missing = Enumerable.Range(0, Total).Except(seen).ToArray(); Assert.True(missing.Length == 0, $"missing {missing.Length}: {string.Join(",", missing.Take(30))} seen0={seen.Contains(0)}");
+        }
+        finally { window.Close(); }
+    }
 }

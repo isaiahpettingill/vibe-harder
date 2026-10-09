@@ -158,6 +158,10 @@ public class TranscriptScrollingTests
                 Assert.Equal(336 - HistoryWindow.PageSize * i, ((Message)list.Items[0]!).Sequence);
             }
             Assert.Equal(399, ((Message)list.Items[^1]!).Sequence);
+            // Paging past the newest saved message rejoins the live chat instead of staying in history.
+            await (Task)browse.Invoke(window.View, [new HistoryRequest(true)])!;
+            Assert.False((bool)typeof(MainView).GetField("viewingHistory", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.GetValue(window.View)!);
+            Assert.IsNotType<Message[]>(list.ItemsSource);
         }
         finally { window.RequestExit(); await Task.Delay(200); }
     }

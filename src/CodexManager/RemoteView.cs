@@ -405,10 +405,16 @@ public sealed partial class RemoteView : UserControl, IDisposable
             var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, [newer ? "after" : "before"] = from });
             if (result is null || id != chatId) return;
             var page = result["messages"]!.AsArray().Select(row => ReadMessage(row!)).ToArray();
-            if (page.Length == 0) return;
+            if (page.Length == 0)
+            {
+                if (newer && viewingHistory && TranscriptNavigation.ShowsAnchorFrom(output, messages)) { viewingHistory = false; TranscriptNavigation.ReplacePage(output, messages); UpdateSendAction(); }
+                return;
+            }
             var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
-            viewingHistory = true;
-            TranscriptNavigation.ReplacePage(output, merged);
+            // Reaching the end of the history rejoins the live chat once the message being read is in it.
+            var live = newer && page.Length < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(output, messages);
+            viewingHistory = !live;
+            TranscriptNavigation.ReplacePage(output, live ? messages : merged);
             UpdateSendAction(); RefreshOutline();
         });
         latest.Click += (_, _) => { viewingHistory = false; output.ItemsSource = messages; UpdateSendAction(); if (messages.Count > 0) output.ScrollIntoView(messages[^1]); navigation.Update(); };
@@ -422,6 +428,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         chatComposer.RemoveAttachment += attachment => { attachments.Remove(attachment); if (attachment.Reference is { } reference) composer.Text = composer.Text.Replace(reference, "", StringComparison.Ordinal); RefreshAttachments(); };
         slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
         DragDrop.SetAllowDrop(input, true);
+        input.AddHandler(DragDrop.DragEnterEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
         input.AddHandler(DragDrop.DragOverEvent, (_, e) => { e.DragEffects = DragDropEffects.Copy; e.Handled = true; }, RoutingStrategies.Bubble, true);
         input.AddHandler(DragDrop.DropEvent, async (_, e) =>
         {
