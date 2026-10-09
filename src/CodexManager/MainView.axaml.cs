@@ -947,7 +947,7 @@ public partial class MainView : UserControl
         e.Handled = true; if (current is not { } target) return;
         try
         {
-            var files = e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
+            var files = TopLevel.GetTopLevel(this) is { } top ? await DroppedFiles.Read(e.DataTransfer, top.StorageProvider) : e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
             if (files.Length > 0) await AddFiles(files, target);
             else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) { target.Attachments.Add(image); pendingSaves.Add(target); }
         }
@@ -1518,7 +1518,7 @@ public partial class MainView : UserControl
         try
         {
             var page = RemoteSessionOf(chat) is { } remote ? await remote.ReadPage(from, newer)
-                : await store.ReadPageAsync(chat, from, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer);
+                : await store.ReadPageAsync(chat, from, limit: HistoryWindow.PageSize, token: cancellation.Token, newer: newer, rows: true);
             if (cancellation.IsCancellationRequested || current != chat) return;
             if (page.Length == 0)
             {
@@ -1529,7 +1529,7 @@ public partial class MainView : UserControl
             var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
             // Paging newer to the end of the saved history rejoins the live chat, which also has
             // messages not saved yet, once the message being read is among them.
-            var live = newer && page.Length < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(MessageList, chat.Messages);
+            var live = newer && HistoryWindow.Rows(page) < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(MessageList, chat.Messages);
             viewingHistory = !live;
             TranscriptNavigation.ReplacePage(MessageList, live ? chat.Messages : merged); UpdateHistoryNavigation(); UpdateComposerAction();
             RefreshOutline(chat);

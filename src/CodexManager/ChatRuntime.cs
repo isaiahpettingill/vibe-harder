@@ -532,7 +532,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         Task? following = null;
         try
         {
-            if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, limit: chat.RetainHistory ? Chat.HistoryPageSize : 1, token: turn.Token));
+            if (!chat.HistoryLoaded) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, limit: chat.RetainHistory ? Chat.HistoryPageSize : 1, token: turn.Token, rows: chat.RetainHistory));
             await store.FlushAsync();
             await ConnectWithRecovery(chat.Messages.Count == 0, turn.Token);
             await RestoreAccess();

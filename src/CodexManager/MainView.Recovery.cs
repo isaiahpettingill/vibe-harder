@@ -54,7 +54,7 @@ public partial class MainView
                     {
                         foreach (var message in chat.Messages) store.SaveMessage(chat, message);
                         await store.FlushAsync();
-                        var page = await store.ReadPageAsync(chat);
+                        var page = await store.ReadPageAsync(chat, rows: true);
                         if (closing || !ReferenceEquals(current, chat)) return;
                         store.ApplyRecentPage(chat, page);
                     }

@@ -104,4 +104,49 @@ public class TranscriptOutlineTests
         }
         finally { window.Close(); }
     }
+    // Turns of a question, a long run of tool calls (one collapsed row), and an answer.
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData(5)]
+    [InlineData(30)]
+    public async Task ScrollingThroughActionHeavyHistoryNeverShowsBlankSpace(int actionsPerTurn)
+    {
+        var chat = Enumerable.Range(0, 60).SelectMany(turn => new[] { "user" }.Concat(Enumerable.Repeat("tool", actionsPerTurn)).Append("assistant"))
+            .Select((role, i) => new Message { Id = "x" + i, Sequence = i, Role = role, Text = role + " " + i }).ToArray();
+        var outline = new TranscriptOutline("actions", chat.Select(m => new OutlineEntry(m.Sequence, m.Role, m.Text.Length, 0)).ToArray());
+        Message[] Fresh(IEnumerable<Message> messages) => messages.Select(m => new Message { Id = m.Id, Sequence = m.Sequence, Role = m.Role, Text = m.Text }).ToArray();
+        var list = Create(Fresh(HistoryWindow.Last(chat, CodexManager.Chat.HistoryPageSize)));
+        TranscriptPanel.SetOutline(list, outline);
+        _ = new TranscriptNavigation(list, new IconButton(), () => true, request =>
+        {
+            var visible = list.Items.OfType<Message>().ToArray();
+            var page = request.Newer ? HistoryWindow.First(chat.Where(m => m.Sequence > visible[^1].Sequence).ToArray(), HistoryWindow.PageSize)
+                : HistoryWindow.Last(chat.Where(m => m.Sequence < visible[0].Sequence).ToArray(), HistoryWindow.PageSize);
+            TranscriptNavigation.ReplacePage(list, HistoryWindow.Navigate(visible, Fresh(page), request.Newer));
+            return Task.CompletedTask;
+        });
+        var window = new Window { Content = list, Width = 600, Height = 400 }; window.Show();
+        try
+        {
+            ((TranscriptPanel)list.ItemsPanelRoot!).FollowEnd(); window.UpdateLayout();
+            var scroll = list.Scroll!; var worst = 0.0;
+            for (var turn = 0; turn < 3000 && scroll.Offset.Y > 0; turn++)
+            {
+                scroll.Offset = new Vector(0, scroll.Offset.Y - 150); window.UpdateLayout();
+                await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { }, Avalonia.Threading.DispatcherPriority.Background); window.UpdateLayout();
+                // How much of the view no row covers.
+                double covered = 0, reached = 0;
+                foreach (var row in list.GetRealizedContainers().Select(c => c.Bounds).Where(b => b.Bottom > 0 && b.Top < scroll.Viewport.Height).OrderBy(b => b.Top))
+                {
+                    var top = Math.Max(Math.Max(0, row.Top), reached); var bottom = Math.Min(scroll.Viewport.Height, row.Bottom);
+                    if (bottom > top) covered += bottom - top;
+                    reached = Math.Max(reached, bottom);
+                }
+                worst = Math.Max(worst, scroll.Viewport.Height - covered);
+            }
+            Assert.True(scroll.Offset.Y == 0, "did not reach the top");
+            Assert.True(worst < 60, $"up to {worst:0} px of the view was blank");
+        }
+        finally { window.Close(); }
+    }
 }

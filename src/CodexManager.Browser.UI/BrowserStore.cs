@@ -16,7 +16,7 @@ public sealed class Store : IDisposable
     public void Save(Chat chat) => throw RemoteOnly();
     public void SaveMessage(Chat chat, Message message) => throw RemoteOnly();
     public void LoadMessages(Chat chat) => throw RemoteOnly();
-    public Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false) => throw RemoteOnly();
+    public Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false, bool rows = false) => throw RemoteOnly();
     public Task<(string Plain, string Html)> ExportChatAsync(Chat chat) => throw RemoteOnly();
     public Task<HashSet<string>> SearchChatIdsAsync(string query, CancellationToken token) => throw RemoteOnly();
     public Task<ChatSearchHit[]> SearchMessagesAsync(Chat chat, string query, CancellationToken token) => throw RemoteOnly();

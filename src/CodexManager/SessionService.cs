@@ -239,17 +239,17 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             active.KeepAlive();
             Message[] page;
-            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: HistoryWindow.PageSize);
-            else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: HistoryWindow.PageSize, newer: true);
+            if (request["before"] is not null) page = await store.ReadPageAsync(chat, request["before"]!.GetValue<int>(), limit: HistoryWindow.PageSize, rows: true);
+            else if (request["after"] is not null) page = await store.ReadPageAsync(chat, request["after"]!.GetValue<int>(), limit: HistoryWindow.PageSize, newer: true, rows: true);
             else if (!chat.RetainHistory)
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-                var saved = await store.ReadPageAsync(chat);
-                page = saved.Concat(chat.Messages).GroupBy(m => m.Id).Select(g => g.Last()).OrderBy(m => m.Sequence).TakeLast(Chat.HistoryPageSize).ToArray();
+                var saved = await store.ReadPageAsync(chat, rows: true);
+                page = HistoryWindow.Last(saved.Concat(chat.Messages).GroupBy(m => m.Id).Select(g => g.Last()).OrderBy(m => m.Sequence).ToArray(), Chat.HistoryPageSize);
             }
             else
             {
-                if (!chat.HistoryLoaded && !chat.Busy) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat));
+                if (!chat.HistoryLoaded && !chat.Busy) store.ApplyRecentPage(chat, await store.ReadPageAsync(chat, rows: true));
                 page = chat.Messages.ToArray();
             }
             // New clients distinguish explicit selection from restoring a cached selection.
@@ -261,7 +261,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             }
             var result = Summary(chat);
             var known = request["knownMessages"] as JsonObject;
-            if (known?.Count > Chat.HistoryPageSize) throw new IOException("Too many message revisions.");
+            if (known?.Count > HistoryWindow.MaxMessages) throw new IOException("Too many message revisions.");
             result["messages"] = new JsonArray(page.Select(m => MessageRow(m, known)).ToArray());
             result["permissions"] = new JsonArray(permissions.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());
             result["elicitations"] = new JsonArray(elicitations.Values.Where(p => p.Request["chatId"]!.GetValue<string>() == chat.Id).Select(p => (JsonNode)p.Request.DeepClone()).ToArray());

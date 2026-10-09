@@ -42,7 +42,7 @@ When you change a system, run its tests, integration tests included, before repo
 | Recovery, reconnects, idle agents, history replay and branching | `RecoveryTests`, `AutomaticRecoveryTests`, `IdleAgentTests`, `AuthenticationExpiryTests`, `HistoryBranchTests`, `HistoryReplayTests`, `RobustnessTests`, `PresentationRecoveryTests`, `DiagnosticsTests` |
 | Store, persistence, history paging | `StoreTests`, `HistoryWindowTests`, `ViewMemoryTests`, `PresentationSleepTests` |
 | Transcript panel, scrolling, message rendering | `TranscriptScrollingTests`, `TranscriptOutlineTests`, `TranscriptGroupingTests`, `TranscriptProgressTests`, `ChatPresentationTests`, `ChatMarkdownEngineTests`, `ChatMediaTests`, `ResponsivenessTests`, `ChatActivityTests`, `ChatSearchTests`, `MessageProviderTests`, `MessageTimeTests`, `LinkAndModelTests`, `VisualPerformanceTests` |
-| Composer, questions, approvals | `ComposerInputTests`, `ComposerUiTests`, `ElicitationFormTests`, `ChatInteractionTests`, `InteractionReviewTests` |
+| Composer, attachments and dropped files, questions, approvals | `ComposerInputTests`, `DroppedFilesTests`, `ComposerUiTests`, `ElicitationFormTests`, `ChatInteractionTests`, `InteractionReviewTests` |
 | Remote hosts, pairing, phone and browser clients (`Remote*`, `SessionService`, `WebAccess`) | `RemoteTests`, `RemotePairingTests`, `RemoteDesktopTests`, `RemoteOfflineTests`, `RemoteDownloadsTests`, `RemoteTranscriptScrollingTests`, `MobileStartTests`, `MobileChatLayoutTests`, `MobileInteractionTests`, `WebAccessTests`, `RemoteCatalogTests`, `RemoteQueueMenuTests` |
 | Notifications and push | `NotificationTests`, `WebPushTests`, `UnifiedPushHostTests` |
 | Android app lock | `MobileAppSecurityTests` |

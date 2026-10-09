@@ -122,7 +122,9 @@ public sealed class Store : IDisposable
             savedMessages[m.Id] = (new(m), m.Revision); savedAttachments[m.Id] = new(m.Attachments.ToArray());
         }
     }
-    public async Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false)
+    // With `rows`, the limit counts conversation messages and the actions between them come along
+    // (see HistoryWindow); otherwise it counts every message.
+    public async Task<Message[]> ReadPageAsync(Chat chat, int? before = null, int limit = Chat.HistoryPageSize, CancellationToken token = default, string? toolId = null, bool newer = false, bool rows = false)
     {
         if (chat.IsRemote) return [];
         var id = chat.Id; var provider = chat.Provider; var connectionString = db.ConnectionString;
@@ -131,18 +133,36 @@ public sealed class Store : IDisposable
         return await Task.Run(() =>
         {
             using var connection = new SqliteConnection(connectionString); connection.Open();
+            // Counting rows: the page ends at the limit-th conversation message, and a newer page also
+            // takes the actions that follow it, up to the next conversation message.
+            long? end = null;
+            if (rows && toolId is null)
+            {
+                const string conversation = "role NOT IN ('tool','thought','plan')";
+                long? Boundary(string condition, string order, int offset, object? from)
+                {
+                    using var query = connection.CreateCommand();
+                    query.CommandText = "SELECT seq FROM messages WHERE chat_id=$id AND " + conversation + " AND " + condition + " ORDER BY seq " + order + " LIMIT 1 OFFSET $offset";
+                    query.Parameters.AddWithValue("$id", id); query.Parameters.AddWithValue("$from", from ?? DBNull.Value); query.Parameters.AddWithValue("$offset", offset);
+                    return query.ExecuteScalar() is long seq ? seq : null;
+                }
+                var last = newer ? Boundary("($from IS NULL OR seq>$from)", "ASC", limit - 1, before) : Boundary("($from IS NULL OR seq<$from)", "DESC", limit - 1, before);
+                end = last is { } boundary && newer ? Boundary("seq>$from", "ASC", 0, boundary) - 1 ?? long.MaxValue : last;
+                limit = HistoryWindow.MaxMessages;
+            }
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value,d.json,m.timestamp FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id LEFT JOIN message_details d ON d.message_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
+            command.CommandText = "SELECT m.id,m.role,m.text,m.tool_id,m.seq,a.json,s.value,d.json,m.timestamp FROM messages m LEFT JOIN attachments a ON a.owner_id=m.id LEFT JOIN settings s ON s.key='providerMessage:'||m.id LEFT JOIN message_details d ON d.message_id=m.id WHERE m.chat_id=$id AND ($tool IS NULL OR m.tool_id=$tool) AND ($before IS NULL OR m.seq" + (newer ? ">" : "<") + "$before) AND ($end IS NULL OR m.seq" + (newer ? "<=" : ">=") + "$end) ORDER BY m.seq " + (newer ? "ASC" : "DESC") + " LIMIT $limit";
+            command.Parameters.AddWithValue("$end", (object?)end ?? DBNull.Value);
             command.Parameters.AddWithValue("$tool", (object?)toolId ?? DBNull.Value);
             command.Parameters.AddWithValue("$id", id); command.Parameters.AddWithValue("$before", (object?)before ?? DBNull.Value); command.Parameters.AddWithValue("$limit", limit);
-            using var rows = command.ExecuteReader(); var result = new List<Message>();
-            while (rows.Read())
+            using var reader = command.ExecuteReader(); var result = new List<Message>();
+            while (reader.Read())
             {
                 token.ThrowIfCancellationRequested();
-                var message = new Message { Id = rows.GetString(0), Role = rows.GetString(1), Text = rows.GetString(2), ToolId = rows.IsDBNull(3) ? null : rows.GetString(3), Sequence = rows.GetInt32(4), Timestamp = rows.IsDBNull(8) ? null : DateTimeOffset.Parse(rows.GetString(8), System.Globalization.CultureInfo.InvariantCulture), Provider = provider };
-                if (!rows.IsDBNull(5)) foreach (var attachment in JsonSerializer.Deserialize(rows.GetString(5), StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(attachment);
-                message.ProviderMessageId = rows.IsDBNull(6) ? null : rows.GetString(6);
-                message.Subagent = rows.IsDBNull(7) ? null : JsonSerializer.Deserialize(rows.GetString(7), StoreJsonContext.Default.SubagentInfo);
+                var message = new Message { Id = reader.GetString(0), Role = reader.GetString(1), Text = reader.GetString(2), ToolId = reader.IsDBNull(3) ? null : reader.GetString(3), Sequence = reader.GetInt32(4), Timestamp = reader.IsDBNull(8) ? null : DateTimeOffset.Parse(reader.GetString(8), System.Globalization.CultureInfo.InvariantCulture), Provider = provider };
+                if (!reader.IsDBNull(5)) foreach (var attachment in JsonSerializer.Deserialize(reader.GetString(5), StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(attachment);
+                message.ProviderMessageId = reader.IsDBNull(6) ? null : reader.GetString(6);
+                message.Subagent = reader.IsDBNull(7) ? null : JsonSerializer.Deserialize(reader.GetString(7), StoreJsonContext.Default.SubagentInfo);
                 result.Add(message);
             }
             if (!newer) result.Reverse(); return result.ToArray();
@@ -234,9 +254,10 @@ public sealed class Store : IDisposable
     public void TrimHistory(Chat chat)
     {
         if (chat.IsRemote) return;
-        var limit = chat.RetainHistory ? Chat.HistoryPageSize : 1;
         if (!chat.RetainHistory) chat.HistoryLoaded = false;
-        while (chat.Messages.Count > limit) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
+        // A shown chat keeps a window of conversation messages, actions riding along; a hidden one keeps one message.
+        var keep = chat.RetainHistory ? HistoryWindow.Last(chat.Messages, Chat.HistoryPageSize).Length : 1;
+        while (chat.Messages.Count > keep) { SaveMessage(chat, chat.Messages[0]); chat.Messages.RemoveAt(0); }
         if (!chat.RetainHistory) return;
         var turns = 0;
         for (var i = chat.Messages.Count - 1; i > 0; i--)

@@ -126,7 +126,7 @@ public partial class MainView
         if (chat.IsRemote) return;
         if (runtimes.GetValueOrDefault(chat.Id)?.IsLoadingHistory == true) return;
         foreach (var message in chat.Messages) store.SaveMessage(chat, message);
-        var page = await store.ReadPageAsync(chat, token: token);
+        var page = await store.ReadPageAsync(chat, token: token, rows: true);
         if (closing || uiSleeping || remoteView is not null || !ReferenceEquals(current, chat)) return;
         // Streaming may advance while disk IO is pending. Preserve the live tail.
         var nextSequence = chat.NextSequence;

@@ -18,8 +18,9 @@ public class HistoryWindowTests
         Assert.Equal(24, older.Length);
         Assert.Equal(0, older[0].Sequence);
         Assert.Equal(23, older[^1].Sequence);
-        var toolHeavy = Enumerable.Range(0, 200).Select(i => new Message { Sequence = i, Role = "tool" });
-        Assert.Equal(Chat.HistoryPageSize, HistoryWindow.Bound(toolHeavy, newer: true).Length);
+        // Actions do not count towards the window; a window of nothing but actions is capped.
+        var toolHeavy = Enumerable.Range(0, 1500).Select(i => new Message { Sequence = i, Role = "tool" });
+        Assert.Equal(HistoryWindow.MaxMessages, HistoryWindow.Bound(toolHeavy, newer: true).Length);
     }
 
     [Trait("Category", "CI")]
@@ -64,5 +65,43 @@ public class HistoryWindowTests
             older = HistoryWindow.Navigate(older, messages[first..(first + 20)], newer: false);
             Assert.True(older.Length <= Chat.HistoryPageSize);
         }
+    }
+    // A chat as one letter per message: u = user, a = assistant, t = tool call, h = thinking.
+    // Windows count conversation messages; the actions between them come along.
+    private static Message[] Chat_(string roles) => roles.Where(c => c != ' ').Select((c, i) => new Message { Sequence = i, Role = c switch { 'u' => "user", 'a' => "assistant", 't' => "tool", _ => "thought" } }).ToArray();
+    private static string Roles(IEnumerable<Message> messages) => new(messages.Select(m => m.Role switch { "user" => 'u', "assistant" => 'a', "tool" => 't', _ => 'h' }).ToArray());
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("u a u ttt a u hhttt a", 2, "uhhttta")]
+    [InlineData("u a u ttt a u hhttt a", 3, "a uhhttta")]
+    [InlineData("u tttttttt a", 1, "a")]
+    [InlineData("ttt", 5, "ttt")]
+    public void NewestWindowCountsConversationMessages(string chat, int rows, string kept) =>
+        Assert.Equal(kept.Replace(" ", ""), Roles(HistoryWindow.Last(Chat_(chat), rows)));
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("u a u ttt a u hhttt a", 2, "ua")]
+    [InlineData("u a u ttt a u hhttt a", 3, "uau ttt")]
+    [InlineData("u tttttttt a", 1, "utttttttt")]
+    public void OldestWindowCountsConversationMessagesAndKeepsTheirActions(string chat, int rows, string kept) =>
+        Assert.Equal(kept.Replace(" ", ""), Roles(HistoryWindow.First(Chat_(chat), rows)));
+
+    // Reading pages from the store counts the same way in both directions.
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("u a u ttt a u hhttt a", null, false, 2, "uhhttta")]
+    [InlineData("u a u ttt a u hhttt a", 7, false, 2, "u ttt a")]
+    [InlineData("u a u ttt a u hhttt a", 1, true, 2, "u ttt a")]
+    [InlineData("u a u ttt a u hhttt a", 6, true, 5, "u hhttt a")]
+    public async Task StorePagesCountConversationMessages(string chat, int? from, bool newer, int rows, string expected)
+    {
+        using var store = new Store(Path.Combine(Path.GetTempPath(), "vibe-row-pages", Guid.NewGuid().ToString("N")));
+        store.Save(new Workspace("w", "Test", "."));
+        var saved = new Chat { WorkspaceId = "w" }; store.Save(saved);
+        foreach (var message in Chat_(chat)) store.SaveMessage(saved, message);
+        var page = await store.ReadPageAsync(saved, from, rows, TestContext.Current.CancellationToken, newer: newer, rows: true);
+        Assert.Equal(expected.Replace(" ", ""), Roles(page));
     }
 }

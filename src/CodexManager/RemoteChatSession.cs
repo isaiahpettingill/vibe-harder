@@ -81,7 +81,7 @@ public sealed class RemoteChatSession : IChatSession
         try
         {
             var known = new JsonObject();
-            foreach (var message in chat.Messages) if (revisions.TryGetValue(message.Id, out var revision)) known[message.Id] = revision;
+            foreach (var message in chat.Messages.TakeLast(Chat.HistoryPageSize)) if (revisions.TryGetValue(message.Id, out var revision)) known[message.Id] = revision;
             var result = await Call(new() { ["method"] = "chat", ["activate"] = activateNext, ["knownMessages"] = known });
             if (result is null || !active || disposed) return;
             activateNext = false;
@@ -188,7 +188,8 @@ public sealed class RemoteChatSession : IChatSession
                 if (!message.Attachments.SequenceEqual(incoming)) { message.Attachments.Clear(); foreach (var file in incoming) message.Attachments.Add(file); }
             }
         }
-        while (chat.Messages.Count > Chat.HistoryPageSize) chat.Messages.RemoveAt(0);
+        var keep = HistoryWindow.Last(chat.Messages, Chat.HistoryPageSize).Length;
+        while (chat.Messages.Count > keep) chat.Messages.RemoveAt(0);
         var retained = chat.Messages.Select(m => m.Id).ToHashSet();
         foreach (var id in revisions.Keys.Where(id => !retained.Contains(id)).ToArray()) revisions.Remove(id);
         if (chat.Messages.Count > 0) chat.NextSequence = Math.Max(chat.NextSequence, chat.Messages[^1].Sequence + 1);

@@ -412,7 +412,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             }
             var merged = request.Around is null ? HistoryWindow.Navigate(visible, page, newer) : page;
             // Reaching the end of the history rejoins the live chat once the message being read is in it.
-            var live = newer && page.Length < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(output, messages);
+            var live = newer && HistoryWindow.Rows(page) < HistoryWindow.PageSize && TranscriptNavigation.ShowsAnchorFrom(output, messages);
             viewingHistory = !live;
             TranscriptNavigation.ReplacePage(output, live ? messages : merged);
             UpdateSendAction(); RefreshOutline();
@@ -435,7 +435,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             e.Handled = true; var selectedChat = chatId;
             try
             {
-                var files = e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
+                var files = TopLevel.GetTopLevel(this) is { } top ? await DroppedFiles.Read(e.DataTransfer, top.StorageProvider) : e.DataTransfer.TryGetFiles()?.ToArray() ?? [];
                 if (files.Length > 0) await AddFiles(files, selectedChat);
                 else if (AttachmentClipboard.Image(e.DataTransfer) is { } image) { attachments.Add(image); RefreshAttachments(); }
             }
@@ -562,7 +562,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
             try
             {
                 var known = new JsonObject();
-                foreach (var message in messages) if (messageRevisions.TryGetValue(message.Id, out var revision)) known[message.Id] = revision;
+                // Hosts before row-counted windows accept at most one window of revisions.
+                foreach (var message in messages.TakeLast(Chat.HistoryPageSize)) if (messageRevisions.TryGetValue(message.Id, out var revision)) known[message.Id] = revision;
                 var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["activate"] = activateSelectedChat, ["knownMessages"] = known }); if (presentationSleeping || result is null || id != chatId) return;
                 activateSelectedChat = false;
                 messageProvider = Enum.TryParse<AgentProvider>(result["provider"]?.GetValue<string>(), out var provider) && Enum.IsDefined(provider) ? provider : null;
@@ -752,7 +753,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 if (!message.Attachments.SequenceEqual(incoming)) { message.Attachments.Clear(); foreach (var file in incoming) message.Attachments.Add(file); }
             }
         }
-        while (messages.Count > Chat.HistoryPageSize) messages.RemoveAt(0);
+        var keep = HistoryWindow.Last(messages, Chat.HistoryPageSize).Length;
+        while (messages.Count > keep) messages.RemoveAt(0);
         var retained = messages.Select(m => m.Id).ToHashSet();
         foreach (var id in messageRevisions.Keys.Where(id => !retained.Contains(id)).ToArray()) messageRevisions.Remove(id);
     }
