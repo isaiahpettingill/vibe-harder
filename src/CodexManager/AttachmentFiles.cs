@@ -9,7 +9,9 @@ public static class AttachmentFiles
     public static async Task<Attachment> Read(IStorageFile file, CancellationToken token = default)
     {
         await using var stream = await file.OpenReadAsync();
-        return await Read(file.Name, stream, token);
+        var attachment = await Read(file.Name, stream, token);
+        // Remember where a file picked on this machine lives, so the agent is given that path.
+        return file.TryGetLocalPath() is { } local ? attachment with { SourcePath = new Uri(local).AbsoluteUri } : attachment;
     }
     public static Task<Attachment> Read(string name, Stream stream, CancellationToken token = default) =>
         OperatingSystem.IsBrowser() ? ReadCore(name, stream, token) : Task.Run(() => ReadCore(name, stream, token), token);
@@ -44,6 +46,16 @@ public static class AttachmentFiles
     // text editor). Saved edits to a text copy replace the attachment's contents when it is sent.
     private sealed record OpenedCopy(string Path, DateTime Written);
     private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Attachment, OpenedCopy> opened = new();
+    // The file an attachment was read from, if it is a local file that still exists.
+    public static string? LocalPath(Attachment attachment) =>
+        Uri.TryCreate(attachment.SourcePath, UriKind.Absolute, out var uri) && uri.IsFile && Path.IsPathFullyQualified(uri.LocalPath) && File.Exists(uri.LocalPath) ? uri.LocalPath : null;
+    public static string SafeName(string name)
+    {
+        name = string.Concat(name.Select(c => Path.GetInvalidFileNameChars().Contains(c) || c is '/' or '\\' ? '_' : c)).Trim();
+        return name.Length > 0 ? name : "attachment";
+    }
+    public static byte[] Bytes(Attachment attachment) =>
+        attachment.Binary || attachment.IsImage ? Convert.FromBase64String(attachment.Data) : new UTF8Encoding(false).GetBytes(attachment.Data);
     public static string WriteCopy(Attachment attachment)
     {
         if (opened.TryGetValue(attachment, out var existing) && File.Exists(existing.Path)) return existing.Path;

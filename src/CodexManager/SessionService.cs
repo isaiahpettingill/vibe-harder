@@ -294,7 +294,8 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         }
         if (method is "send" or "queue" or "steer" or "send-now")
         {
-            var attachments = request["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];
+            // A client's file paths mean nothing on this computer; its attachments are written here.
+            var attachments = (request["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []).Select(a => a with { SourcePath = null }).ToArray();
             var input = new PendingInput(Text("text"), attachments);
             if (string.IsNullOrWhiteSpace(input.Text) && input.Attachments.Length == 0) throw new IOException("Enter a message.");
             if (chat.Title == "New chat" && input.Text.Length > 0) { chat.Title = input.Text[..Math.Min(80, input.Text.Length)].Replace('\n', ' '); store.Save(chat); Changed?.Invoke(); }

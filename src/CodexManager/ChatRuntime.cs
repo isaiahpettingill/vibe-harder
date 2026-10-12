@@ -114,9 +114,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 chat.Messages.Add(whispered); store.SaveMessage(chat, whispered);
                 return true;
             }
-            var content = new JsonArray();
-            if (!string.IsNullOrWhiteSpace(input.Text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", input.Text)));
-            foreach (var a in input.Attachments) content.Add((JsonNode)a.ToContent());
+            var content = new JsonArray((await PromptContent(string.IsNullOrWhiteSpace(input.Text) ? "" : input.Text, input.Attachments)).ToArray<JsonNode>());
             var result = await client.Request("_session/steering", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content),
                 ("_meta", RpcJson.Object(("steering", RpcJson.Object(("idleBehavior", "promptRequired")))))), lifetime.Token);
             var outcome = result.GetProperty("outcome").GetString();
@@ -387,7 +385,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         };
         var init = await client.Initialize(timeout.Token);
         ReadHistoryCapabilities(init);
-        ReadExtensionCapabilities(init);
+        ReadExtensionCapabilities(init); ReadPromptCapabilities(init);
         SupportsSteering = SupportsDiracWhisper || init.TryGetProperty("_meta", out var meta) && meta.TryGetProperty("steering", out var steering) && steering.TryGetProperty("supported", out var supported) && supported.ValueKind == JsonValueKind.True;
         loading = chat.SessionId is not null;
         restoreDiracContext = chat.Provider == AgentProvider.Dirac && loading;
@@ -559,8 +557,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (!string.IsNullOrWhiteSpace(restoredContext)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", "Saved conversation from this same chat, restored after the agent reconnected. Treat this as prior conversation, not a new request. Continue with the new user message below.\n\n<saved_conversation>\n" + restoredContext + "</saved_conversation>")));
             // A blank prompt reads to the agent as an interruption; say why it is being resumed.
             if (continuation) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", ResumePrompt)));
-            else if (!string.IsNullOrEmpty(text)) content.Add((JsonNode)RpcJson.Object(("type", "text"), ("text", text)));
-            foreach (var attachment in attachments) content.Add((JsonNode)attachment.ToContent());
+            foreach (var block in await PromptContent(continuation ? "" : text, attachments)) content.Add((JsonNode)block);
             store.Setting("unmaterialized:" + chat.Id, "");
             following = FollowAsyncQuestions(turn.Token);
             var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);

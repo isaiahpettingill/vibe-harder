@@ -22,7 +22,7 @@ createInterface({input:process.stdin}).on('line',line=>{
  const promptLog=process.argv.find(a=>a.startsWith('--prompt-log='))?.slice(13);
  if(m.method==='session/prompt' && promptLog) appendFileSync(promptLog,JSON.stringify(m.params.prompt)+'\n');
  switch(m.method){
-  case 'initialize': clientCapabilities=m.params.clientCapabilities;response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:true,embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
+  case 'initialize': clientCapabilities=m.params.clientCapabilities;response(m.id,{protocolVersion:1,agentCapabilities:{...(process.argv.includes("--dirac")?{_meta:{"dev.dirac/whisper":true,"dev.dirac/steering_status":true,"dev.dirac/checkpoints.list":true,"dev.dirac/checkpoints.restore":true}}:{}),loadSession:true,sessionCapabilities:{list:{}},promptCapabilities:{image:!process.argv.includes('--no-images'),embeddedContext:true}},authMethods:[],...(process.argv.includes('--steering')?{_meta:{steering:{supported:true}}}:{})});break;
   case 'fixture/capabilities': response(m.id,clientCapabilities);break;
   case '_dev.dirac/whisper':
    if(turn) emit({jsonrpc:'2.0',method:'_dev.dirac/steering_status',params:{sessionId:m.params.sessionId,steeringMessageId:'s1',status:'queued'}});break;
