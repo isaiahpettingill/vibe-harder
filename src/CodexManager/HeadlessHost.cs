@@ -24,8 +24,7 @@ public static class HeadlessHost
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
                 runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);
                 // No desktop here: completions only reach paired phones.
-                runtime.TurnCompleted += () => ChatNotifications.Completed(store, chat, false, () => { }, desktop: false);
-                runtime.BackgroundCompleted += () => ChatNotifications.Completed(store, chat, true, () => { }, desktop: false);
+                runtime.TurnCompleted += () => ChatNotifications.Completed(store, chat, () => { }, desktop: false);
             }
             return runtime;
         }

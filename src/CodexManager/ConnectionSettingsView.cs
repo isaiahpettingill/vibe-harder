@@ -128,7 +128,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         if (MobilePush.Current is { } push)
         {
             panel.Children.Add(new TextBlock { Text = "Notifications", FontSize = 18 });
-            panel.Children.Add(new TextBlock { Text = "Get notified when a chat on a paired computer finishes, or an agent comes back from background work. This uses a UnifiedPush distributor app, such as Sunup.", TextWrapping = TextWrapping.Wrap });
+            panel.Children.Add(new TextBlock { Text = "Get notified when a chat on a paired computer finishes. This uses a UnifiedPush distributor app, such as Sunup.", TextWrapping = TextWrapping.Wrap });
             var enabled = new CheckBox { Name = "PushNotifications", Content = "Push notifications from my computers", IsChecked = push.Enabled };
             var pushStatus = new TextBlock { Name = "PushStatus", TextWrapping = TextWrapping.Wrap };
             var choose = new Button { Name = "ChoosePushDistributor", Content = "Choose push distributor", MinHeight = 44 };

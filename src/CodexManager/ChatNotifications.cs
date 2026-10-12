@@ -1,7 +1,7 @@
 namespace CodexManager;
 
-// Tells the user when a chat finishes, or when an agent comes back from background work, while
-// they are looking elsewhere. Desktop notifications go through the system notifier; paired phones
+// Tells the user when a chat finishes while they are looking elsewhere. An agent coming back from
+// background work on its own only marks the chat unread. Desktop notifications go through the system notifier; paired phones
 // get a UnifiedPush message from the host, unless someone is using the host right now.
 public static class ChatNotifications
 {
@@ -10,10 +10,10 @@ public static class ChatNotifications
     // Paired phones are notified by the computer that runs the chat.
     public static Func<Chat, string, Task>? Push { get; set; }
 
-    public static void Completed(Store store, Chat chat, bool background, Action open, bool desktop = true)
+    public static void Completed(Store store, Chat chat, Action open, bool desktop = true)
     {
         if (!Enabled(store)) return;
-        var title = background ? "Back from background work" : "Reply ready";
+        const string title = "Reply ready";
         if (desktop) PermissionNotifications.Show("done:" + chat.Id, chat.Title, open, title, ChatLinks.For(chat.Id));
         if (Push is { } push && !chat.IsRemote && !HostActivity.UserActive()) _ = SendPush(push, chat, title);
     }

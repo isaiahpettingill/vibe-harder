@@ -58,6 +58,37 @@ public class NotificationTests
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
 
+    // An agent coming back from background work on its own marks the chat unread, without a notification.
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task ReturningFromBackgroundWorkMarksTheChatUnreadWithoutNotifying()
+    {
+        var directory = Directory.CreateTempSubdirectory("notify-background-").FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        var title = "Background " + Guid.NewGuid().ToString("N")[..8];
+        store.Save(new Workspace("w", "Test", directory));
+        store.Save(new Chat { WorkspaceId = "w", Title = title, Provider = AgentProvider.Claude }); store.Save(new Chat { WorkspaceId = "w", Title = "Other chat" });
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        var quiet = ChatRuntime.BackgroundQuietTime; ChatRuntime.BackgroundQuietTime = TimeSpan.FromMilliseconds(500);
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            var chats = UiTests.Named<ListBox>(window, "Chats_w");
+            var target = chats.Items.OfType<Chat>().Single(c => c.Title == title);
+            chats.SelectedItem = target;
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
+            composer.Text = "background"; window.FindControl<IconButton>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => target.Messages.Any(m => m.ToolId == "bash-1") && !target.Busy);
+            await Task.Delay(300); var before = Count(title); target.HasUnreadCompletion = false;
+            // While the user is in another chat, the agent finishes its task and reports on its own.
+            chats.SelectedItem = chats.Items.OfType<Chat>().Single(c => c.Title == "Other chat");
+            await Wait(() => target.HasUnreadCompletion);
+            await Task.Delay(1000);
+            Assert.Equal(before, Count(title));
+        }
+        finally { ChatRuntime.BackgroundQuietTime = quiet; window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+
     [Trait("Category", "CI")]
     [AvaloniaTheory]
     [InlineData(WindowState.Maximized, WindowState.Maximized, WindowState.Maximized)]

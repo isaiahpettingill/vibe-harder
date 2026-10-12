@@ -81,7 +81,7 @@ public partial class MainView
             var wasUnread = chat.HasUnreadCompletion; var wasBusy = chat.Busy;
             RemoteChatSession.ApplySummary(chat, record);
             if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
-            if (wasBusy && chat.HasUnreadCompletion && !wasUnread && !chat.Busy) NotifyCompleted(chat, background: false);
+            if (wasBusy && chat.HasUnreadCompletion && !wasUnread && !chat.Busy) NotifyCompleted(chat);
             seen.Add(scoped);
             if (!byWorkspace.TryGetValue(chat.WorkspaceId, out var list)) byWorkspace[chat.WorkspaceId] = list = [];
             list.Add(chat);

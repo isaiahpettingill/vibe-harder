@@ -21,11 +21,11 @@ public partial class MainView : UserControl
 {
     public string ImageScope => current?.Id ?? workspace?.Id ?? "";
     // Only for chats the user is not looking at; the open chat already shows its reply.
-    private void NotifyCompleted(Chat chat, bool background)
+    private void NotifyCompleted(Chat chat)
     {
         if (closing) return;
         var watching = ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true };
-        ChatNotifications.Completed(store, chat, background, () => OpenChatFromNotification(chat), desktop: !watching && !remoteOnly);
+        ChatNotifications.Completed(store, chat, () => OpenChatFromNotification(chat), desktop: !watching && !remoteOnly);
     }
     // A clicked notification link, forwarded from a new process.
     public void OpenChatLink(string chatId)
@@ -849,8 +849,7 @@ public partial class MainView : UserControl
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
-            runtime.TurnCompleted += () => NotifyCompleted(chat, background: false);
-            runtime.BackgroundCompleted += () => NotifyCompleted(chat, background: true);
+            runtime.TurnCompleted += () => NotifyCompleted(chat);
             runtime.Changed += () =>
             {
                 if (closing) return;
@@ -1180,7 +1179,7 @@ public partial class MainView : UserControl
         var startAtLogin = new CheckBox { Name = "StartAtLogin", Content = "Start Vibe Harder when I sign in (including after a restart)", IsChecked = store.Setting("startAtLogin") == "1" };
         startAtLogin.IsCheckedChanged += (_, _) => ApplyChange(() => { StartupRegistration.SetEnabled(startAtLogin.IsChecked == true); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0"); });
         panel.Children.Add(autoResume); panel.Children.Add(startAtLogin);
-        var notify = new CheckBox { Name = "CompletionNotifications", Content = "Notify me when a chat finishes or an agent comes back from background work", IsChecked = ChatNotifications.Enabled(store) };
+        var notify = new CheckBox { Name = "CompletionNotifications", Content = "Notify me when a chat finishes", IsChecked = ChatNotifications.Enabled(store) };
         ToolTip.SetTip(notify, "Desktop notifications, and push notifications on paired phones that enabled them.");
         notify.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(ChatNotifications.EnabledKey, notify.IsChecked == true ? "1" : "0"));
         panel.Children.Add(notify);
