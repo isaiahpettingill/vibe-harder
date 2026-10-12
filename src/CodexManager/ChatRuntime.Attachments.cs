@@ -3,10 +3,10 @@ using System.Text.Json.Nodes;
 
 namespace CodexManager;
 
-// Attachments reach the agent as files it can open, not as contents in the prompt: images go
-// inline only to agents that accept them, everything else is given by path. A file picked on
-// this machine keeps its own path; other attachments, and anything for a WSL workspace, are
-// copied to a temporary folder the agent can read.
+// Attachments reach the agent as files it can open, not as contents in the prompt: every
+// attachment is given by path, and images also go inline to agents that accept them. A file
+// picked on this machine keeps its own path; other attachments, and anything for a WSL
+// workspace, are copied to a temporary folder the agent can read.
 public sealed partial class ChatRuntime
 {
     private bool supportsImages;
@@ -19,8 +19,11 @@ public sealed partial class ChatRuntime
         var content = new List<JsonObject>();
         if (!string.IsNullOrEmpty(text)) content.Add(RpcJson.Object(("type", "text"), ("text", text)));
         foreach (var attachment in attachments)
-            content.Add(attachment.IsImage && supportsImages ? attachment.ToContent()
-                : RpcJson.Object(("type", "text"), ("text", "Attached file: " + await Task.Run(() => AttachmentPath(attachment)))));
+        {
+            // An image the agent can see still comes with its path, so the agent can also move or copy the file.
+            if (attachment.IsImage && supportsImages) content.Add(attachment.ToContent());
+            content.Add(RpcJson.Object(("type", "text"), ("text", "Attached file: " + await Task.Run(() => AttachmentPath(attachment)))));
+        }
         return content;
     }
 

@@ -14,12 +14,12 @@ public class AttachmentDeliveryTests
     private static string PathIn(JsonElement block) => block.GetProperty("text").GetString()!["Attached file: ".Length..];
 
     // A file picked from disk, pasted text, and an image, sent to agents with and without image
-    // support. The agent gets each as a file it can open, and an image inline only if it accepts one.
+    // support. The agent gets each as a file it can open, and an image also inline if it accepts one.
     [Trait("Category", "CI")]
     [AvaloniaTheory]
-    [InlineData("", "image")]
-    [InlineData("--no-images", "text")]
-    public async Task AttachmentsReachTheAgentAsFilesItCanOpen(string flags, string imageBlock)
+    [InlineData("", true)]
+    [InlineData("--no-images", false)]
+    public async Task AttachmentsReachTheAgentAsFilesItCanOpen(string flags, bool inlineImage)
     {
         var directory = Directory.CreateTempSubdirectory("attachments-").FullName;
         using var store = new Store(directory); var workspace = new Workspace("w", "Files", directory); store.Save(workspace);
@@ -36,12 +36,13 @@ public class AttachmentDeliveryTests
         await runtime.Send("look at these", attachments);
 
         var blocks = LastPrompt(log);
-        Assert.Equal(["text", "text", "text", imageBlock], blocks.Select(b => b.GetProperty("type").GetString()));
+        Assert.Equal(inlineImage ? ["text", "text", "text", "image", "text"] : ["text", "text", "text", "text"], blocks.Select(b => b.GetProperty("type").GetString()));
         // A file picked on this computer is given by its own path; the paste is written out.
         Assert.Equal(picked, PathIn(blocks[1]));
         Assert.Equal("long pasted text", File.ReadAllText(PathIn(blocks[2])));
-        if (imageBlock == "text") Assert.Equal(Png, File.ReadAllBytes(PathIn(blocks[3])));
-        else Assert.Equal(Convert.ToBase64String(Png), blocks[3].GetProperty("data").GetString());
+        // The image's path is there either way, so the agent can also move or copy it.
+        Assert.Equal(Png, File.ReadAllBytes(PathIn(blocks[^1])));
+        if (inlineImage) Assert.Equal(Convert.ToBase64String(Png), blocks[3].GetProperty("data").GetString());
     }
 
     // A phone or another computer sends file contents with paths from its own disk. The host
