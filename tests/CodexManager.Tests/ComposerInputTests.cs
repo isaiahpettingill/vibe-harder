@@ -191,10 +191,10 @@ public class ComposerInputTests
         finally { window.Close(); }
     }
     // A finger pressed on a control, moved, and lifted after a while.
-    internal static async Task Touch(Control control, Window window, int heldMs, double moved = 0)
+    internal static async Task Touch(Control control, Window window, int heldMs, double moved = 0, Point? at = null)
     {
         using var finger = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
-        var start = control.TranslatePoint(new Point(control.Bounds.Width / 2, Math.Min(12, control.Bounds.Height / 2)), window)!.Value;
+        var start = control.TranslatePoint(at ?? new Point(control.Bounds.Width / 2, Math.Min(12, control.Bounds.Height / 2)), window)!.Value;
         var end = new Point(start.X, start.Y + moved);
         control.RaiseEvent(new PointerPressedEventArgs(control, finger, window, start, 1,
             new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
@@ -237,8 +237,8 @@ public class ComposerInputTests
         }
         finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
     }
-    // On a phone, holding a finger on the message box opens its edit menu; paste goes through the
-    // chat's own paste, so clipboard text lands in the draft.
+    // On a phone, holding a word in the message box selects it and opens the edit menu; paste goes
+    // through the chat's own paste, so clipboard text replaces the held word.
     [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task HoldingTheComposerOpensAnEditMenuThatPastes()
@@ -250,10 +250,12 @@ public class ComposerInputTests
         {
             var input = window.FindControl<ComposerEditor>("Composer")!;
             await window.Clipboard!.SetTextAsync("pasted words");
-            await Touch(input, window, 650);
+            input.Text = "hello world"; window.UpdateLayout();
+            await Touch(input, window, 650, at: new Point(input.Padding.Left + 4, input.Bounds.Height / 2));
+            Assert.Equal("hello", input.SelectedText);
             var paste = Assert.Single(popups).Child!.GetLogicalDescendants().OfType<MenuItem>().Single(i => i.Name == "ComposerPaste");
             paste.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
-            await Wait(() => input.Text == "pasted words");
+            await Wait(() => input.Text == "pasted words world");
         }
         finally { foreach (var popup in popups) popup.IsOpen = false; window.RequestExit(); await Wait(() => !window.IsVisible); }
     }

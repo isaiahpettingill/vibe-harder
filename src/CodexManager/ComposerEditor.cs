@@ -35,7 +35,15 @@ public sealed class ComposerEditor : TextEditor
         TextArea.AddHandler(TextInputMethodClientRequestedEvent, (_, e) => { if (!IsReadOnly) e.Client = client; });
         AddHandler(PointerReleasedEvent, (_, e) => { if (e.Pointer.Type != Avalonia.Input.PointerType.Mouse) ReopenKeyboard(); }, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
         var menu = EditMenu(); ContextFlyout = menu;
-        LongPress.Attach(this, _ => menu.ShowAt(this, true));
+        LongPress.Attach(this, (point, _) => { SelectWordAt(point); menu.ShowAt(this, true); });
+    }
+    // Holding a word selects it, as in other phone text fields, before the edit menu opens.
+    private void SelectWordAt(Point point)
+    {
+        var view = TextArea.TextView;
+        if (Document.TextLength == 0 || this.TranslatePoint(point, view) is not { } at || view.GetPosition(at + view.ScrollOffset) is not { } position) return;
+        var (from, to) = TouchSelection.Word(Text, Document.GetOffset(position.Location));
+        if (to > from) Select(from, to - from);
     }
     // The view's paste, which also attaches images and files from the clipboard.
     public Func<Task>? ClipboardPaste { get; set; }

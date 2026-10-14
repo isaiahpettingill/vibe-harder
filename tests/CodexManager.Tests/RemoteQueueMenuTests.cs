@@ -24,8 +24,8 @@ public class RemoteQueueMenuTests
             var message = new Message { Role = role, Text = "Copy this message" };
             message.Attachments.Add(new Attachment("notes.txt", "text/plain", "notes"));
             var menu = await HistoryActions.Show(anchor, message, _ => Task.FromResult(options is null ? null : JsonNode.Parse(options)), _ => { });
-            // Copy, Select text, and Show attachments are local and never depend on the host.
-            Assert.Equal(3 + historyActions, menu.Items.OfType<MenuItem>().Count());
+            // Copy and Show attachments are local and never depend on the host.
+            Assert.Equal(2 + historyActions, menu.Items.OfType<MenuItem>().Count());
             menu.Items.OfType<MenuItem>().First().RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
             using var data = await window.Clipboard!.TryGetDataAsync();
             Assert.Equal(message.Text, await data!.TryGetTextAsync()); menu.Hide();

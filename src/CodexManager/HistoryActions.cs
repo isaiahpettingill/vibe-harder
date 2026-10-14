@@ -2,7 +2,6 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Primitives;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Input.Platform;
@@ -11,13 +10,6 @@ namespace CodexManager;
 
 public static class HistoryActions
 {
-    public static Flyout SelectText(Control anchor, string text)
-    {
-        var box = new TextBox { Name = "SelectedMessageText", Text = text, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, AcceptsReturn = true, MaxHeight = 420, MinWidth = 240, MaxWidth = 640 };
-        var flyout = new Flyout { Content = box, Placement = PlacementMode.Bottom };
-        flyout.ShowAt(anchor);
-        return flyout;
-    }
     public static async Task<MenuFlyout> Show(Control anchor, Message? message, Func<JsonObject, Task<JsonNode?>> call, Action<string> selected)
     {
         var menu = new MenuFlyout();
@@ -26,11 +18,6 @@ public static class HistoryActions
             var copy = new MenuItem { Header = "Copy text" };
             copy.Click += async (_, _) => { try { if (TopLevel.GetTopLevel(anchor)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(message.Text); } catch (Exception error) { Error(anchor, error.Message); } };
             menu.Items.Add(copy);
-            // Touch cannot drag a selection through the transcript without scrolling it, so the
-            // text opens in a box of its own where it can be selected and copied in part.
-            var select = new MenuItem { Name = "SelectText", Header = "Select text" };
-            select.Click += (_, _) => SelectText(anchor, message.Text);
-            menu.Items.Add(select);
             if (message.Attachments.Count > 0)
             {
                 var files = new MenuItem { Header = "Show attachments" };

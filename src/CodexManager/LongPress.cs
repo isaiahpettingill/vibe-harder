@@ -14,7 +14,7 @@ public static class LongPress
     public static readonly TimeSpan Delay = TimeSpan.FromMilliseconds(500);
     private const double Slop = 10;
 
-    public static void Attach(Control control, Action<Point> held, Func<PointerPressedEventArgs, bool>? accepts = null)
+    public static void Attach(Control control, Action<Point, IPointer> held, Func<PointerPressedEventArgs, bool>? accepts = null)
     {
         IDisposable? timer = null; Point start = default;
         void Cancel() { timer?.Dispose(); timer = null; }
@@ -28,7 +28,7 @@ public static class LongPress
                 timer = null;
                 // A scroll that took the pointer over is not a hold, even before the finger moved far.
                 if (pointer.Captured is Visual captor && captor != control && !control.IsVisualAncestorOf(captor)) return;
-                held(start);
+                held(start, pointer);
             }, Delay);
         }, RoutingStrategies.Tunnel, true);
         control.AddHandler(InputElement.PointerMovedEvent, (_, e) =>

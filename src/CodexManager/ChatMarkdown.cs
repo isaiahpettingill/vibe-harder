@@ -33,6 +33,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     // assembly is explicitly rooted for AOT along with its reflection templates.
     private static readonly FieldInfo? DocumentField = typeof(MarkdownScrollViewer).GetField("_document", BindingFlags.Instance | BindingFlags.NonPublic);
     private DocumentElement? Document => DocumentField?.GetValue(this) as DocumentElement;
+    internal DocumentElement? SelectionDocument => Document;
+    private readonly TouchSelection touchSelection;
+    public TouchSelection TouchSelection => touchSelection;
     // Held on a link, a touch opens the link's own menu rather than the message's.
     internal bool HoldsLink { get; private set; }
     static ChatMarkdown() => TextProperty.Changed.AddClassHandler<ChatMarkdown>((view, _) => view.Refresh());
@@ -49,7 +52,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
             { e.Handled = true; await Copy(true); }
         }, RoutingStrategies.Tunnel);
-        AddHandler(PointerPressedEvent, (_, _) => HoldsLink = false, RoutingStrategies.Tunnel, true);
+        // The renderer's own drag selection is for a mouse; a finger drag scrolls, and touch selects by holding.
+        AddHandler(PointerPressedEvent, (_, e) => { HoldsLink = false; SelectionEnabled = e.Pointer.Type == PointerType.Mouse; }, RoutingStrategies.Tunnel, true);
+        touchSelection = new TouchSelection(this);
         var copy = new MenuItem { Header = "Copy selection with formatting" };
         copy.Click += async (_, _) => await Copy(true);
         ContextMenu = new ContextMenu { ItemsSource = new[] { copy } };
@@ -63,7 +68,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         renderTimer.Stop();
         if (!attached || !pending) return;
-        pending = false; Markdown = Text; ScheduleDecoration();
+        pending = false; touchSelection.Clear(); Markdown = Text; ScheduleDecoration();
     }
     private void ScheduleDecoration()
     {
@@ -374,7 +379,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         if (!selection) FlushRender();
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || Document is not { } document) return;
-        var selected = selection ? document.GetSelectedText() : "";
+        var selected = selection ? document.GetSelectedText().TrimEnd('\n') : "";
         if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));
         var editorSelection = this.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault(e => e.SelectionLength > 0);
         var plainSelection = this.GetVisualDescendants().OfType<SelectableTextBlock>().FirstOrDefault(b => !string.IsNullOrEmpty(b.SelectedText));
