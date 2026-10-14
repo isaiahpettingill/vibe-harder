@@ -34,6 +34,28 @@ public sealed class ComposerEditor : TextEditor
         var client = new InputClient(TextArea);
         TextArea.AddHandler(TextInputMethodClientRequestedEvent, (_, e) => { if (!IsReadOnly) e.Client = client; });
         AddHandler(PointerReleasedEvent, (_, e) => { if (e.Pointer.Type != Avalonia.Input.PointerType.Mouse) ReopenKeyboard(); }, Avalonia.Interactivity.RoutingStrategies.Bubble, handledEventsToo: true);
+        var menu = EditMenu(); ContextFlyout = menu;
+        LongPress.Attach(this, _ => menu.ShowAt(this, true));
+    }
+    // The view's paste, which also attaches images and files from the clipboard.
+    public Func<Task>? ClipboardPaste { get; set; }
+    private MenuFlyout EditMenu()
+    {
+        var cut = new MenuItem { Name = "ComposerCut", Header = "Cut" };
+        var copy = new MenuItem { Name = "ComposerCopy", Header = "Copy" };
+        var paste = new MenuItem { Name = "ComposerPaste", Header = "Paste" };
+        var all = new MenuItem { Name = "ComposerSelectAll", Header = "Select all" };
+        cut.Click += (_, _) => Cut(); copy.Click += (_, _) => Copy(); all.Click += (_, _) => SelectAll();
+        paste.Click += async (_, _) => { if (ClipboardPaste is { } handler) await handler(); else Paste(); };
+        var menu = new MenuFlyout { Items = { cut, copy, paste, all } };
+        menu.Opening += (_, _) => { cut.IsEnabled = SelectionLength > 0 && !IsReadOnly; copy.IsEnabled = SelectionLength > 0; paste.IsEnabled = !IsReadOnly; };
+        return menu;
+    }
+    // Up in an empty message box brings back the last message sent, to resend or correct it.
+    public bool RecallLast(IEnumerable<Message> messages)
+    {
+        if (Document.TextLength > 0 || messages.LastOrDefault(m => m.Role == "user" && !string.IsNullOrWhiteSpace(m.Text)) is not { } last) return false;
+        Text = last.Text; return true;
     }
     // Android shows the keyboard only when the focused input changes; TextBox also asks on each
     // tap, but TextEditor never does. Tapping a still-focused draft after the keyboard was

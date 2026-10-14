@@ -220,6 +220,7 @@ public partial class MainView : UserControl
         ChatPane.AddHandler(DragDrop.DragOverEvent, AcceptDrag, RoutingStrategies.Bubble, true);
         ChatPane.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
+        Composer.ClipboardPaste = () => PasteClipboard(false);
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (palette is null && e.Key == Key.Oem3 && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; ToggleTerminal(this, new()); }
@@ -907,6 +908,7 @@ public partial class MainView : UserControl
             if (e.Key is Key.Up or Key.Down) { e.Handled = true; SlashCommands.SelectedIndex = Math.Clamp(SlashCommands.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, SlashCommands.ItemCount - 1); SlashCommands.ScrollIntoView(SlashCommands.SelectedItem!); return; }
             if (e.Key == Key.Escape) { e.Handled = true; SlashCommands.IsVisible = false; return; }
         }
+        if (e.Key == Key.Up && e.KeyModifiers == KeyModifiers.None && current is { } recalled && Composer.RecallLast(recalled.Messages)) { e.Handled = true; return; }
         if (e.Key == Key.Enter && !e.KeyModifiers.HasFlag(KeyModifiers.Shift))
         {
             e.Handled = true;

@@ -460,6 +460,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         };
         composer.TextChanged += (_, _) => { UpdateSendAction(); UpdateSlashCommands(); SaveBrowserDraft(); };
         send.Click += async (_, _) => await SendOrStop();
+        composer.ClipboardPaste = () => PasteClipboard(false);
         composer.AddHandler(KeyDownEvent, async (_, e) =>
         {
             if (e.Key == Key.V && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)) || e.Key == Key.Insert && e.KeyModifiers == KeyModifiers.Shift)
@@ -472,6 +473,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 if (e.Key is Key.Up or Key.Down) { e.Handled = true; slashCommands.SelectedIndex = Math.Clamp(slashCommands.SelectedIndex + (e.Key == Key.Down ? 1 : -1), 0, slashCommands.ItemCount - 1); slashCommands.ScrollIntoView(slashCommands.SelectedItem!); return; }
                 if (e.Key == Key.Escape) { e.Handled = true; slashCommands.IsVisible = false; return; }
             }
+            if (e.Key == Key.Up && e.KeyModifiers == KeyModifiers.None && composer.RecallLast(messages)) { e.Handled = true; return; }
             if (e.Key == Key.Escape && e.KeyModifiers == KeyModifiers.None && busy)
             { e.Handled = true; await SendOrStop("send-now"); return; }
             if (e.Key != Key.Enter || e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;

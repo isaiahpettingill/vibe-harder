@@ -190,4 +190,71 @@ public class ComposerInputTests
         }
         finally { window.Close(); }
     }
+    // A finger pressed on a control, moved, and lifted after a while.
+    internal static async Task Touch(Control control, Window window, int heldMs, double moved = 0)
+    {
+        using var finger = new Pointer(Pointer.GetNextFreeId(), PointerType.Touch, true);
+        var start = control.TranslatePoint(new Point(control.Bounds.Width / 2, Math.Min(12, control.Bounds.Height / 2)), window)!.Value;
+        var end = new Point(start.X, start.Y + moved);
+        control.RaiseEvent(new PointerPressedEventArgs(control, finger, window, start, 1,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.LeftButtonPressed), KeyModifiers.None));
+        if (moved > 0) control.RaiseEvent(new PointerEventArgs(InputElement.PointerMovedEvent, control, finger, window, end, 2,
+            new PointerPointProperties(RawInputModifiers.LeftMouseButton, PointerUpdateKind.Other), KeyModifiers.None));
+        await Task.Delay(heldMs);
+        control.RaiseEvent(new PointerReleasedEventArgs(control, finger, window, end, 3,
+            new PointerPointProperties(RawInputModifiers.None, PointerUpdateKind.LeftButtonReleased), KeyModifiers.None, MouseButton.Left));
+    }
+    private static MainWindow ComposerWindow(string name, Action<Store, Chat>? seed = null)
+    {
+        var directory = Directory.CreateTempSubdirectory(name).FullName; Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        var store = new Store(directory); store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Test", directory)); var chat = new Chat { WorkspaceId = "w" }; store.Save(chat); seed?.Invoke(store, chat);
+        foreach (var provider in AgentProviders.All) store.Setting(AgentProviders.CommandKey(provider.Provider, false), "node \"" + System.IO.Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        var window = new MainWindow(store); window.Show(); return window;
+    }
+    // Up in an empty message box brings back the last message sent; a draft being typed is left alone.
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData(new[] { "first", "second" }, "", "second")]
+    [InlineData(new[] { "first", "second" }, "half typed", "half typed")]
+    [InlineData(new string[0], "", "")]
+    public async Task UpRestoresTheLastMessageIntoAnEmptyComposer(string[] sent, string draft, string expected)
+    {
+        var window = ComposerWindow("composer-recall-", (store, chat) =>
+        {
+            foreach (var text in sent)
+            {
+                store.SaveMessage(chat, new Message { Role = "user", Text = text });
+                store.SaveMessage(chat, new Message { Role = "assistant", Text = "reply to " + text });
+            }
+        });
+        try
+        {
+            var input = window.FindControl<ComposerEditor>("Composer")!;
+            await Wait(() => window.FindControl<ListBox>("MessageList")!.ItemCount == sent.Length * 2);
+            input.Text = draft; Key(input, Avalonia.Input.Key.Up);
+            Assert.Equal(expected, input.Text);
+        }
+        finally { window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
+    // On a phone, holding a finger on the message box opens its edit menu; paste goes through the
+    // chat's own paste, so clipboard text lands in the draft.
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task HoldingTheComposerOpensAnEditMenuThatPastes()
+    {
+        var window = ComposerWindow("composer-hold-");
+        var popups = new List<Avalonia.Controls.Primitives.Popup>();
+        using var subscription = Avalonia.Controls.Primitives.Popup.IsOpenProperty.Changed.AddClassHandler<Avalonia.Controls.Primitives.Popup>((popup, _) => { if (popup.IsOpen) popups.Add(popup); });
+        try
+        {
+            var input = window.FindControl<ComposerEditor>("Composer")!;
+            await window.Clipboard!.SetTextAsync("pasted words");
+            await Touch(input, window, 650);
+            var paste = Assert.Single(popups).Child!.GetLogicalDescendants().OfType<MenuItem>().Single(i => i.Name == "ComposerPaste");
+            paste.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(MenuItem.ClickEvent));
+            await Wait(() => input.Text == "pasted words");
+        }
+        finally { foreach (var popup in popups) popup.IsOpen = false; window.RequestExit(); await Wait(() => !window.IsVisible); }
+    }
 }

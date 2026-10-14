@@ -33,6 +33,8 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     // assembly is explicitly rooted for AOT along with its reflection templates.
     private static readonly FieldInfo? DocumentField = typeof(MarkdownScrollViewer).GetField("_document", BindingFlags.Instance | BindingFlags.NonPublic);
     private DocumentElement? Document => DocumentField?.GetValue(this) as DocumentElement;
+    // Held on a link, a touch opens the link's own menu rather than the message's.
+    internal bool HoldsLink { get; private set; }
     static ChatMarkdown() => TextProperty.Changed.AddClassHandler<ChatMarkdown>((view, _) => view.Refresh());
     public ChatMarkdown()
     {
@@ -47,6 +49,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (e.Key == Key.C && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta)))
             { e.Handled = true; await Copy(true); }
         }, RoutingStrategies.Tunnel);
+        AddHandler(PointerPressedEvent, (_, _) => HoldsLink = false, RoutingStrategies.Tunnel, true);
         var copy = new MenuItem { Header = "Copy selection with formatting" };
         copy.Click += async (_, _) => await Copy(true);
         ContextMenu = new ContextMenu { ItemsSource = new[] { copy } };
@@ -288,6 +291,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
                 selecting = true; selectionStart = e.GetPosition(document.Control);
                 document.Select(selectionStart, selectionStart); Focus(); e.Pointer.Capture(block);
             }
+            HoldsLink = e.Pointer.Type == PointerType.Touch;
             if (e.Pointer.Type == PointerType.Touch)
                 hold = Avalonia.Threading.DispatcherTimer.RunOnce(() =>
                 {

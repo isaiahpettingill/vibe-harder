@@ -86,12 +86,10 @@ public sealed class MessageView : UserControl
         Grid.SetColumn(history, 3); header.Children.Add(history);
         timestamp.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
         Grid.SetColumn(timestamp, 4); header.Children.Add(timestamp);
-        history.Click += async (_, _) =>
-        {
-            if (Message is not { } message) return;
-            if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.ShowHistoryActions(history, message);
-            else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.ShowHistoryActions(history, message);
-        };
+        history.Click += async (_, _) => await ShowActions();
+        // On a phone, holding a message opens its actions, where its text can be selected and copied.
+        LongPress.Attach(this, async _ => { if (history.IsVisible && body?.HoldsLink != true) await ShowActions(); },
+            e => (e.Source as Visual)?.GetSelfAndVisualAncestors().OfType<MessageView>().FirstOrDefault() == this);
         details = new ScrollViewer { HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = OperatingSystem.IsAndroid() ? Avalonia.Controls.Primitives.ScrollBarVisibility.Hidden : Avalonia.Controls.Primitives.ScrollBarVisibility.Auto };
         ScrollViewer.SetIsScrollChainingEnabled(details, true);
         outputToggle.Content = outputLabel;
@@ -131,6 +129,12 @@ public sealed class MessageView : UserControl
         frame.Bind(Border.BorderBrushProperty, frame.GetResourceObservable("AppAccent"));
         frame.Child = new StackPanel { Spacing = 6, Children = { header, details } };
         Content = frame;
+    }
+    private async Task ShowActions()
+    {
+        if (Message is not { } message) return;
+        if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.ShowHistoryActions(history, message);
+        else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.ShowHistoryActions(history, message);
     }
     private void Change(Message? old)
     {
