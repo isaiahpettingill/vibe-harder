@@ -21,7 +21,6 @@ namespace CodexManager;
 
 public sealed class ChatMarkdown : MarkdownScrollViewer
 {
-    private readonly System.Runtime.CompilerServices.ConditionalWeakTable<TextEditor, AvaloniaEdit.Highlighting.IHighlightingDefinition> syntaxDefinitions = new();
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<CTextBlock, object> decoratedBlocks = new();
     public static readonly StyledProperty<string> TextProperty = AvaloniaProperty.Register<ChatMarkdown, string>(nameof(Text), "");
     public string Text { get => GetValue(TextProperty); set => SetValue(TextProperty, value); }
@@ -94,11 +93,19 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (control is not CTextBlock block) continue;
             if (decoratedBlocks.TryGetValue(block, out _)) continue;
             decoratedBlocks.Add(block, new object());
+            block.Bind(CTextBlock.SelectionBrushProperty, this.GetResourceObservable("ChatSelection"));
+            if (block.Tag is ChatMarkdownEngine.CodeElement code)
+            {
+                block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
+                block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
+                block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
+                Highlight(code);
+                continue;
+            }
             block.Bind(CTextBlock.FontFamilyProperty, this.GetResourceObservable(Muted ? "CodeFont" : "ChatFont"));
             block.Bind(CTextBlock.FontSizeProperty, this.GetResourceObservable(SessionNotice ? "SessionFontSize" : Muted ? "ToolFontSize" : "ChatFontSize"));
             if (SessionNotice) block.FontStyle = FontStyle.Italic;
             StyleInlineCode(block.Content);
-            block.Bind(CTextBlock.SelectionBrushProperty, this.GetResourceObservable("ChatSelection"));
             DecorateLinks(block);
             block.Bind(CTextBlock.ForegroundProperty, this.GetResourceObservable(Muted || SessionNotice ? "AppMuted" : "AppText"));
         }
@@ -106,46 +113,16 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             if (border.Classes.Contains("MermaidBlock")) ShowDiagram(border); else ShowImage(border);
         foreach (var border in codeBlocks)
         {
-            // Plain fences use an upstream horizontal scroller whose overlay
-            // covers the only line. Wrap the text within the available width.
-            if (border.Child is ScrollViewer { Content: TextBlock plain } plainScroll)
-            {
-                plainScroll.Content = null;
-                plain = new SelectableTextBlock { Text = plain.Text };
-                plain.TextWrapping = TextWrapping.Wrap;
-                plain.Bind(TextBlock.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
-                plain.Bind(TextBlock.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
-                plain.Margin = new Thickness(8);
-                var plainCopy = new IconButton { Name = "CopyCode", Label = "Copy code", HorizontalAlignment = HorizontalAlignment.Right };
-                plainCopy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(plain.Text); };
-                var plainGrid = new Grid { RowDefinitions = new("Auto,Auto") };
-                plainGrid.Children.Add(plainCopy); Grid.SetRow(plain, 1); plainGrid.Children.Add(plain); border.Child = plainGrid;
-                continue;
-            }
-            if (border.Child is not Panel panel || panel is Grid) continue;
-            var editor = panel.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault();
-            if (editor is null) continue;
-            // Replace the upstream overlay panel: it arranges the editor below
-            // its origin without subtracting that offset, clipping the last line.
-            panel.Children.Remove(editor);
-            editor.Bind(TextEditor.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
-            editor.Bind(TextEditor.FontSizeProperty, this.GetResourceObservable(Muted ? "ToolFontSize" : "CodeFontSize"));
-            editor.Bind(TextEditor.ForegroundProperty, this.GetResourceObservable(Muted ? "AppMuted" : "AppText"));
-            editor.Bind(TextEditor.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+            if (border.Child is not CTextBlock { Tag: ChatMarkdownEngine.CodeElement code } block) continue;
+            border.Child = null;
             border.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppSurface"));
-            ApplyHighlighting(editor);
-            editor.Padding = new Thickness(8);
-            editor.WordWrap = true;
-            editor.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            editor.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
-            editor.MinHeight = 36;
             var copy = new IconButton { Name = "CopyCode", Label = "Copy code", HorizontalAlignment = HorizontalAlignment.Right };
-            copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(editor.Text); };
+            copy.Click += async (_, _) => { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(code.Text); };
             var header = new Grid { ColumnDefinitions = new("*,Auto") };
-            header.Children.Add(new TextBlock { Text = editor.Tag as string, Margin = new Thickness(8, 4), FontSize = 11 });
+            header.Children.Add(new TextBlock { Text = code.Language, Margin = new Thickness(8, 4), FontSize = 11 });
             Grid.SetColumn(copy, 1); header.Children.Add(copy);
             var grid = new Grid { RowDefinitions = new("Auto,Auto") };
-            grid.Children.Add(header); Grid.SetRow(editor, 1); grid.Children.Add(editor); border.Child = grid;
+            grid.Children.Add(header); Grid.SetRow(block, 1); grid.Children.Add(block); border.Child = grid;
         }
     }
     private void ShowDiagram(Border border)
@@ -222,18 +199,18 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote ? remote.DownloadImage(target, token)
         : this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main ? main.ResolveImageFile(target, token)
         : throw new IOException("Images on this host cannot be opened here."));
-    private void ApplyHighlighting(TextEditor editor)
+    private void Highlight(ChatMarkdownEngine.CodeElement code)
     {
-        if (editor.SyntaxHighlighting is { } definition && !syntaxDefinitions.TryGetValue(editor, out _)) syntaxDefinitions.Add(editor, definition);
-        if (Muted || !AppTheme.SyntaxHighlightingEnabled) editor.SyntaxHighlighting = null;
-        else if (syntaxDefinitions.TryGetValue(editor, out var saved)) { AppTheme.StyleSyntax(saved); editor.SyntaxHighlighting = saved; }
+        var syntax = Muted || !AppTheme.SyntaxHighlightingEnabled ? null : code.Syntax;
+        AppTheme.StyleSyntax(syntax);
+        code.Block.Content = new Avalonia.Collections.AvaloniaList<CInline>(ChatMarkdownEngine.CodeElement.Runs(code.Text, syntax));
     }
     private void RefreshSyntax()
     {
         ScheduleDecoration();
         foreach (var presenter in this.GetVisualDescendants().OfType<MermaidPresenter>()) presenter.InvalidateVisual();
-        foreach (var editor in this.GetVisualDescendants().OfType<TextEditor>())
-        { ApplyHighlighting(editor); editor.TextArea.TextView.Redraw(); }
+        foreach (var block in this.GetVisualDescendants().OfType<CTextBlock>())
+            if (block.Tag is ChatMarkdownEngine.CodeElement code) Highlight(code);
     }
     private void StyleInlineCode(IEnumerable<CInline> inlines)
     {
@@ -241,10 +218,10 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         {
             if (inline is CCode code)
             {
-                // A decorated span gets its selection painted above the code
-                // background; bare inline backgrounds hide the selection.
-                code.Padding = new Thickness(1, 0);
-                inline.Bind(CInline.ForegroundProperty, this.GetResourceObservable("AppAccent")); inline.Bind(CInline.BackgroundProperty, this.GetResourceObservable("AppSurface"));
+                // Selection is painted under ordinary text and then the code's background, so that
+                // background is translucent: the selection shows through it and the code stays legible.
+                // (Padding would make a decorated span, whose selection is washed over the glyphs.)
+                inline.Bind(CInline.ForegroundProperty, this.GetResourceObservable("AppAccent")); inline.Bind(CInline.BackgroundProperty, this.GetResourceObservable("InlineCodeBackground"));
                 inline.FontWeight = FontWeight.Normal;
                 inline.Bind(CInline.FontFamilyProperty, this.GetResourceObservable("CodeFont"));
             }
@@ -381,12 +358,9 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || Document is not { } document) return;
         var selected = selection ? document.GetSelectedText().TrimEnd('\n') : "";
         if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));
-        var editorSelection = this.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault(e => e.SelectionLength > 0);
         var plainSelection = this.GetVisualDescendants().OfType<SelectableTextBlock>().FirstOrDefault(b => !string.IsNullOrEmpty(b.SelectedText));
         if (selection && plainSelection is not null)
         { selected = plainSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
-        if (selection && editorSelection is not null)
-        { selected = editorSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
         if (selection && string.IsNullOrEmpty(selected)) return;
         await RichClipboard.Set(clipboard, selection ? selected : Text, Html(document, selection, selected));
     }
@@ -405,8 +379,11 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             return !selection || selected.Contains(image.Url, StringComparison.Ordinal) ? (ChatImages.IsWeb(image.Url) ? $"<img src=\"{Encode(image.Url)}\" alt=\"{Encode(image.Alt)}\">" : "<p>" + Encode(image.Alt.Length > 0 ? image.Alt : image.Url) + "</p>") : "";
         if (element.Control is Border { Tag: string diagram } mermaid && mermaid.Classes.Contains("MermaidBlock"))
             return !selection || selected.Contains(diagram, StringComparison.Ordinal) ? "<pre><code class=\"language-mermaid\">" + Encode(diagram) + "</code></pre>" : "";
-        if (element.Control.GetVisualDescendants().OfType<TextEditor>().FirstOrDefault() is { } editor && !element.Children.Any())
-            return !selection || selected.Contains(editor.Text, StringComparison.Ordinal) ? "<pre><code>" + Encode(editor.Text) + "</code></pre>" : "";
+        if (element is ChatMarkdownEngine.CodeElement code)
+        {
+            var text = selection ? code.Block.GetSelectedText() : code.Text;
+            return text.Length == 0 ? "" : "<pre><code>" + Encode(text) + "</code></pre>";
+        }
         var body = string.Concat(element.Children.Select(c => Html(c, selection, selected)));
         var tag = element.GetType().Name switch { "TableBlockElement" => "table", "TableCellElement" => "td", "ListBlockElement" => "ul", "ListItemElement" => "li", "BlockquoteElement" => "blockquote", _ => "div" };
         return body.Length == 0 ? "" : $"<{tag}>{body}</{tag}>";

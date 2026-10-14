@@ -37,12 +37,16 @@ public static class AppTheme
             else app.Resources[key] = new SolidColorBrush(Color.Parse(color));
         }
         Brush("AppBackground", palette.Background); Brush("AppSurface", palette.Surface);
+        var surface = Color.Parse(palette.Surface);
+        Brush("InlineCodeBackground", Color.FromArgb(150, surface.R, surface.G, surface.B).ToString());
         Brush("AppBorder", palette.Border); Brush("AppText", palette.Text);
         Brush("AppMuted", palette.Muted); Brush("AppAccent", palette.Accent);
         var accentColor = Color.Parse(palette.Accent);
-        // ColorTextBlock retains inline foregrounds during selection. Keep the
-        // accent translucent so links remain legible instead of accent-on-accent.
-        Brush("ChatSelection", Color.FromArgb(90, accentColor.R, accentColor.G, accentColor.B).ToString());
+        // Chat text paints its selection under the glyphs, so it can be opaque and plainly visible:
+        // a blend of accent and background that keeps accent-coloured links and code legible on top.
+        var backgroundColor = Color.Parse(palette.Background);
+        static byte Mix(byte from, byte to) => (byte)Math.Round(from + (to - from) * .32);
+        Brush("ChatSelection", Color.FromRgb(Mix(backgroundColor.R, accentColor.R), Mix(backgroundColor.G, accentColor.G), Mix(backgroundColor.B, accentColor.B)).ToString());
         static double Linear(byte value) { var v = value / 255.0; return v <= .04045 ? v / 12.92 : Math.Pow((v + .055) / 1.055, 2.4); }
         var luminance = .2126 * Linear(accentColor.R) + .7152 * Linear(accentColor.G) + .0722 * Linear(accentColor.B);
         var darkLuminance = .9278 * Linear(20) + .0722 * Linear(28);

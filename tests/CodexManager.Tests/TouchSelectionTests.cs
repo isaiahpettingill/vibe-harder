@@ -25,23 +25,30 @@ public class TouchSelectionTests
         Assert.Equal(word, text[from..to]);
     }
 
-    // Holding a word selects it in place; a finger that moves is scrolling, not selecting. The end
-    // handle dragged past the line takes in the rest of it, and Copy puts the selection on the clipboard.
+    private const string Prose = "alpha beta gamma";
+    private const string Code = "intro\n\n```csharp\nvar total = sum;\n```";
+    // Holding a word selects it in place, in prose or in code; a finger that moves is scrolling, not
+    // selecting. The end handle dragged past the line takes in the rest of it, and Copy puts the
+    // selection on the clipboard.
     [Trait("Category", "Integration")]
     [AvaloniaTheory]
-    [InlineData(false, 0, false, "alpha")]
-    [InlineData(true, 0, false, "gamma")]
-    [InlineData(false, 0, true, "alpha beta gamma")]
-    [InlineData(false, 40, false, "")]
-    public async Task HoldingChatTextSelectsAWordWithHandlesToCopy(bool atEnd, double moved, bool dragEnd, string expected)
+    [InlineData(Prose, 0, false, 0, false, "alpha")]
+    [InlineData(Prose, 0, true, 0, false, "gamma")]
+    [InlineData(Prose, 0, false, 0, true, "alpha beta gamma")]
+    [InlineData(Prose, 0, false, 40, false, "")]
+    [InlineData(Code, 1, false, 0, false, "var")]
+    [InlineData(Code, 1, false, 0, true, "var total = sum;")]
+    public async Task HoldingChatTextSelectsAWordWithHandlesToCopy(string text, int blockIndex, bool atEnd, double moved, bool dragEnd, string expected)
     {
-        var markdown = new ChatMarkdown { Text = "alpha beta gamma" };
+        var markdown = new ChatMarkdown { Text = text };
         var window = new Window { Content = markdown, Width = 600, Height = 300 }; window.Show();
         try
         {
-            CTextBlock? Block() => markdown.GetVisualDescendants().OfType<CTextBlock>().FirstOrDefault();
+            CTextBlock? Block() => markdown.GetVisualDescendants().OfType<CTextBlock>().ElementAtOrDefault(blockIndex);
             var until = DateTime.UtcNow.AddSeconds(5);
             while (Block() is null && DateTime.UtcNow < until) { window.UpdateLayout(); await Task.Delay(25); }
+            // Let the code block take its final place under its header before touching it.
+            await Task.Delay(150); window.UpdateLayout();
             var block = Block()!;
             await ComposerInputTests.Touch(block, window, 650, moved, new Point(atEnd ? block.Bounds.Width - 2 : 2, block.Bounds.Height / 2));
             window.UpdateLayout();

@@ -51,7 +51,7 @@ public class ChatMediaTests
         Assert.Contains("MermaidBlock", diagram.Classes); Assert.Equal("graph TD\n  A --> B", diagram.Tag);
         // While the fence is still streaming the diagram is incomplete, so show its source.
         var streaming = Assert.Single(engine.TransformElement("```mermaid\ngraph TD\n  A -->").Children).Control;
-        Assert.Single(streaming.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>());
+        Assert.Contains("CodeBlock", streaming.Classes); Assert.DoesNotContain("MermaidBlock", streaming.Classes);
 
         var only = Assert.Single(engine.TransformElement("![The chart](https://example.com/chart.png)").Children).Control;
         Assert.Equal(new ChatImage("https://example.com/chart.png", "The chart"), only.Tag);

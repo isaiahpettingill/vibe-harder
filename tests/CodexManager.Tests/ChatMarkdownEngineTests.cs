@@ -78,9 +78,9 @@ public class ChatMarkdownEngineTests
         var source = "```csharp\nvar text = \"| ---- ** not markdown\";";
         var document = new ChatMarkdownEngine().TransformElement(source);
         var element = Assert.Single(document.Children);
-        var editor = Assert.Single(element.Control.GetVisualDescendants().OfType<AvaloniaEdit.TextEditor>());
-        Assert.Equal("var text = \"| ---- ** not markdown\";", editor.Text);
-        Assert.NotNull(editor.SyntaxHighlighting);
+        var code = Assert.IsType<ChatMarkdownEngine.CodeElement>(element);
+        Assert.Equal("var text = \"| ---- ** not markdown\";", code.Block.Text);
+        Assert.NotNull(code.Syntax);
     }
 
     [Trait("Category", "CI")]

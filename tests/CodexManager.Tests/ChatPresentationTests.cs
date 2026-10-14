@@ -71,12 +71,11 @@ public class ChatPresentationTests
         try
         {
             await Task.Delay(150); window.UpdateLayout();
-            var block = Assert.Single(view.GetVisualDescendants().OfType<TextBlock>(), b => b.Text?.Contains(code) == true);
+            var block = Assert.Single(view.GetVisualDescendants().OfType<CTextBlock>(), b => b.Text.Contains(code));
             var copy = Assert.Single(view.GetVisualDescendants().OfType<Button>(), b => b.Name == "CopyCode");
             copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(50);
             using var data = await window.Clipboard!.TryGetDataAsync(); Assert.Equal(code, (await data!.TryGetTextAsync())!.Trim());
-            var selectable = Assert.IsType<SelectableTextBlock>(block);
-            selectable.SelectionStart = 0; selectable.SelectionEnd = 9;
+            block.Select(0, 9);
             await view.Copy(true);
             using var selection = await window.Clipboard.TryGetDataAsync();
             Assert.Equal("adb shell", await selection!.TryGetTextAsync());
@@ -92,13 +91,14 @@ public class ChatPresentationTests
         try
         {
             await Task.Delay(150); window.UpdateLayout();
-            var editor = view.GetVisualDescendants().OfType<TextEditor>().Single();
-            Assert.NotNull(editor.SyntaxHighlighting);
+            var code = view.GetVisualDescendants().OfType<CTextBlock>().Single(b => b.Tag is ChatMarkdownEngine.CodeElement);
+            bool Coloured() => code.Content.Select(run => run.Foreground).Distinct().Count() > 1;
+            Assert.True(Coloured());
             AppTheme.SetSyntaxHighlighting(false);
-            Assert.Null(editor.SyntaxHighlighting);
-            Assert.Equal("var value = 123;", editor.Text.Trim());
+            Assert.False(Coloured());
+            Assert.Equal("var value = 123;", code.Text);
             AppTheme.SetSyntaxHighlighting(true);
-            Assert.NotNull(editor.SyntaxHighlighting);
+            Assert.True(Coloured());
         }
         finally { AppTheme.SetSyntaxHighlighting(true); window.Close(); }
     }
@@ -121,6 +121,36 @@ public class ChatPresentationTests
             var copy = view.GetVisualDescendants().OfType<Button>().Single(b => b.Name == "CopyCode");
             copy.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); await Task.Delay(50);
             using var copied = await window.Clipboard!.TryGetDataAsync(); Assert.Contains("cargo run --release", await copied!.TryGetTextAsync());
+        }
+        finally { window.Close(); }
+    }
+    // A mouse drag from prose into a code block selects the code as text too, and copies it as code.
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData(false, "cargo run")]
+    [InlineData(true, "cargo run --release")]
+    public async Task DraggingFromTextIntoCodeSelectsAndCopiesBoth(bool toEnd, string code)
+    {
+        var view = new ChatMarkdown { Text = "intro words\n\n```sh\ncargo run --release\n```" };
+        var window = new Window { Content = view, Width = 500, Height = 300 }; window.Show(); await Task.Delay(150); window.UpdateLayout();
+        try
+        {
+            var blocks = view.GetVisualDescendants().OfType<CTextBlock>().ToArray();
+            var codeBlock = blocks.Single(b => b.Tag is ChatMarkdownEngine.CodeElement);
+            var from = blocks[0].TranslatePoint(new Point(1, 4), window)!.Value;
+            var to = codeBlock.TranslatePoint(toEnd ? new Point(codeBlock.Bounds.Width - 1, codeBlock.Bounds.Height / 2) : new Point(0, codeBlock.Bounds.Height / 2), window)!.Value;
+            if (!toEnd)
+            {
+                // Stop just after "cargo run": find that caret's x by scanning along the line.
+                var x = 0.0; while (x < codeBlock.Bounds.Width && codeBlock.CalcuatePointerFrom(x, codeBlock.Bounds.Height / 2).Index < 9) x += 0.5;
+                to = codeBlock.TranslatePoint(new Point(x, codeBlock.Bounds.Height / 2), window)!.Value;
+            }
+            window.MouseDown(from, MouseButton.Left); window.MouseMove(to); window.MouseUp(to, MouseButton.Left);
+            await view.Copy(true);
+            using var data = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal("intro words\n" + code, (await data!.TryGetTextAsync())!.Trim());
+            var format = DataFormat.CreateBytesPlatformFormat(OperatingSystem.IsWindows() ? "HTML Format" : OperatingSystem.IsMacOS() ? "public.html" : "text/html");
+            Assert.Contains("<pre><code>" + code + "</code></pre>", Encoding.UTF8.GetString((await data.TryGetValueAsync(format))!));
         }
         finally { window.Close(); }
     }

@@ -4,6 +4,9 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
 using AvaloniaEdit;
+using AvaloniaEdit.Document;
+using AvaloniaEdit.Highlighting;
+using Avalonia.Collections;
 using ColorDocument.Avalonia;
 using ColorDocument.Avalonia.DocumentElements;
 using ColorTextBlock.Avalonia;
@@ -74,7 +77,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     var text = code.Lines.ToString();
                     // An unclosed fence is still streaming; show its source until the diagram is complete.
                     if (code is FencedCodeBlock { ClosingFencedCharCount: > 0 } && language.Equals("mermaid", StringComparison.OrdinalIgnoreCase)) yield return new MermaidElement(text);
-                    else yield return string.IsNullOrWhiteSpace(language) ? new PlainCodeBlockElement(text) : new CodeElement(language, text);
+                    else yield return new CodeElement(language, string.IsNullOrWhiteSpace(language) ? null : Highlighting.Solve(language), text);
                     break;
                 case QuoteBlock quote:
                     yield return new BlockquoteElement(Blocks(quote).ToArray());
@@ -202,24 +205,65 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
         public override void ConstructSelectedText(StringBuilder builder) => builder.Append("```mermaid\n").Append(text).Append("\n```");
     }
 
-    private sealed class CodeElement : DocumentElement
+    // Code is text in the document like any other, so it selects and copies with the message
+    // around it. ChatMarkdown adds the header and copy button, and colours the syntax.
+    public sealed class CodeElement : DocumentElement
     {
-        private readonly string text;
+        private readonly Lazy<CTextBlock> block;
         private readonly Lazy<Control> control;
-        public CodeElement(string language, string text)
+        public CodeElement(string language, IHighlightingDefinition? syntax, string text)
         {
-            this.text = text;
-            control = new(() => new Border
-            {
-                Classes = { "CodeBlock" },
-                Child = new StackPanel { Children = { new TextEditor { Text = text, Tag = language, IsReadOnly = true, SyntaxHighlighting = Highlighting.Solve(language) } } }
-            });
+            Language = language; Syntax = syntax; Text = text;
+            block = new(() => new CTextBlock { Classes = { "CodeText" }, Margin = new Thickness(8), TextWrapping = TextWrapping.Wrap, Content = new AvaloniaList<CInline>(Runs(text, null)), Tag = this });
+            control = new(() => new Border { Classes = { "CodeBlock" }, Child = block.Value });
         }
+        public string Language { get; }
+        public IHighlightingDefinition? Syntax { get; }
+        public string Text { get; }
+        public CTextBlock Block => block.Value;
         public override Control Control => control.Value;
         public override IEnumerable<DocumentElement> Children => [];
-        public override void Select(Point from, Point to) => Helper?.Register(Control);
-        public override void UnSelect() => Helper?.Unregister(Control);
-        public override void ConstructSelectedText(StringBuilder builder) => builder.Append(text);
+        // Points arrive relative to the whole block, header included.
+        public override void Select(Point from, Point to)
+        {
+            var origin = Block.TranslatePoint(default, Control) ?? default;
+            Block.Select(Block.CalcuatePointerFrom(from.X - origin.X, from.Y - origin.Y), Block.CalcuatePointerFrom(to.X - origin.X, to.Y - origin.Y));
+        }
+        public override void UnSelect() => Block.ClearSelection();
+        public override void ConstructSelectedText(StringBuilder builder) => builder.Append(Block.GetSelectedText());
+
+        // One run per stretch of same-coloured characters, and a line break between lines.
+        public static IEnumerable<CInline> Runs(string text, IHighlightingDefinition? syntax)
+        {
+            var document = new TextDocument(text);
+            using var highlighter = syntax is null ? null : new DocumentHighlighter(document, syntax);
+            var runs = new List<CInline>();
+            foreach (var line in document.Lines)
+            {
+                if (line.LineNumber > 1) runs.Add(new CLineBreak());
+                var content = document.GetText(line);
+                if (content.Length == 0) continue;
+                var colors = new HighlightingColor?[content.Length];
+                if (highlighter?.HighlightLine(line.LineNumber) is { } highlighted)
+                    // Sections are ordered outermost first, so a nested section paints over its parent.
+                    foreach (var section in highlighted.Sections)
+                        for (var i = Math.Max(0, section.Offset - line.Offset); i < Math.Min(content.Length, section.Offset + section.Length - line.Offset); i++) colors[i] = section.Color;
+                for (var start = 0; start < content.Length;)
+                {
+                    var end = start + 1;
+                    while (end < content.Length && colors[end] == colors[start]) end++;
+                    var run = new CRun { Text = content[start..end] };
+                    if (colors[start] is { } color)
+                    {
+                        if (color.Foreground?.GetBrush(null) is { } brush) run.Foreground = brush;
+                        if (color.FontWeight is { } weight) run.FontWeight = weight;
+                        if (color.FontStyle is { } style) run.FontStyle = style;
+                    }
+                    runs.Add(run); start = end;
+                }
+            }
+            return runs;
+        }
     }
 }
 public sealed record ChatImage(string Url, string Alt);
