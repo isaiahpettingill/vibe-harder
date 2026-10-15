@@ -16,7 +16,9 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
     public async Task Start(Workspace workspace, bool resumeOnly)
     {
         var request = Request("open"); request["workspaceId"] = workspace.Id; request["path"] = workspace.Path; request["distro"] = workspace.Distro; request["resumeOnly"] = resumeOnly;
-        await TerminalBroker.Request(profile, request, lifetime.Token, launch: !resumeOnly);
+        // Resuming also starts the helper if it is not running, so a missing shell answers "closed"
+        // at once instead of after a connection timeout; an idle helper exits by itself.
+        await TerminalBroker.Request(profile, request, lifetime.Token, launch: true);
         _ = Poll(); _ = Send();
     }
     public void Input(string text)

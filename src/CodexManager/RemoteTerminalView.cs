@@ -37,6 +37,9 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private string? workspaceId;
     private bool opening;
     public string? TerminalId { get; private set; }
+    // The host's terminals for this workspace, in its tab order; this view shows one of them.
+    private string[] hostTerminals = [];
+    public IReadOnlyList<string> HostTerminals => hostTerminals;
     public event Action? Back;
     public RemoteTerminalView(Func<JsonObject, Task<JsonNode?>> call, bool? mobile = null)
     {
@@ -65,11 +68,33 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             {
                 if (TerminalId is not { } id) return;
                 if (await call(new() { ["method"] = "terminal/close", ["terminalId"] = id }) is null) return;
-                TerminalId = null; Ready(false); ReleaseKeyboard(); timer.Stop(); Back?.Invoke();
+                TerminalId = null; Ready(false); ReleaseKeyboard(); timer.Stop();
+                // Go on to the host's next terminal, or back to the chat when that was the last.
+                if (workspaceId is { } workspace && await ListHostTerminals(workspace) && hostTerminals.Length > 0) await Open(workspace, caption, hostTerminals[0]);
+                else Back?.Invoke();
             });
             menu.ShowAt(more);
         };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { copy, toggleKeyboard, more } };
+        var switcher = new IconButton { Name = "TerminalSwitcher", Icon = "terminal", Label = "Switch terminal", Focusable = false };
+        switcher.Click += async (_, _) =>
+        {
+            if (workspaceId is not { } workspace) return;
+            await ListHostTerminals(workspace);
+            var menu = new MenuFlyout();
+            for (var i = 0; i < hostTerminals.Length; i++)
+            {
+                var id = hostTerminals[i];
+                var item = new MenuItem { Name = "TerminalChoice" + i, Header = "Terminal " + (i + 1), ToggleType = MenuItemToggleType.Radio, IsChecked = id == TerminalId };
+                item.Click += async (_, _) => { if (id != TerminalId) await Open(workspace, caption, id); };
+                menu.Items.Add(item);
+            }
+            var create = new MenuItem { Name = "NewHostTerminal", Header = "New terminal" };
+            create.Click += async (_, _) => await Open(workspace, caption, create: true);
+            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            menu.Items.Add(create);
+            menu.ShowAt(switcher);
+        };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Children = { copy, toggleKeyboard, switcher, more } };
         Grid.SetColumn(actions, 2); header.Children.Add(actions); Children.Add(header);
         terminal.Bind(ThemedTerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         Grid.SetRow(terminal, 1); Children.Add(terminal);
@@ -124,7 +149,18 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         model.EnsureCaretIsVisible();
         return text.Length > 0 && await Input(text);
     }
-    public async Task Open(string workspaceId, string caption)
+    // False when the host predates shared terminals; it then has one shell per workspace.
+    private async Task<bool> ListHostTerminals(string workspace)
+    {
+        var listed = await call(new() { ["method"] = "terminal/list", ["workspaceId"] = workspace });
+        if (listed is not JsonObject { } reply || reply["terminals"] is not JsonArray terminals) { hostTerminals = TerminalId is { } current ? [current] : []; return false; }
+        hostTerminals = terminals.Select(t => t!.GetValue<string>()).ToArray();
+        return true;
+    }
+    private string Caption() => hostTerminals.Length > 1 && Array.IndexOf(hostTerminals, TerminalId) is var index and >= 0 ? caption + " · terminal " + (index + 1) + " of " + hostTerminals.Length : caption;
+    // Opens one of the host's terminals: the one asked for, else the one shown before, else the
+    // host's first. `create` starts a new one, which also appears among the host's tabs.
+    public async Task Open(string workspaceId, string caption, string? terminalId = null, bool create = false)
     {
         if (opening || disposed) return;
         opening = true;
@@ -132,12 +168,19 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         try
         {
             this.caption = caption;
+            var previous = TerminalId;
             Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; model.Feed("\u001bc");
             while (pendingInput.TryDequeue(out var pending)) pending.Completion.TrySetResult(false);
-            var result = await call(new() { ["method"] = "terminal/open", ["workspaceId"] = workspaceId });
+            var shared = await ListHostTerminals(workspaceId);
+            var request = new JsonObject { ["method"] = "terminal/open", ["workspaceId"] = workspaceId };
+            if (create) request["new"] = true;
+            else if ((terminalId ?? (previous is not null && hostTerminals.Contains(previous) ? previous : null)) is { } chosen) request["terminalId"] = chosen;
+            var result = await call(request);
             if (disposed) return;
             TerminalId = result?["id"]?.GetValue<string>(); Ready(TerminalId is not null);
-            status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : caption;
+            if (shared && TerminalId is not null && !hostTerminals.Contains(TerminalId)) await ListHostTerminals(workspaceId);
+            if (!shared && TerminalId is not null) hostTerminals = [TerminalId];
+            status.Text = TerminalId is null ? "Could not open terminal. Reconnect and try again." : Caption();
             size = default; if (IsVisible && !sleeping) timer.Start(); await Poll();
         }
         catch (Exception error) { Ready(false); status.Text = AppDiagnostics.Message("Could not open terminal", error); }
@@ -197,11 +240,16 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             if (result["error"] is { } error)
             {
                 Ready(false); var message = error.GetValue<string>(); status.Text = message;
-                if (message.StartsWith("This terminal has closed", StringComparison.Ordinal)) { TerminalId = null; timer.Stop(); }
+                if (message.StartsWith("This terminal has closed", StringComparison.Ordinal))
+                {
+                    // Closed on the host: show its next terminal if it has one.
+                    TerminalId = null; timer.Stop();
+                    if (workspaceId is { } workspace && await ListHostTerminals(workspace) && hostTerminals.Length > 0) { polling = false; await Open(workspace, caption, hostTerminals[0]); }
+                }
                 else { size = default; status.Text = "Reconnecting to the host terminal: " + message; timer.Interval = TimeSpan.FromSeconds(1); }
                 return;
             }
-            Ready(true); status.Text = caption;
+            Ready(true); status.Text = Caption();
             if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
             var output = result["text"]!.GetValue<string>();
             model.Feed(output); offset = result["offset"]!.GetValue<long>();

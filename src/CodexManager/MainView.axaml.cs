@@ -205,6 +205,7 @@ public partial class MainView : UserControl
         InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         remoteSessions.Changed += BuildWorkspaceTree;
+        HostTerminals.Changed += HostTerminalsChanged;
         // Paired phones that registered for UnifiedPush get the same notifications.
         if (!remoteOnly) ChatNotifications.Push = (chat, title) => UnifiedPushHost.Notify(RemoteServer.DirectoryPath, title, chat.Title, chat.Id);
         BuildWorkspaceTree();
@@ -1402,13 +1403,13 @@ public partial class MainView : UserControl
         if (TerminalTabs.ItemCount == 0 && workspace is { IsRemote: true } remoteOwner) await OpenRemoteTerminal(remoteOwner);
         else if (TerminalTabs.ItemCount == 0)
         {
-            var saved = workspace is null ? [] : (store.Setting("terminalTabs:" + workspace.Id) ?? "").Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            var saved = workspace is null ? [] : HostTerminals.Ids(store, workspace.Id);
             foreach (var id in saved) await NewTerminal(durableId: id);
         }
         else if (TerminalTabs.SelectedItem is TabItem { Content: Control terminal }) terminal.Focus();
     }
     private async void NewTerminalClick(object? sender, RoutedEventArgs e) => await NewTerminal();
-    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null, string? durableId = null)
+    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null, string? durableId = null, bool reveal = true)
     {
         if (remoteOnly) return null;
         var owner = target ?? workspace;
@@ -1448,24 +1449,35 @@ public partial class MainView : UserControl
             try { await session.Close(); }
             catch (Exception error) { StatusText.Text = "Could not close terminal: " + error.Message; return; }
             list.RemoveAll(t => t.Tab == tab);
-            store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>()));
+            if (session.DurableId is { } closed) HostTerminals.Remove(store, owner.Id, closed);
             if (terminalPaneWorkspace == owner.Id) { TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); if (list.Count > 0) TerminalTabs.SelectedIndex = 0; }
         };
-        if (workspace?.Id == owner.Id) { SwitchTerminalWorkspace(owner.Id); TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); TerminalTabs.SelectedItem = tab; TerminalDrawer.IsVisible = true; }
+        if (workspace?.Id == owner.Id && reveal) { SwitchTerminalWorkspace(owner.Id); TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray(); TerminalTabs.SelectedItem = tab; TerminalDrawer.IsVisible = true; }
+        else if (terminalPaneWorkspace == owner.Id) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
         try
         {
             if (durableId is not null)
             {
-                store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>().Append(durableId).Distinct()));
+                HostTerminals.Add(store, owner.Id, durableId);
                 await store.FlushAsync();
             }
             await session.Start(owner, command, store, durableId);
-            store.Setting("terminalTabs:" + owner.Id, string.Join("\n", list.Select(t => t.Session.DurableId).OfType<string>()));
-            control.Focus(); return tab;
+            if (reveal) control.Focus();
+            return tab;
         }
         catch (Exception error) { session.Dispose(); session.Model.Feed("Could not start terminal: " + error.Message); StatusText.Text = error.Message; return null; }
         finally { reconnect.IsEnabled = true; }
     }
+    // A paired device opened or closed one of this computer's terminals. Tabs already shown for
+    // that workspace follow it; a workspace whose terminals were never opened reads them later.
+    private void HostTerminalsChanged(Store changed, string workspaceId) => Dispatcher.UIThread.Post(async () =>
+    {
+        if (closing || changed.DirectoryPath != store.DirectoryPath || !terminals.TryGetValue(workspaceId, out var list) || workspaces.FirstOrDefault(w => w.Id == workspaceId) is not { } owner) return;
+        var ids = HostTerminals.Ids(store, workspaceId);
+        foreach (var gone in list.Where(t => t.Session.DurableId is { } id && !ids.Contains(id)).ToArray()) { list.Remove(gone); gone.Session.Dispose(); }
+        if (terminalPaneWorkspace == workspaceId) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
+        foreach (var id in ids.Where(id => !list.Any(t => t.Session.DurableId == id)).ToArray()) await NewTerminal(target: owner, durableId: id, reveal: false);
+    });
     private void TerminalResizeStart(object? sender, PointerPressedEventArgs e) { resizeY = e.GetPosition(this).X; resizeHeight = TerminalDrawer.Width; e.Pointer.Capture(sender as IInputElement); }
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }
     private void TerminalResizeEnd(object? sender, PointerReleasedEventArgs e) { resizeY = null; e.Pointer.Capture(null); }
@@ -1836,7 +1848,7 @@ public partial class MainView : UserControl
         if (closing) { e.Cancel = !shutdownComplete; return; }
         AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
-        e.Cancel = true; closing = true; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
+        e.Cancel = true; closing = true; HostTerminals.Changed -= HostTerminalsChanged; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
         settingsWindow?.Close();
         var errors = new List<Exception>();
         async Task Cleanup(Func<Task> action)

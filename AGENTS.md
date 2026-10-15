@@ -47,7 +47,7 @@ When you change a system, run its tests, integration tests included, before repo
 | Notifications and push | `NotificationTests`, `WebPushTests`, `UnifiedPushHostTests` |
 | Android app lock | `MobileAppSecurityTests` |
 | Speak to type (`SpeechInput`, `Speech/`, `AndroidSpeech`) | `SpeechInputTests` |
-| Terminals | `TerminalTests`, `TerminalRecoveryTests`, `TerminalInputTests`, `TerminalLinkTests`, `TerminalFileLinkTests`, `WslShellTests`, `TerminalAppearanceTests` |
+| Terminals | `TerminalTests`, `TerminalRecoveryTests`, `TerminalInputTests`, `TerminalLinkTests`, `TerminalFileLinkTests`, `WslShellTests`, `TerminalAppearanceTests`, `SharedTerminalTests` |
 | Providers, installation, updates, launch configuration | `ConfigurationTests`, `ProviderAuthenticationTests`, `AgentInstallationTests`, `AdditionalAgentTests`, `BackendUpdateTests`, `DesktopUpdaterTests`, `VtCodeLaunchTests`, `SessionConfigTests` |
 | Workspaces, sidebar, settings, tray, startup, CLI | `WorkspaceHistoryTests`, `WorkspaceLaunchTests`, `ArchiveSelectionTests`, `SidebarCustomizationTests`, `SettingsUiTests`, `TrayStartupTests`, `AppInstanceTests`, `CliTests`, `UiTests`, `NewFolderTests` |
 

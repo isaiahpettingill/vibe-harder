@@ -871,7 +871,8 @@ public sealed partial class RemoteView : UserControl, IDisposable
         try { var result = await client.Request(request, timeout.Token); return !lifetime.IsCancellationRequested && !connectionCollapsed && !connectionSuspended && ReferenceEquals(connection, client) ? result : null; }
         catch (RemoteOperationException error)
         {
-            if (quiet) return null;
+            // A host from before shared terminals does not list them; the terminal falls back quietly.
+            if (quiet || request["method"]?.GetValue<string>() == "terminal/list") return null;
             status.IsVisible = true; status.Text = error.Message;
             return request["method"]?.GetValue<string>() == "terminal/read" ? new JsonObject { ["error"] = error.Message } : null;
         }
