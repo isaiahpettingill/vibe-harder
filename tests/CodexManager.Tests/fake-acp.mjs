@@ -10,6 +10,7 @@ let activeSession = 'fixture-session';
 const update = text => emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'agent_message_chunk',content:{type:'text',text}}}});
 let turn;
 let backgroundTask=null;
+let transientFailures=0;
 let permissionTurn;
 let questionTurn;
 let clientCapabilities;
@@ -120,6 +121,10 @@ createInterface({input:process.stdin}).on('line',line=>{
      info({sessionFailure:{id:'turn-1:error',revision:2,category:'limit',severity:'error',title:'You have hit your usage limit.',actions:['retry','new_session']}});
      info({sessionFailure:{id:'turn-1:error',revision:1,category:'service',severity:'warning',title:'stale',actions:[]}});
      response(m.id,{stopReason:'end_turn',_meta:{jetbrains:{air:{version:1,sessionFailure:{id:'turn-2:error',revision:1,category:'service',severity:'error',title:'Claude is overloaded.',actions:['retry']}}}}});break;}
+   // transient:<category>:<actions>:<failures> ends that many prompts with a failure, then answers.
+   if(m.params.prompt[0]?.text?.startsWith('transient:')){const [,category,actions,count]=m.params.prompt[0].text.split(':');
+     if(transientFailures<Number(count)){transientFailures++;response(m.id,{stopReason:'end_turn',_meta:{jetbrains:{air:{version:1,sessionFailure:{id:'turn-'+transientFailures+':error',revision:1,category,severity:'error',title:'Failed to refresh OAuth token: another Claude Code process is refreshing it.',actions:actions?actions.split(','):[]}}}}});break;}
+     update('Recovered after '+transientFailures);response(m.id,{stopReason:'end_turn'});break;}
    if(m.params.prompt[0]?.text==='slow'){const id=m.id;setTimeout(()=>{update('Done slowly');response(id,{stopReason:'end_turn'});},1500);break;}
    if(m.params.prompt[0]?.text==='hang'){turn=m.id;update('Working');break;}
    if(m.params.prompt[0]?.text==='permission'){permissionTurn=m.id;emit({jsonrpc:'2.0',id:'permission-id',method:'session/request_permission',params:{sessionId:'fixture-session',toolCall:{title:'Test command',toolCallId:'t'},options:[{optionId:'allow',name:'Allow once',kind:'allow_once'},{optionId:'reject',name:'Reject',kind:'reject_once'}]}});break;}

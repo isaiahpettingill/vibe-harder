@@ -134,6 +134,7 @@ public class AsyncTaskTests
         var (store, chat, runtime) = Start();
         try
         {
+            ChatRuntime.TransientRetryDelays = [];
             await runtime.Send("air-failure", []).WaitAsync(TimeSpan.FromSeconds(15));
             var failure = chat.Messages.Single(m => m.ToolId == "failure:turn-1:error");
             Assert.Equal("system", failure.Role);
@@ -145,7 +146,35 @@ public class AsyncTaskTests
             var goal = chat.Messages.Single(m => m.ToolId == "goal").Text;
             Assert.Contains("Ship the change", goal); Assert.Contains("Tests still need work", goal);
         }
-        finally { await runtime.DisposeAsync(); store.Dispose(); }
+        finally { ChatRuntime.TransientRetryDelays = Delays; await runtime.DisposeAsync(); store.Dispose(); }
+    }
+    private static readonly TimeSpan[] Delays = ChatRuntime.TransientRetryDelays;
+
+    // A turn that ends in a passing failure (Claude's sign-in refresh racing another chat's) is
+    // sent again by itself, with the message shown once; usage limits and sign-ins are not, and
+    // a failure that outlasts the retries is left for the user.
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData("auth", "retry", 1, true)]
+    [InlineData("service", "retry", 3, true)]
+    [InlineData("service", "retry", 4, false)]
+    [InlineData("limit", "retry,new_session", 1, false)]
+    [InlineData("auth", "retry,login", 1, false)]
+    [InlineData("auth", "", 1, false)]
+    public async Task PassingFailuresAreRetriedInTheSameTurn(string category, string actions, int failures, bool recovers)
+    {
+        var (store, chat, runtime) = Start();
+        ChatRuntime.TransientRetryDelays = [TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50)];
+        try
+        {
+            var prompt = $"transient:{category}:{actions}:{failures}";
+            await runtime.Send(prompt, []).WaitAsync(TimeSpan.FromSeconds(15));
+            Assert.Single(chat.Messages, m => m.Role == "user");
+            Assert.Equal(recovers, chat.Messages.Any(m => m.Role == "assistant" && m.Text.StartsWith("Recovered")));
+            if (recovers) Assert.Equal("Ready", chat.Status);
+            Assert.False(chat.Busy);
+        }
+        finally { ChatRuntime.TransientRetryDelays = Delays; await runtime.DisposeAsync(); store.Dispose(); }
     }
 
     [Trait("Category", "CI")]

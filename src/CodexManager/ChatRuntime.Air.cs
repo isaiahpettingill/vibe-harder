@@ -7,6 +7,28 @@ namespace CodexManager;
 public sealed partial class ChatRuntime
 {
     private readonly Dictionary<string, int> failureRevisions = [];
+    // The error that ended the current turn, if the agent reported one.
+    private (string Id, JsonElement Failure)? turnFailure;
+    // Waits before resending a prompt whose turn failed with a passing error. Claude's sign-in
+    // refresh fails in every chat but one when they refresh together; spreading them lets it pass.
+    public static TimeSpan[] TransientRetryDelays { get; set; } = [TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60)];
+    // The agent offers to try again and nothing else is needed: not a usage limit or a sign-in.
+    internal static bool Transient(JsonElement failure)
+    {
+        string[] Values(string name) => failure.TryGetProperty(name, out var list) && list.ValueKind == JsonValueKind.Array ? list.EnumerateArray().Select(a => a.GetString() ?? "").ToArray() : [];
+        var category = failure.TryGetProperty("category", out var c) && c.ValueKind == JsonValueKind.String ? c.GetString() ?? "" : "";
+        var actions = Values("actions");
+        return actions.Contains("retry") && !actions.Contains("login") && !new[] { "limit", "quota", "billing" }.Any(word => category.Contains(word, StringComparison.OrdinalIgnoreCase));
+    }
+    private void ShowRetrying(string id, int attempt, TimeSpan delay)
+    {
+        if (chat.Messages.LastOrDefault(m => m.ToolId == "failure:" + id) is not { } message) return;
+        var text = message.Text; var offer = text.LastIndexOf("\n\nYou can ", StringComparison.Ordinal);
+        if (offer >= 0) text = text[..offer];
+        else if (text.LastIndexOf("\n\nTrying again", StringComparison.Ordinal) is var previous and >= 0) text = text[..previous];
+        message.Text = text + $"\n\nTrying again in {Math.Round(delay.TotalSeconds)} s (attempt {attempt} of {TransientRetryDelays.Length}).";
+        store.SaveMessage(chat, message);
+    }
 
     private void ApplySessionInfo(JsonElement update)
     {
@@ -24,6 +46,8 @@ public sealed partial class ChatRuntime
     {
         if (failure.ValueKind != JsonValueKind.Object || !failure.TryGetProperty("id", out var idValue) || idValue.GetString() is not { Length: > 0 } id) return;
         var revision = failure.TryGetProperty("revision", out var r) && r.TryGetInt32(out var value) ? value : 1;
+        // A retry can fail with the very same report; it still ends this turn.
+        if (!replaying && turn is not null && !(failure.TryGetProperty("severity", out var level) && level.GetString() == "warning")) turnFailure = (id, failure.Clone());
         if (failureRevisions.TryGetValue(id, out var seen) && revision <= seen) return;
         failureRevisions[id] = revision;
         string? Text(string name) => failure.TryGetProperty(name, out var field) && field.ValueKind == JsonValueKind.String ? field.GetString() : null;

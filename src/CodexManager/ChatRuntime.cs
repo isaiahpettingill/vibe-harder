@@ -560,9 +560,26 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             foreach (var block in await PromptContent(continuation ? "" : text, attachments)) content.Add((JsonNode)block);
             store.Setting("unmaterialized:" + chat.Id, "");
             following = FollowAsyncQuestions(turn.Token);
-            var result = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content)), lifetime.Token);
-            // A turn-ending failure arrives on the prompt response.
-            if (Air.Of(result) is { } air && air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
+            async Task<JsonElement> Prompt()
+            {
+                turnFailure = null;
+                var response = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content.DeepClone())), lifetime.Token);
+                // A turn-ending failure arrives on the prompt response.
+                if (Air.Of(response) is { } air && air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
+                return response;
+            }
+            var result = await Prompt();
+            // A passing failure is retried in the same turn, so the message is not sent twice from here.
+            for (var attempt = 0; attempt < TransientRetryDelays.Length && turnFailure is { } failed && Transient(failed.Failure)
+                && !(result.TryGetProperty("stopReason", out var stopped) && stopped.GetString() == "cancelled"); attempt++)
+            {
+                var delay = TransientRetryDelays[attempt] * (0.75 + Random.Shared.NextDouble() / 2);
+                ShowRetrying(failed.Id, attempt + 1, delay);
+                chat.Status = $"Trying again in {Math.Round(delay.TotalSeconds)} s…"; Changed?.Invoke();
+                await Task.Delay(delay, turn.Token);
+                chat.Status = "Working…"; Changed?.Invoke();
+                result = await Prompt();
+            }
             if (chat.Provider == AgentProvider.Pi && !turn.IsCancellationRequested &&
                 (!result.TryGetProperty("stopReason", out var piStop) || piStop.GetString() != "cancelled") &&
                 !chat.Messages.Any(m => m.Sequence > user.Sequence && m.Role is "assistant" or "tool" && !string.IsNullOrWhiteSpace(m.Text)))
