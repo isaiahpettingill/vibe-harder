@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
 using Avalonia.Headless.XUnit;
@@ -74,6 +75,35 @@ public class TerminalInputTests
             model.ClearSelection();
             window.KeyPress(Key.C, Avalonia.Input.RawInputModifiers.Control, PhysicalKey.C, "c");
             Assert.Contains("\u0003", sent);
+        }
+        finally { window.Close(); }
+    }
+
+    [Trait("Category", "CI")]
+    [AvaloniaFact]
+    public async Task ContextMenuCopiesSelectionFromTerminalTab()
+    {
+        var model = new TerminalControlModel(new TerminalOptions());
+        var terminal = new ThemedTerminalControl { Model = model };
+        var tab = new TabItem { Header = "Terminal", Content = terminal };
+        var window = new Window { Content = new TabControl { ItemsSource = new[] { tab }, SelectedItem = tab } }; window.Show();
+        try
+        {
+            model.Feed("COPY_THIS_TEXT\r\n"); terminal.SelectAll();
+            Assert.True(terminal.HasSelection);
+            window.MouseDown(new Point(80, 60), MouseButton.Right);
+            window.MouseUp(new Point(80, 60), MouseButton.Right);
+            Assert.True(terminal.ContextMenu!.IsOpen);
+            var copy = terminal.ContextMenu.Items.OfType<MenuItem>().First();
+            Assert.True(copy.IsEnabled);
+            copy.RaiseEvent(new RoutedEventArgs(MenuItem.ClickEvent));
+            for (var i = 0; i < 50; i++)
+            {
+                using var data = await window.Clipboard!.TryGetDataAsync();
+                if (data is not null && (await data.TryGetTextAsync())?.Contains("COPY_THIS_TEXT") == true) return;
+                await Task.Delay(10);
+            }
+            Assert.Fail("The terminal selection was not copied.");
         }
         finally { window.Close(); }
     }

@@ -56,7 +56,13 @@ public sealed partial class ThemedTerminalControl : TerminalControl
     {
         var text = string.Join("\n", (SelectedText ?? "").Replace("\r\n", "\n").Split('\n').Select(line => line.TrimEnd(' ', '\t'))).TrimEnd('\n', '\r');
         if (string.IsNullOrEmpty(text)) return;
-        try { if (TopLevel.GetTopLevel(this)?.Clipboard is { } clipboard) await clipboard.SetTextAsync(text); }
+        try
+        {
+            var topLevel = TopLevel.GetTopLevel(this);
+            if (OperatingSystem.IsWindows() && await WindowsClipboard.SetText(topLevel?.TryGetPlatformHandle()?.Handle ?? IntPtr.Zero, text)) return;
+            if (topLevel?.Clipboard is not { } clipboard) throw new InvalidOperationException("The terminal has no clipboard.");
+            await clipboard.SetTextAsync(text);
+        }
         catch (Exception error) { AppDiagnostics.Record("Terminal copy", error); }
     }
     public async Task PasteText()
