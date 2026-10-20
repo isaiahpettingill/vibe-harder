@@ -50,8 +50,10 @@ public class TerminalInputTests
     }
 
     [Trait("Category", "CI")]
-    [AvaloniaFact]
-    public async Task CopyShortcutPreservesSelectionAndDoesNotSendControlC()
+    [AvaloniaTheory]
+    [InlineData(Avalonia.Input.RawInputModifiers.Control)]
+    [InlineData(Avalonia.Input.RawInputModifiers.Control | Avalonia.Input.RawInputModifiers.Shift)]
+    public async Task CopyShortcutPreservesSelectionAndDoesNotSendControlC(Avalonia.Input.RawInputModifiers modifiers)
     {
         var model = new TerminalControlModel(new TerminalOptions());
         var terminal = new ThemedTerminalControl { Model = model };
@@ -61,8 +63,10 @@ public class TerminalInputTests
             var sent = new List<string>(); model.UserInput += (_, e) => sent.Add(System.Text.Encoding.UTF8.GetString(e.Data.Span));
             model.Feed("COPY_THIS_TEXT\r\n"); terminal.SelectAll(); terminal.Focus();
             window.KeyPress(Key.LeftCtrl, Avalonia.Input.RawInputModifiers.Control, PhysicalKey.ControlLeft, null);
+            if (modifiers.HasFlag(Avalonia.Input.RawInputModifiers.Shift))
+                window.KeyPress(Key.LeftShift, modifiers, PhysicalKey.ShiftLeft, null);
             Assert.True(terminal.HasSelection);
-            window.KeyPress(Key.C, Avalonia.Input.RawInputModifiers.Control, PhysicalKey.C, "c");
+            window.KeyPress(Key.C, modifiers, PhysicalKey.C, "c");
             await Task.Delay(30);
             using var clipboard = await window.Clipboard!.TryGetDataAsync();
             Assert.Contains("COPY_THIS_TEXT", await clipboard!.TryGetTextAsync());

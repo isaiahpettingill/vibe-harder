@@ -222,6 +222,16 @@ public partial class MainView : UserControl
         ChatPane.AddHandler(DragDrop.DropEvent, DropFiles, RoutingStrategies.Bubble, true);
         Composer.AddHandler(KeyDownEvent, ComposerKeyDown, RoutingStrategies.Tunnel);
         Composer.ClipboardPaste = () => PasteClipboard(false);
+        TerminalDrawer.AddHandler(KeyDownEvent, async (_, e) =>
+        {
+            if (e.Handled || TerminalTabs.SelectedItem is not TabItem { Content: Control content }) return;
+            var shortcut = e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Meta);
+            if (!shortcut || !e.KeyModifiers.HasFlag(KeyModifiers.Shift)) return;
+            var terminal = content as ThemedTerminalControl ?? content.GetVisualDescendants().OfType<ThemedTerminalControl>().FirstOrDefault();
+            if (terminal is null) return;
+            if (e.Key == Key.C) { e.Handled = true; await terminal.CopyText(); }
+            else if (e.Key == Key.V) { e.Handled = true; await terminal.PasteText(); }
+        }, RoutingStrategies.Tunnel);
         AddHandler(KeyDownEvent, (_, e) =>
         {
             if (palette is null && e.Key == Key.Oem3 && e.KeyModifiers == KeyModifiers.Control) { e.Handled = true; ToggleTerminal(this, new()); }
