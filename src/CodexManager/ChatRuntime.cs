@@ -14,6 +14,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private string vtOpenAiMethod = "chatgpt";
     private bool vtOpenAiPinned;
     private bool restoreDiracContext;
+    private bool fullAccessCommand;
     private bool loading;
     private bool replaying;
     private Message? streaming;
@@ -322,6 +323,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         DisconnectSubagents();
         var files = new AcpFileSystem(workspace, () => chat.SessionId, subagentRoots.ContainsKey);
         var launchCommand = ResolveCommand?.Invoke() ?? command;
+        fullAccessCommand = AgentProviders.RequestsFullAccess(launchCommand, chat.Provider);
         if (chat.Provider == AgentProvider.VTCode)
         {
             vtOpenAiMethod = VtCodeLaunch.Method(store, workspace);
@@ -455,7 +457,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private string? SavedConfig(string id) => store.Setting(ChatConfigKey(id)) ?? store.Setting(WorkspaceConfigKey(id))
         ?? store.Setting(GlobalConfigKey(id)) ?? store.Setting(DefaultConfigKey(id));
     private string? PreferredConfig(SessionConfig option) => FullAccess(option) is { } full
-        ? store.Setting(AccessKey(option)) ?? SavedConfig(option.Id) ?? full.Value
+        ? (fullAccessCommand ? full.Value : store.Setting(AccessKey(option)) ?? SavedConfig(option.Id) ?? full.Value)
         : SavedConfig(option.Id);
     private async Task ApplySessionDefaults()
     {

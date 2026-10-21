@@ -70,6 +70,10 @@ public class SettingsUiTests
                     providerToggle.IsChecked = !initial; Assert.Equal(!initial, AgentProviders.IsEnabled(store, provider.Provider));
                     providerToggle.IsChecked = initial;
                 }
+                var codexFullAccess = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "CodexFullAccess");
+                Assert.False(codexFullAccess.IsChecked);
+                codexFullAccess.IsChecked = true; Assert.Equal("1", store.Setting(AgentProviders.FullAccessKey));
+                codexFullAccess.IsChecked = false; Assert.Equal("0", store.Setting(AgentProviders.FullAccessKey));
                 dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.True(dialog.IsVisible); dialog.Close();
                 await Wait(() => !dialog.IsVisible);

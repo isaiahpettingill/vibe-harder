@@ -1209,6 +1209,10 @@ public partial class MainView : UserControl
         ToolTip.SetTip(backendAutoUpdate, "Check at startup, every six hours, and on reconnect. Backends in use are skipped. Check for updates lists available backend updates either way.");
         backendAutoUpdate.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(BackendUpdates.EnabledKey, backendAutoUpdate.IsChecked == true ? "1" : "0"));
         agents.Children.Add(backendAutoUpdate);
+        var codexFullAccess = new CheckBox { Name = "CodexFullAccess", Content = "Run Codex without approval prompts or sandbox restrictions (dangerous)", IsChecked = store.Setting(AgentProviders.FullAccessKey) == "1" };
+        ToolTip.SetTip(codexFullAccess, "Pass --dangerously-bypass-approvals-and-sandbox to the Codex process for Codex ACP sessions. This lets Codex run commands without sandboxing or confirmation prompts.");
+        codexFullAccess.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(AgentProviders.FullAccessKey, codexFullAccess.IsChecked == true ? "1" : "0"));
+        agents.Children.Add(codexFullAccess);
         var fields = new Dictionary<string, TextBox>();
         foreach (var provider in AgentProviders.All)
         {

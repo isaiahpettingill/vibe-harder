@@ -1,3 +1,5 @@
+using System.Text.RegularExpressions;
+
 namespace CodexManager;
 
 public enum AgentProvider { Codex, Claude, OpenCode, VTCode, Dirac, Pi, Cline }
@@ -10,6 +12,8 @@ public sealed record AgentOption(AgentProvider Provider, string Name, string Ico
 
 public static class AgentProviders
 {
+    internal const string FullAccessArgument = "--dangerously-bypass-approvals-and-sandbox";
+    public const string FullAccessKey = "codexFullAccess";
     public static IReadOnlyList<AgentOption> All { get; } = [
         new(AgentProvider.Codex, "Codex", "◇", Hosts.DefaultAdapter),
         new(AgentProvider.Claude, "Claude", "✳", "npx -y @agentclientprotocol/claude-agent-acp@latest"),
@@ -37,8 +41,15 @@ public static class AgentProviders
         return command ?? Get(provider).DefaultCommand;
     }
     // What actually runs: the configured command with bundled packages at their pinned versions.
-    public static string LaunchCommand(Store store, Workspace workspace, AgentProvider provider) =>
-        BundledPackages.Apply(store, workspace, provider, Command(store, workspace, provider));
+    public static string LaunchCommand(Store store, Workspace workspace, AgentProvider provider)
+    {
+        var command = Command(store, workspace, provider);
+        if (provider == AgentProvider.Codex) command = RemoveFullAccessArgument(command);
+        command = BundledPackages.Apply(store, workspace, provider, command);
+        return provider == AgentProvider.Codex && store.Setting(FullAccessKey) == "1"
+            ? command + " " + FullAccessArgument
+            : command;
+    }
     private static bool IsPreviousDefault(AgentProvider provider, string? command) => provider switch
     {
         AgentProvider.Codex => command is "npx -y @agentclientprotocol/codex-acp@1.11.0" or "npx -y @agentclientprotocol/codex-acp@1.13.0" or "npx -y @agentclientprotocol/codex-acp@latest",
@@ -47,15 +58,30 @@ public static class AgentProviders
         AgentProvider.Pi => command == "npx -y pi-acp@0.0.33",
         _ => false
     };
-    public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider) =>
-        Hosts.Agent(workspace, command, provider switch
+    public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider)
+    {
+        var fullAccess = RequestsFullAccess(command, provider);
+        if (fullAccess) command = RemoveFullAccessArgument(command);
+        var environment = provider switch
         {
             AgentProvider.VTCode => new Dictionary<string, string> { ["VT_ACP_ENABLED"] = "1", ["VT_ACP_ZED_ENABLED"] = "1", ["NO_COLOR"] = "1" },
             // npx puts the command's own node_modules/.bin first on PATH, so "codex" is the
             // @openai/codex installed with the adapter rather than its older nested copy.
             AgentProvider.Codex when command.Contains("--package=@openai/codex@", StringComparison.Ordinal) => new Dictionary<string, string> { ["CODEX_PATH"] = "codex" },
             _ => null
-        });
+        };
+        if (fullAccess)
+        {
+            environment ??= [];
+            environment["INITIAL_AGENT_MODE"] = "agent-full-access";
+            environment["CODEX_PATH"] = Hosts.FullAccessCodexPath;
+        }
+        return Hosts.Agent(workspace, command, environment);
+    }
+    internal static bool RequestsFullAccess(string command, AgentProvider provider) =>
+        provider == AgentProvider.Codex && Regex.IsMatch(command, $@"(?<!\S){Regex.Escape(FullAccessArgument)}(?!\S)");
+    internal static string RemoveFullAccessArgument(string command) =>
+        Regex.Replace(command, $@"(?<!\S){Regex.Escape(FullAccessArgument)}(?!\S)", "").Trim();
     public static string HiddenHistoryKey(Chat chat) => $"hiddenHistory:{chat.WorkspaceId}:{chat.Provider}:{chat.SessionId}";
     public static string LoginCommand(Store store, Workspace workspace, AgentProvider provider) =>
         NormalizeLoginCommand(provider, store.Setting($"{provider}:{(workspace.IsWsl ? "wsl" : "local")}LoginCommand")) ?? (provider switch

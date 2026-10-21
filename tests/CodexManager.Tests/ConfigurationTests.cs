@@ -28,6 +28,10 @@ public class ConfigurationTests
         var key = AgentProviders.CommandKey(AgentProvider.Codex, false);
         store.Setting(key, "npx -y @agentclientprotocol/codex-acp@latest");
         Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+        Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
+        store.Setting(AgentProviders.FullAccessKey, "1");
+        Assert.EndsWith("--dangerously-bypass-approvals-and-sandbox", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
+        store.Setting(AgentProviders.FullAccessKey, "0");
         Assert.Equal("codex", AgentProviders.Start(workspace, Hosts.DefaultAdapter, AgentProvider.Codex).Environment["CODEX_PATH"]);
         // A custom launcher without its own Codex package must keep the adapter's bundled binary.
         Assert.False(AgentProviders.Start(workspace, "my-wrapper codex-acp", AgentProvider.Codex).Environment.ContainsKey("CODEX_PATH"));

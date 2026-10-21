@@ -5,6 +5,8 @@ namespace CodexManager;
 
 public static class Hosts
 {
+    internal const string FullAccessCodexPath = "codex-manager-full-access";
+    private const string WslFullAccessCodexPath = "/tmp/codex-manager-codex-full-access";
     // codex-acp pins @openai/codex ^0.x, which npm treats as patch-only, so its bundled Codex
     // falls behind and the server omits newer models. Install the latest Codex beside it.
     public const string DefaultAdapter = "npx -y --package=@agentclientprotocol/codex-acp@latest --package=@openai/codex@latest -- codex-acp";
@@ -61,11 +63,28 @@ public static class Hosts
     }
     public static ProcessStartInfo Agent(Workspace workspace, string command, IReadOnlyDictionary<string, string>? environment = null)
     {
+        var fullAccessCodex = environment?.TryGetValue("CODEX_PATH", out var codexPath) == true && codexPath == FullAccessCodexPath;
+        var launchEnvironment = environment is null ? null : new Dictionary<string, string>(environment);
+        if (fullAccessCodex && !workspace.IsWsl)
+        {
+            var wrapper = Path.Combine(Path.GetTempPath(), OperatingSystem.IsWindows() ? "codex-manager-codex-full-access.cmd" : "codex-manager-codex-full-access");
+            var content = OperatingSystem.IsWindows()
+                ? "@echo off\r\ncodex --dangerously-bypass-approvals-and-sandbox %*\r\n"
+                : "#!/bin/sh\nexec codex --dangerously-bypass-approvals-and-sandbox \"$@\"\n";
+            File.WriteAllText(wrapper, content);
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(wrapper, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+            launchEnvironment!["CODEX_PATH"] = wrapper;
+        }
         ProcessStartInfo info;
         if (workspace.IsWsl)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WSL workspaces require Windows.");
-            if (environment is not null) command = "env " + string.Join(" ", environment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
+            if (fullAccessCodex)
+            {
+                launchEnvironment!["CODEX_PATH"] = WslFullAccessCodexPath;
+            }
+            if (launchEnvironment is not null) command = "env " + string.Join(" ", launchEnvironment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
+            if (fullAccessCodex) command = "printf '%s\\n' '#!/bin/sh' 'exec codex --dangerously-bypass-approvals-and-sandbox \"$@\"' > " + WslFullAccessCodexPath + " && chmod +x " + WslFullAccessCodexPath + " && " + command;
             info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", WslShellCommand(command));
         }
         else if (OperatingSystem.IsWindows())
@@ -80,7 +99,7 @@ public static class Hosts
         {
             info = Info("/bin/sh", "-lc", LocalShellCommand("exec " + command)); info.WorkingDirectory = workspace.Path;
         }
-        if (!workspace.IsWsl && environment is not null) foreach (var pair in environment) info.Environment[pair.Key] = pair.Value;
+        if (!workspace.IsWsl && launchEnvironment is not null) foreach (var pair in launchEnvironment) info.Environment[pair.Key] = pair.Value;
         return info;
     }
     public static ProcessStartInfo Info(string file, params string[] args)
