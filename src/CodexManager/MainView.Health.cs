@@ -1,5 +1,6 @@
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Input;
 using Avalonia.Media.Imaging;
 using Avalonia.Platform;
 using Avalonia.Threading;
@@ -15,6 +16,7 @@ public partial class MainView
     private DateTimeOffset? lastBreak;
     private bool walkingBreak;
     private string? illustrationAccent;
+    private Point? breakDragOffset;
 
     private void InitializeHealthReminders()
     {
@@ -22,6 +24,7 @@ public partial class MainView
         if (DateTimeOffset.TryParse(store.Setting("lastHealthBreak"), out var savedBreak)) lastBreak = savedBreak;
         healthTimer.Tick += (_, _) => TickHealthReminders();
         AppTheme.Changed += UpdateBreakIllustration;
+        HealthOverlay.SizeChanged += (_, _) => ConstrainBreakCard();
         ConfigureHealthReminders();
         healthTimer.Start();
     }
@@ -93,5 +96,39 @@ public partial class MainView
         breakStarted = null;
         HealthOverlay.IsVisible = false;
         UpdateHealthStatus();
+    }
+
+    private void BreakDragStart(object? sender, PointerPressedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(BreakDragHandle).Properties.IsLeftButtonPressed) return;
+        breakDragOffset = e.GetPosition(HealthCard);
+        e.Pointer.Capture(BreakDragHandle);
+        e.Handled = true;
+    }
+
+    private void BreakDragMove(object? sender, PointerEventArgs e)
+    {
+        if (breakDragOffset is not { } offset) return;
+        var position = e.GetPosition(HealthOverlay);
+        Canvas.SetRight(HealthCard, double.NaN);
+        Canvas.SetLeft(HealthCard, Math.Clamp(position.X - offset.X, 0, Math.Max(0, HealthOverlay.Bounds.Width - HealthCard.Bounds.Width)));
+        Canvas.SetTop(HealthCard, Math.Clamp(position.Y - offset.Y, 0, Math.Max(0, HealthOverlay.Bounds.Height - HealthCard.Bounds.Height)));
+        e.Handled = true;
+    }
+
+    private void BreakDragEnd(object? sender, PointerReleasedEventArgs e)
+    {
+        e.Pointer.Capture(null);
+        breakDragOffset = null;
+        e.Handled = true;
+    }
+
+    private void BreakDragCaptureLost(object? sender, PointerCaptureLostEventArgs e) => breakDragOffset = null;
+
+    private void ConstrainBreakCard()
+    {
+        var left = Canvas.GetLeft(HealthCard);
+        if (!double.IsNaN(left)) Canvas.SetLeft(HealthCard, Math.Clamp(left, 0, Math.Max(0, HealthOverlay.Bounds.Width - HealthCard.Bounds.Width)));
+        Canvas.SetTop(HealthCard, Math.Clamp(Canvas.GetTop(HealthCard), 0, Math.Max(0, HealthOverlay.Bounds.Height - HealthCard.Bounds.Height)));
     }
 }

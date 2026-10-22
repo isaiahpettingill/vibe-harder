@@ -71,13 +71,18 @@
       </Grid>
     </Grid>
     <Border Name="StatusBar" Grid.Row="2" Grid.ColumnSpan="3" Background="{DynamicResource AppSurface}" Padding="12,4"><Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto"><TextBlock Name="StatusText" Text="Ready — open a workspace to begin" FontSize="11" Foreground="{DynamicResource AppMuted}"/><TextBlock Name="BreakStatus" Grid.Column="3" VerticalAlignment="Center" Margin="12,0" FontSize="11" Foreground="{DynamicResource AppMuted}"/><TextBlock Name="ClockText" Grid.Column="4" VerticalAlignment="Center" Margin="8,0,0,0" FontSize="11" Foreground="{DynamicResource AppMuted}"/></Grid></Border>
-    <Border Name="HealthOverlay" Grid.ColumnSpan="3" Grid.RowSpan="3" ZIndex="100" Background="{DynamicResource AppBackground}" IsVisible="False">
-      <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="20" MaxWidth="520" Margin="24">
-        <Image Name="BreakIllustration" Width="360" Height="340" Stretch="Uniform"/>
-        <TextBlock Name="BreakHeading" FontSize="27" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource AppText}"/>
-        <TextBlock Name="BreakTimerText" FontSize="18" TextAlignment="Center" Foreground="{DynamicResource AppAccent}"/>
-        <Button Name="BreakDoneButton" Content="done" Classes="accent" HorizontalAlignment="Center" MinWidth="120" Click="BreakDoneClick"/>
-      </StackPanel>
-    </Border>
+    <Canvas Name="HealthOverlay" Grid.ColumnSpan="3" Grid.RowSpan="3" ZIndex="100" IsVisible="False">
+      <Border Name="HealthCard" Canvas.Right="16" Canvas.Top="48" Width="300" Background="{DynamicResource AppSurface}" BorderBrush="{DynamicResource AppBorder}" BorderThickness="1" CornerRadius="10" BoxShadow="0 8 24 0 #50000000" Padding="14">
+        <StackPanel Spacing="9">
+          <Border Name="BreakDragHandle" Background="Transparent" Cursor="SizeAll" PointerPressed="BreakDragStart" PointerMoved="BreakDragMove" PointerReleased="BreakDragEnd" PointerCaptureLost="BreakDragCaptureLost">
+            <TextBlock Text="Break reminder  ⋮⋮" FontSize="12" Foreground="{DynamicResource AppMuted}"/>
+          </Border>
+          <Image Name="BreakIllustration" Width="220" Height="150" Stretch="Uniform"/>
+          <TextBlock Name="BreakHeading" FontSize="17" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap" Foreground="{DynamicResource AppText}"/>
+          <TextBlock Name="BreakTimerText" FontSize="14" TextAlignment="Center" Foreground="{DynamicResource AppAccent}"/>
+          <Button Name="BreakDoneButton" Content="done" Classes="accent" HorizontalAlignment="Center" MinWidth="100" Click="BreakDoneClick"/>
+        </StackPanel>
+      </Border>
+    </Canvas>
   </Grid>
 </UserControl>

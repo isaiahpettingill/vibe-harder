@@ -12,6 +12,38 @@ namespace CodexManager.Tests;
 
 public class UiTests
 {
+    [AvaloniaTheory]
+    [InlineData("SettingsButton")]
+    [InlineData("SearchBox")]
+    public void HealthReminderLeavesWorkspaceControlsClickable(string targetName)
+    {
+        var directory = Directory.CreateTempSubdirectory("health-card-").FullName;
+        using var store = new Store(directory);
+        store.Setting("remoteEnabled", "0");
+        var window = new MainWindow(store); window.Show();
+        try
+        {
+            window.FindControl<Canvas>("HealthOverlay")!.IsVisible = true;
+            window.UpdateLayout();
+            var card = window.FindControl<Border>("HealthCard")!;
+            var handle = window.FindControl<Border>("BreakDragHandle")!;
+            var from = handle.TranslatePoint(new Point(20, handle.Bounds.Height / 2), window)!.Value;
+            var to = new Point(from.X - 70, from.Y + 35);
+            window.MouseMove(from); window.MouseDown(from, MouseButton.Left);
+            window.MouseMove(to, RawInputModifiers.LeftMouseButton); window.MouseUp(to, MouseButton.Left);
+            Assert.True(Canvas.GetLeft(card) < window.FindControl<Canvas>("HealthOverlay")!.Bounds.Width - card.Bounds.Width - 16);
+            var target = window.FindControl<Control>(targetName)!;
+            var point = target.TranslatePoint(new Point(target.Bounds.Width / 2, target.Bounds.Height / 2), window)!.Value;
+            var reached = false;
+            target.AddHandler(InputElement.PointerPressedEvent, (_, _) => reached = true, RoutingStrategies.Tunnel, handledEventsToo: true);
+            window.MouseDown(point, MouseButton.Left); window.MouseUp(point, MouseButton.Left);
+            Assert.True(reached);
+            if (targetName == "SettingsButton") Assert.Single(window.OwnedWindows);
+            if (targetName == "SearchBox") Assert.True(target.IsFocused);
+        }
+        finally { window.RequestExit(); }
+    }
+
     [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task WorkspaceHistoryFiltersRemovesAndStartsLastProvider()
