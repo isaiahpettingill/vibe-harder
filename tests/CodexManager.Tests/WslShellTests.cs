@@ -4,6 +4,38 @@ namespace CodexManager.Tests;
 
 public class WslShellTests
 {
+    [Trait("Category", "CI")]
+    [Fact]
+    public async Task WslShellSetupRunsBeforeTheAgentExec()
+    {
+        if (OperatingSystem.IsWindows()) return;
+        var marker = Path.Combine(Path.GetTempPath(), "wsl-shell-setup-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var info = Hosts.Info("bash", "-lc", Hosts.WslShellCommand("printf agent-started", "printf setup > " + Hosts.Quote(marker)));
+            Assert.Equal("agent-started", await Hosts.Capture(info));
+            Assert.Equal("setup", await File.ReadAllTextAsync(marker));
+        }
+        finally { File.Delete(marker); }
+    }
+
+    [Trait("Category", "Integration")]
+    [Fact]
+    public async Task FullAccessWslLaunchCreatesTheCodexWrapperBeforeStartingTheAdapter()
+    {
+        if (!OperatingSystem.IsWindows()) Assert.Skip("This launch path targets WSL.");
+        var distro = (await Hosts.Distros()).FirstOrDefault();
+        if (distro is null) Assert.Skip("No WSL distro is installed.");
+        var workspace = new Workspace("full-access-wsl", "WSL", "/tmp", distro);
+        var environment = new Dictionary<string, string>
+        {
+            ["CODEX_PATH"] = "codex-manager-full-access",
+            ["INITIAL_AGENT_MODE"] = "agent-full-access"
+        };
+        var info = Hosts.Agent(workspace, "sh -c 'test -x \"$CODEX_PATH\" && printf wrapper-ready'", environment);
+        Assert.Equal("wrapper-ready", await Hosts.Capture(info));
+    }
+
     [Trait("Category", "Integration")]
     [Fact]
     public async Task LaunchNeverRunsTheInteractiveShellAndFindsNvmDefaultNode()

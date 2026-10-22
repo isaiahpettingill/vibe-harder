@@ -49,7 +49,8 @@ public static class Hosts
         export PATH
 
         """.ReplaceLineEndings("\n");
-    public static string WslShellCommand(string command) => MinimalPath + "exec " + command;
+    public static string WslShellCommand(string command, string? setup = null) =>
+        MinimalPath + (string.IsNullOrEmpty(setup) ? "" : setup + "\n") + "exec " + command;
     public static string WindowsArgument(string value)
     {
         if (value.Length > 0 && !value.Any(c => char.IsWhiteSpace(c) || c == '"')) return value;
@@ -79,13 +80,14 @@ public static class Hosts
         if (workspace.IsWsl)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WSL workspaces require Windows.");
+            string? setup = null;
             if (fullAccessCodex)
             {
                 launchEnvironment!["CODEX_PATH"] = WslFullAccessCodexPath;
+                setup = "printf '%s\\n' '#!/bin/sh' 'exec codex --dangerously-bypass-approvals-and-sandbox \"$@\"' > " + WslFullAccessCodexPath + " && chmod +x " + WslFullAccessCodexPath;
             }
             if (launchEnvironment is not null) command = "env " + string.Join(" ", launchEnvironment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
-            if (fullAccessCodex) command = "printf '%s\\n' '#!/bin/sh' 'exec codex --dangerously-bypass-approvals-and-sandbox \"$@\"' > " + WslFullAccessCodexPath + " && chmod +x " + WslFullAccessCodexPath + " && " + command;
-            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", WslShellCommand(command));
+            info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", WslShellCommand(command, setup));
         }
         else if (OperatingSystem.IsWindows())
         {
