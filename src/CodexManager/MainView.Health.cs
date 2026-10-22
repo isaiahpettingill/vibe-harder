@@ -60,10 +60,11 @@ public partial class MainView
     {
         if (!HealthOverlay.IsVisible || AppTheme.Current is null) return;
         var accent = AppTheme.Current.Accent.TrimStart('#').ToUpperInvariant();
-        if (illustrationAccent == accent) return;
-        var uri = new Uri($"avares://VibeHarder.UI/Assets/Breaks/{accent}.png");
+        var illustration = walkingBreak ? $"Walk-{accent}" : accent;
+        if (illustrationAccent == illustration) return;
+        var uri = new Uri($"avares://VibeHarder.UI/Assets/Breaks/{illustration}.png");
         BreakIllustration.Source = new Bitmap(AssetLoader.Open(uri));
-        illustrationAccent = accent;
+        illustrationAccent = illustration;
     }
 
     private void UpdateHealthStatus()
