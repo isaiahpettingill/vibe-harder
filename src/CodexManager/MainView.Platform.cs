@@ -204,7 +204,7 @@ public partial class MainView
         if (inputTopLevel is not null) inputTopLevel.ScalingChanged -= MobileScalingChanged;
         if (inputTopLevel?.InputPane is { } pane) pane.StateChanged -= InputPaneChanged;
         if (inputTopLevel?.InsetsManager is { } insets) insets.SafeAreaChanged -= SafeAreaChanged;
-        closing = true; saveTimer.Stop(); discoveryLifetime.Cancel(); connectionSettings?.Dispose(); CloseRemoteView();
+        closing = true; saveTimer.Stop(); healthTimer.Stop(); AppTheme.Changed -= UpdateBreakIllustration; discoveryLifetime.Cancel(); connectionSettings?.Dispose(); CloseRemoteView();
         DisposePresentationSleep(); store.Dispose();
     }
 

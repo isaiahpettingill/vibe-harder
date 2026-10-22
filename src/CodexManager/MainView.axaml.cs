@@ -196,6 +196,7 @@ public partial class MainView : UserControl
             ToggleTerminalButton.Label = TerminalDrawer.IsVisible ? "Hide terminal (Ctrl+`)" : "Show terminal (Ctrl+`)";
         };
         FontSettings.Apply(store); AppTheme.Apply(store); SpeechInput.Apply(store);
+        InitializeHealthReminders();
         if (double.TryParse(store.Setting("terminalWidth"), System.Globalization.CultureInfo.InvariantCulture, out var terminalWidth)) TerminalDrawer.Width = Math.Clamp(terminalWidth, 220, 800);
         RootPanes.ColumnDefinitions[0].MinWidth = 170; RootPanes.ColumnDefinitions[0].MaxWidth = 600;
         RootPanes.ColumnDefinitions[2].MinWidth = 420;
@@ -1196,6 +1197,15 @@ public partial class MainView : UserControl
         ToolTip.SetTip(notify, "Desktop notifications, and push notifications on paired phones that enabled them.");
         notify.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(ChatNotifications.EnabledKey, notify.IsChecked == true ? "1" : "0"));
         panel.Children.Add(notify);
+        var eyeHealth = new CheckBox { Name = "EyeHealthMode", Content = "Eye health reminder every 20 minutes", IsChecked = store.Setting("eyeHealthMode") == "1" };
+        eyeHealth.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("eyeHealthMode", eyeHealth.IsChecked == true ? "1" : "0"); ConfigureHealthReminders(); });
+        panel.Children.Add(eyeHealth);
+        var walkingHealth = new CheckBox { Name = "WalkingHealthMode", Content = "Walking reminder every 30 minutes", IsChecked = store.Setting("walkingHealthMode") == "1" };
+        walkingHealth.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("walkingHealthMode", walkingHealth.IsChecked == true ? "1" : "0"); ConfigureHealthReminders(); });
+        panel.Children.Add(walkingHealth);
+        var showClock = new CheckBox { Name = "ShowClock", Content = "Show clock in the status bar", IsChecked = store.Setting("showClock") != "0" };
+        showClock.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("showClock", showClock.IsChecked == true ? "1" : "0"); UpdateHealthStatus(); });
+        panel.Children.Add(showClock);
         if (SpeechSettings.Create(store) is { } speech) panel.Children.Add(speech);
         panel.Children.Add(new TextBlock { Text = "Enable both for unattended recovery after a restart. Explicitly stopped chats stay stopped. Agents still use their existing permission settings.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
         var diagnostics = new Button { Content = "Open diagnostic logs" };
@@ -1862,7 +1872,7 @@ public partial class MainView : UserControl
         if (closing) { e.Cancel = !shutdownComplete; return; }
         AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
-        e.Cancel = true; closing = true; HostTerminals.Changed -= HostTerminalsChanged; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop();
+        e.Cancel = true; closing = true; HostTerminals.Changed -= HostTerminalsChanged; AppTheme.Changed -= UpdateBreakIllustration; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop(); healthTimer.Stop();
         settingsWindow?.Close();
         var errors = new List<Exception>();
         async Task Cleanup(Func<Task> action)
