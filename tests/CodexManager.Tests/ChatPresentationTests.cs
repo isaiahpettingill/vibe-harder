@@ -14,6 +14,34 @@ namespace CodexManager.Tests;
 
 public class ChatPresentationTests
 {
+    [AvaloniaTheory]
+    [InlineData(960, false)]
+    [InlineData(480, false)]
+    [InlineData(960, true)]
+    public async Task WrappedParagraphSelectionCopiesEachWordOnce(double width, bool drag)
+    {
+        const string text = "AI requests dominate elapsed time, but the running backend still lacks phase measurements, so I can't yet attribute that time to provider wait versus local work.";
+        var view = new ChatMarkdown { Text = text };
+        var window = new Window { Content = view, Width = width, Height = 240 }; window.Show();
+        try
+        {
+            await Task.Delay(150, TestContext.Current.CancellationToken); window.UpdateLayout();
+            var block = Assert.Single(view.GetVisualDescendants().OfType<CTextBlock>());
+            if (drag)
+            {
+                var from = block.TranslatePoint(new Point(0, 2), window)!.Value;
+                var to = block.TranslatePoint(new Point(block.Bounds.Width, block.Bounds.Height - 2), window)!.Value;
+                window.MouseDown(from, MouseButton.Left); window.MouseMove(to); window.MouseUp(to, MouseButton.Left);
+            }
+            else block.Select(0, block.Text.Length);
+            Assert.Equal(text, view.TouchSelection.SelectedText);
+            await view.Copy(true);
+            using var data = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal(text, await data!.TryGetTextAsync());
+        }
+        finally { window.Close(); }
+    }
+
     [AvaloniaFact]
     public async Task ControlClickActivatesMarkdownLinkWithoutSelectingText()
     {

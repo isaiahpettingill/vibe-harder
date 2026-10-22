@@ -356,13 +356,37 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         if (!selection) FlushRender();
         if (TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard || Document is not { } document) return;
-        var selected = selection ? document.GetSelectedText().TrimEnd('\n') : "";
-        if (selection && string.IsNullOrEmpty(selected)) selected = string.Join("\n", this.GetVisualDescendants().OfType<CTextBlock>().Select(b => b.GetSelectedText()).Where(t => !string.IsNullOrEmpty(t)));
+        var selected = selection ? SelectedText() : "";
         var plainSelection = this.GetVisualDescendants().OfType<SelectableTextBlock>().FirstOrDefault(b => !string.IsNullOrEmpty(b.SelectedText));
         if (selection && plainSelection is not null)
         { selected = plainSelection.SelectedText; await RichClipboard.Set(clipboard, selected, "<pre><code>" + Encode(selected) + "</code></pre>"); return; }
         if (selection && string.IsNullOrEmpty(selected)) return;
         await RichClipboard.Set(clipboard, selection ? selected : Text, Html(document, selection, selected));
+    }
+    internal string SelectedText()
+    {
+        if (Document is not { } document) return "";
+        var selected = document.GetSelectedText().TrimEnd('\n');
+        var cursor = 0;
+        var logicalBlocks = new List<string>();
+        // The document renderer repeats wrapped visual lines in GetSelectedText.
+        // Selection offsets still refer to the logical text, so replace each
+        // rendered block's contribution with that exact range.
+        foreach (var block in this.GetVisualDescendants().OfType<CTextBlock>())
+        {
+            if (block.Selection is not { } range) continue;
+            var rendered = block.GetSelectedText();
+            if (rendered.Length == 0) continue;
+            var from = Math.Clamp(Math.Min(range.From, range.To), 0, block.Text.Length);
+            var to = Math.Clamp(Math.Max(range.From, range.To), from, block.Text.Length);
+            var logical = block.Text[from..to];
+            logicalBlocks.Add(logical);
+            var index = selected.IndexOf(rendered, cursor, StringComparison.Ordinal);
+            if (index < 0) continue;
+            selected = selected[..index] + logical + selected[(index + rendered.Length)..];
+            cursor = index + logical.Length;
+        }
+        return selected.Length == 0 ? string.Join("\n", logicalBlocks) : selected;
     }
     public string ExportHtml() => Document is { } document ? Html(document, false, "") : "";
     private static string Html(DocumentElement element, bool selection, string selected)

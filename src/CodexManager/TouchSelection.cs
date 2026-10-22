@@ -58,7 +58,7 @@ public sealed class TouchSelection
         owner.DetachedFromVisualTree += (_, _) => Clear();
     }
     public bool IsActive => layer.IsVisible;
-    public string SelectedText => owner.SelectionDocument?.GetSelectedText().TrimEnd('\n') ?? "";
+    public string SelectedText => owner.SelectedText();
 
     // The word around a character: letters, digits and underscores, or the single other character.
     public static (int Start, int End) Word(string text, int index)
