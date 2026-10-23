@@ -164,13 +164,13 @@ public class RemoteDesktopTests
             await Wait(() => hostChat.QueuedInputs.Count == 1 && window.FindControl<Expander>("QueuePanel")!.IsVisible);
             window.FindControl<StackPanel>("QueueItems")!.GetVisualDescendants().OfType<IconButton>().First(b => Equals(ToolTip.GetTip(b), "Remove queued message")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => hostChat.QueuedInputs.Count == 0 && !window.FindControl<Expander>("QueuePanel")!.IsVisible);
-            // Stop: the send button turns into Stop with an empty composer.
-            await Wait(() => Equals(ToolTip.GetTip(send), "Stop"));
-            send.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            // The remote chat's sidebar action stops work without archiving it.
+            var remoteId = scope + hostChat.Id;
+            window.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "Archive_" + remoteId).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => !hostChat.Busy);
+            Assert.False(hostChat.Archived);
 
             // Archive from the sidebar row archives on the host.
-            var remoteId = scope + hostChat.Id;
             window.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "Archive_" + remoteId).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             await Wait(() => hostChat.Archived && UiTests.Named<ListBox>(window, "Chats_" + scope + "hw").ItemCount == 0);
             // Deleting it from the archive removes it on the host.

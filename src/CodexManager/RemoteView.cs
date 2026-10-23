@@ -900,6 +900,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
     {
         await Call(new() { ["method"] = "archive", ["chatId"] = id, ["archived"] = archived }); await RefreshList();
     }
+    public async Task StopChat(string id)
+    {
+        await Call(new() { ["method"] = "stop", ["chatId"] = id }); await RefreshList();
+    }
     public async Task UnarchiveChat(string id)
     {
         if (await Call(new() { ["method"] = "archive", ["chatId"] = id, ["archived"] = false }) is null) throw new IOException("Could not unarchive chat. Reconnect and try again.");

@@ -471,7 +471,7 @@ public partial class MainView : UserControl
             collapse.Click += (_, _) => { list.IsVisible = !list.IsVisible; collapse.Icon = list.IsVisible ? "chevron-down" : "chevron-right"; collapse.Label = list.IsVisible ? "Collapse workspace" : "Expand workspace"; SetWorkspaceExpanded(owner.Id, list.IsVisible); };
             Grid.SetColumn(title, 1); header.Children.Add(collapse);
             Action<string, string, bool>? moveChat = client is null ? null : (source, target, after) => RemoteReorder(owner, "chats:" + owner.RemoteId, source, target, after);
-            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ArchiveChat(chat), move: moveChat), false);
+            list.ItemTemplate = new FuncDataTemplate<Chat>((chat, _) => chat is null ? null : SidebarChatRow(chat, async _ => await RenameChat(chat), () => ChatRowAction(chat), move: moveChat), false);
             list.SelectionChanged += ChatChanged; workspaceLists[owner.Id] = list;
             var group = new StackPanel { Background = SidebarColors.Brush(store, "workspaceColor:" + owner.Id, true) };
             var heading = new Grid { ColumnDefinitions = new("*,Auto"), Background = Brushes.Transparent, Classes = { "workspaceHeading" } };
@@ -784,7 +784,8 @@ public partial class MainView : UserControl
         ReconnectChatButton.IsEnabled = current is not null && runtimes.GetValueOrDefault(current.Id) is not { IsReconnecting: true } and not { IsLoadingHistory: true };
         ResumeChatButton.IsVisible = current?.InterruptedInput is not null && current.Busy == false && runtimes.GetValueOrDefault(current.Id) is not { IsRecovering: true };
         ArchiveChatButton.IsEnabled = current is not null;
-        ArchiveChatButton.Label = current?.Archived == true ? "Restore chat" : "Archive chat";
+        ArchiveChatButton.Icon = current is { } actionChat && ChatCanStop(actionChat) ? "stop" : "archive";
+        ArchiveChatButton.Label = current is { } labeledChat && ChatCanStop(labeledChat) ? "Stop chat" : current?.Archived == true ? "Restore chat" : "Archive chat";
         DeleteChatButton.IsEnabled = current is { Busy: false };
         StatusText.Text = current is null ? "Ready — open a workspace to begin"
             : current.Remote is { } host && RemoteHostFor(host) is { Connected: false } offline ? $"{workspace?.Host}  ·  {offline.Status}"
@@ -909,7 +910,7 @@ public partial class MainView : UserControl
         UpdateControls();
     }
     private async void StopClick(object? sender, RoutedEventArgs e)
-    { try { if (current is not null && runtimes.TryGetValue(current.Id, out var runtime)) await runtime.Stop(); } catch (OperationCanceledException) { } catch (Exception ex) { StatusText.Text = ex.Message; } }
+    { if (current is { } chat) await StopChat(chat); }
     private async void ComposerKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && (e.KeyModifiers.HasFlag(KeyModifiers.Control) || e.KeyModifiers.HasFlag(KeyModifiers.Shift)))
@@ -1489,7 +1490,7 @@ public partial class MainView : UserControl
             if (reveal) control.Focus();
             return tab;
         }
-        catch (TerminalClosedException)
+        catch (IOException error) when (error.Message.StartsWith("This terminal has closed", StringComparison.Ordinal))
         {
             session.Dispose(); list.RemoveAll(t => t.Tab == tab);
             if (terminalPaneWorkspace == owner.Id) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
@@ -1632,7 +1633,21 @@ public partial class MainView : UserControl
     }
     private async void ArchiveChatClick(object? sender, RoutedEventArgs e)
     {
-        if (current is { } chat) await ArchiveChat(chat);
+        if (current is { } chat) await ChatRowAction(chat);
+    }
+    private bool ChatCanStop(Chat chat) => chat.Busy && runtimes.GetValueOrDefault(chat.Id) is not { IsLoadingHistory: true };
+    private Task ChatRowAction(Chat chat) => ChatCanStop(chat) ? StopChat(chat) : ArchiveChat(chat);
+    private async Task StopChat(Chat chat)
+    {
+        try
+        {
+            if (chat.IsRemote)
+                await RemoteAction(chat.Remote!, new() { ["method"] = "stop", ["chatId"] = chat.RemoteId }, "Could not stop the chat.");
+            else if (runtimes.TryGetValue(chat.Id, out var runtime)) await runtime.Stop();
+            UpdateControls();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { StatusText.Text = error.Message; }
     }
     private async Task ArchiveChat(Chat chat)
     {

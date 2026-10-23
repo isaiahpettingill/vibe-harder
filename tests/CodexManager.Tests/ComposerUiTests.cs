@@ -10,6 +10,38 @@ namespace CodexManager.Tests;
 public class ComposerUiTests
 {
     [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task RunningChatActionStopsWithoutArchiving(bool header)
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "codex-stop-action", Guid.NewGuid().ToString("N"));
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        using (var store = new Store(directory))
+        {
+            store.Save(new Workspace("w", "Stop", directory));
+            store.Save(new Chat { Id = "one", WorkspaceId = "w" });
+            store.Setting(AgentProviders.CommandKey(AgentProvider.Codex, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --steering --config");
+        }
+        var window = new MainWindow(); window.Show();
+        var chat = (Chat)UiTests.Named<ListBox>(window, "Chats_w").SelectedItem!;
+        try
+        {
+            window.FindControl<ComposerEditor>("Composer")!.Text = "hang";
+            UiTests.Named<Button>(window, "SendButton").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var until = DateTime.UtcNow.AddSeconds(10);
+            while ((!chat.Busy || !chat.Messages.Any(m => m.Text == "Working")) && DateTime.UtcNow < until) await Task.Delay(20);
+            Assert.True(chat.Busy);
+            UiTests.Named<Button>(window, header ? "ArchiveChatButton" : "Archive_one").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            until = DateTime.UtcNow.AddSeconds(10);
+            while (chat.Busy && DateTime.UtcNow < until) await Task.Delay(20);
+            Assert.False(chat.Busy);
+            Assert.False(chat.Archived);
+        }
+        finally { window.Close(); await Task.Delay(200); }
+    }
+
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task QueueEscapeSidebarAndPanePersistence()
     {
