@@ -35,6 +35,55 @@ public class TerminalRecoveryTests
     }
 
     [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("a")]
+    [InlineData("a longer pasted command\r")]
+    public async Task BlockedPtyWriteDoesNotBlockTerminalInput(string text)
+    {
+        using var session = new TerminalSession();
+        var connection = DispatchProxy.Create<IPtyConnection, BlockingPty>();
+        var proxy = (BlockingPty)connection;
+        typeof(TerminalSession).GetField("connection", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(session, connection);
+        var sender = Task.Run(async () => await (Task)typeof(TerminalSession).GetMethod("SendInput", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(session, null)!);
+        try
+        {
+            await Task.Run(() => session.Input(text)).WaitAsync(TimeSpan.FromSeconds(1));
+            Assert.True(proxy.Writer.Started.Wait(TimeSpan.FromSeconds(1)));
+            await Task.Run(() => session.Input(text)).WaitAsync(TimeSpan.FromSeconds(1));
+        }
+        finally
+        {
+            proxy.Writer.Release.Set();
+            session.Dispose();
+            await sender.WaitAsync(TimeSpan.FromSeconds(2));
+        }
+    }
+
+    public class BlockingPty : DispatchProxy
+    {
+        public BlockingStream Writer { get; } = new();
+        protected override object? Invoke(MethodInfo? method, object?[]? args) => method?.Name switch
+        {
+            "get_WriterStream" => Writer,
+            _ => null
+        };
+    }
+
+    public class BlockingStream : MemoryStream
+    {
+        public readonly ManualResetEventSlim Started = new();
+        public readonly ManualResetEventSlim Release = new();
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            Started.Set(); Release.Wait(); base.Write(buffer, offset, count);
+        }
+        public override void Write(ReadOnlySpan<byte> buffer)
+        {
+            Started.Set(); Release.Wait(); base.Write(buffer);
+        }
+    }
+
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task LostBrokerSessionCompletesInsteadOfRetryingForever()
     {

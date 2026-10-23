@@ -1428,12 +1428,12 @@ public partial class MainView : UserControl
         else if (TerminalTabs.ItemCount == 0)
         {
             var saved = workspace is null ? [] : HostTerminals.Ids(store, workspace.Id);
-            foreach (var id in saved) await NewTerminal(durableId: id);
+            foreach (var id in saved) await NewTerminal(durableId: id, resumeOnly: true);
         }
         else if (TerminalTabs.SelectedItem is TabItem { Content: Control terminal }) terminal.Focus();
     }
     private async void NewTerminalClick(object? sender, RoutedEventArgs e) => await NewTerminal();
-    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null, string? durableId = null, bool reveal = true)
+    private async Task<TabItem?> NewTerminal(string? command = null, string? title = null, Workspace? target = null, Action? completed = null, string? durableId = null, bool reveal = true, bool resumeOnly = false)
     {
         if (remoteOnly) return null;
         var owner = target ?? workspace;
@@ -1480,14 +1480,21 @@ public partial class MainView : UserControl
         else if (terminalPaneWorkspace == owner.Id) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
         try
         {
-            if (durableId is not null)
+            if (durableId is not null && !resumeOnly)
             {
                 HostTerminals.Add(store, owner.Id, durableId);
                 await store.FlushAsync();
             }
-            await session.Start(owner, command, store, durableId);
+            await session.Start(owner, command, store, durableId, resumeOnly);
             if (reveal) control.Focus();
             return tab;
+        }
+        catch (TerminalClosedException)
+        {
+            session.Dispose(); list.RemoveAll(t => t.Tab == tab);
+            if (terminalPaneWorkspace == owner.Id) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
+            if (durableId is not null) HostTerminals.Remove(store, owner.Id, durableId);
+            return null;
         }
         catch (Exception error) { session.Dispose(); session.Model.Feed("Could not start terminal: " + error.Message); StatusText.Text = error.Message; return null; }
         finally { reconnect.IsEnabled = true; }
@@ -1500,7 +1507,7 @@ public partial class MainView : UserControl
         var ids = HostTerminals.Ids(store, workspaceId);
         foreach (var gone in list.Where(t => t.Session.DurableId is { } id && !ids.Contains(id)).ToArray()) { list.Remove(gone); gone.Session.Dispose(); }
         if (terminalPaneWorkspace == workspaceId) TerminalTabs.ItemsSource = list.Select(t => t.Tab).ToArray();
-        foreach (var id in ids.Where(id => !list.Any(t => t.Session.DurableId == id)).ToArray()) await NewTerminal(target: owner, durableId: id, reveal: false);
+        foreach (var id in ids.Where(id => !list.Any(t => t.Session.DurableId == id)).ToArray()) await NewTerminal(target: owner, durableId: id, reveal: false, resumeOnly: true);
     });
     private void TerminalResizeStart(object? sender, PointerPressedEventArgs e) { resizeY = e.GetPosition(this).X; resizeHeight = TerminalDrawer.Width; e.Pointer.Capture(sender as IInputElement); }
     private void TerminalResizeMove(object? sender, PointerEventArgs e) { if (resizeY is { } y) TerminalDrawer.Width = Math.Clamp(resizeHeight + y - e.GetPosition(this).X, 220, Math.Max(220, Bounds.Width - 650)); }

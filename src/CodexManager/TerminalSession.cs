@@ -1,6 +1,7 @@
 using Avalonia.Threading;
 using Porta.Pty;
 using SvcSystems.UI.Terminal;
+using System.Threading.Channels;
 
 namespace CodexManager;
 
@@ -11,6 +12,7 @@ public sealed class TerminalSession : IDisposable
     private DurableTerminalConnection? durable;
     public string? DurableId { get; private set; }
     private readonly CancellationTokenSource lifetime = new();
+    private readonly Channel<byte[]> input = Channel.CreateBounded<byte[]>(new BoundedChannelOptions(1024) { SingleReader = true, FullMode = BoundedChannelFullMode.Wait });
     private bool exited;
     private bool disposed;
     private bool completionReported;
@@ -39,13 +41,14 @@ public sealed class TerminalSession : IDisposable
         options.Cols = Math.Max(2, Model.Terminal.Cols); options.Rows = Math.Max(2, Model.Terminal.Rows);
         connection = await PtyProvider.SpawnAsync(options, lifetime.Token);
         ptySize = (options.Cols, options.Rows);
-        connection.ProcessExited += (_, _) => exited = true;
+        connection.ProcessExited += (_, _) => { exited = true; Dispatcher.UIThread.Post(ReportCompletion); };
         Model.UserInput += (_, e) => Write(e.Data.Span);
         // Cursor/device queries are protocol replies, not keyboard input. Without
         // this bridge ConPTY and shells cannot reliably redraw their current line.
         Model.Terminal.Engine.DataReceived += (_, e) => Write(System.Text.Encoding.UTF8.GetBytes(e.Data));
         Model.SizeChanged += (_, _) => ResizePty();
         ResizePty();
+        _ = Task.Run(SendInput);
         _ = Pump();
     }
     private void Write(ReadOnlySpan<byte> data)
@@ -53,8 +56,23 @@ public sealed class TerminalSession : IDisposable
         if (exited || disposed) return;
         if (durable is not null) { if (!disposed) durable.Input(System.Text.Encoding.UTF8.GetString(data)); return; }
         if (exited || disposed || connection is null) return;
-        try { connection.WriterStream.Write(data); connection.WriterStream.Flush(); }
-        catch (Exception error) when (error is IOException or InvalidOperationException) { exited = true; Dispatcher.UIThread.Post(ReportCompletion); }
+        if (!input.Writer.TryWrite(data.ToArray())) Model.Feed("\r\n[Terminal input is busy; wait before typing more.]\r\n");
+    }
+    private async Task SendInput()
+    {
+        try
+        {
+            await foreach (var data in input.Reader.ReadAllAsync(lifetime.Token))
+            {
+                connection!.WriterStream.Write(data);
+                connection.WriterStream.Flush();
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) when (error is IOException or InvalidOperationException or ObjectDisposedException)
+        {
+            exited = true; Dispatcher.UIThread.Post(ReportCompletion);
+        }
     }
     private void ResizePty()
     {
@@ -117,7 +135,7 @@ public sealed class TerminalSession : IDisposable
     public void Dispose()
     {
         if (disposed) return; disposed = true;
-        lifetime.Cancel();
+        lifetime.Cancel(); input.Writer.TryComplete();
         durable?.Dispose();
         try { connection?.Kill(); } catch (InvalidOperationException) { }
         connection?.Dispose();

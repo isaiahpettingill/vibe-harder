@@ -46,7 +46,7 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
     }
     private async Task Poll()
     {
-        long offset = 0; (int, int) size = default; bool warned = false;
+        long offset = 0; (int, int) size = default; bool warned = false, reconnect = false;
         while (!lifetime.IsCancellationRequested)
         {
             try
@@ -55,10 +55,11 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
                 if (size != next)
                 {
                     var resize = Request("resize"); resize["cols"] = next.Cols; resize["rows"] = next.Rows;
-                    await TerminalBroker.Request(profile, resize, lifetime.Token); size = next;
+                    await TerminalBroker.Request(profile, resize, lifetime.Token, launch: reconnect); size = next; reconnect = false;
                 }
                 var request = Request("read"); request["offset"] = offset;
-                var result = await TerminalBroker.Request(profile, request, lifetime.Token);
+                var result = await TerminalBroker.Request(profile, request, lifetime.Token, launch: reconnect);
+                reconnect = false;
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (disposed) return;
@@ -80,7 +81,7 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
             catch (Exception error)
             {
                 if (!warned) await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) output("\r\n[Reconnecting to terminal: " + error.Message + "]\r\n"); });
-                warned = true;
+                warned = true; reconnect = true;
                 try { await Task.Delay(1000, lifetime.Token); } catch (OperationCanceledException) { return; }
             }
         }

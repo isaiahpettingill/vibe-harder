@@ -132,4 +132,23 @@ public class SharedTerminalTests
         }
         finally { view.RequestExit(); await Task.Delay(200); }
     }
+
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task RestartDropsSavedTerminalWhoseShellHasEnded()
+    {
+        var directory = Directory.CreateTempSubdirectory("stale-terminal-window-").FullName;
+        using var store = new Store(directory);
+        var workspace = new Workspace("w", "Test", directory); store.Save(workspace); store.Setting("workspace", "w");
+        HostTerminals.Add(store, workspace.Id, "desktop:ended");
+        var view = new MainView(store, [workspace], []);
+        var window = new Window { Content = view, Width = 1200, Height = 800 }; view.AttachDesktop(window); window.Show();
+        try
+        {
+            view.FindControl<Button>("ToggleTerminalButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            await Wait(() => HostTerminals.Ids(store, workspace.Id).Length == 0);
+            Assert.Equal(0, view.FindControl<TabControl>("TerminalTabs")!.ItemCount);
+        }
+        finally { view.RequestExit(); await Task.Delay(200); }
+    }
 }

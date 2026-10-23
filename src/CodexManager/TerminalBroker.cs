@@ -23,7 +23,7 @@ public static class TerminalBroker
             {
                 try { return await Exchange(profile, request, token, 300); }
                 catch (TimeoutException) { }
-                catch (IOException) { }
+                catch (IOException error) when (error is not TerminalClosedException) { }
                 Start(profile);
             }
             finally { launchGate.Release(); }
