@@ -51,6 +51,24 @@ public static class Hosts
         """.ReplaceLineEndings("\n");
     public static string WslShellCommand(string command, string? setup = null) =>
         MinimalPath + (string.IsNullOrEmpty(setup) ? "" : setup + "\n") + "exec " + command;
+    public static string WslTerminalCommand(string command)
+    {
+        var opener = Path.Combine(Environment.SystemDirectory, "rundll32.exe");
+        var setup = $$"""
+            vibe_browser_dir="$HOME/.local/share/vibe-harder/terminal-bin"
+            mkdir -p "$vibe_browser_dir"
+            vibe_opener=$(wslpath -u {{Quote(opener)}})
+            (umask 077; cat > "$vibe_browser_dir/xdg-open" <<VIBE_BROWSER
+            #!/bin/sh
+            case "\$1" in http://*|https://*) ;; *) exit 1 ;; esac
+            exec "$vibe_opener" url.dll,FileProtocolHandler "\$1"
+            VIBE_BROWSER
+            )
+            chmod 700 "$vibe_browser_dir/xdg-open"
+            export BROWSER="$vibe_browser_dir/xdg-open" PATH="$vibe_browser_dir:$PATH"
+            """.ReplaceLineEndings("\n");
+        return WslShellCommand(command, setup);
+    }
     public static string WindowsArgument(string value)
     {
         if (value.Length > 0 && !value.Any(c => char.IsWhiteSpace(c) || c == '"')) return value;

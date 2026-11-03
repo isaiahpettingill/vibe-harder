@@ -56,7 +56,7 @@ public static class TerminalPreferences
         else if (!string.IsNullOrWhiteSpace(command))
         {
             if (workspace.IsWsl)
-                options.CommandLine = [.. options.CommandLine, "--exec", "sh", "-lc", Hosts.WindowsArgument(command)];
+                options.CommandLine = [.. options.CommandLine.Take(4), "--exec", "bash", "-lc", Hosts.WindowsArgument(Hosts.WslTerminalCommand("sh -lc " + Hosts.Quote(command)))];
             else { options.App = "/bin/sh"; options.CommandLine = ["-lc", Hosts.LocalShellCommand(command)]; }
         }
     }

@@ -15,6 +15,33 @@ namespace CodexManager.Tests;
 public class TerminalInputTests
 {
     [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("c;aHR0cHM6Ly9leGFtcGxlLmNvbS8/YT0xJmI9Mg==", "\u0007", "https://example.com/?a=1&b=2", null)]
+    [InlineData(";aGVsbG8=", "\u001b\\", "hello", null)]
+    [InlineData("c;?", "\u0007", "unchanged", "\u001b]52;c;\u0007")]
+    [InlineData("c;not-base64!", "\u0007", "unchanged", null)]
+    [InlineData("p;aGVsbG8=", "\u0007", "unchanged", null)]
+    public async Task TerminalClipboardWritesReachTheHostWithoutAllowingReads(string data, string terminator, string expected, string? expectedReply)
+    {
+        var model = new TerminalControlModel();
+        var terminal = new ThemedTerminalControl { Model = model };
+        var window = new Window { Content = terminal }; window.Show();
+        try
+        {
+            await window.Clipboard!.SetTextAsync("unchanged");
+            var replies = new List<string>();
+            model.Terminal.Engine.DataReceived += (_, e) => replies.Add(e.Data);
+            var sequence = "\u001b]52;" + data + terminator;
+            foreach (var character in sequence) model.Feed(character.ToString());
+            Avalonia.Threading.Dispatcher.UIThread.RunJobs();
+            using var clipboard = await window.Clipboard!.TryGetDataAsync();
+            Assert.Equal(expected, await clipboard!.TryGetTextAsync());
+            Assert.Equal(expectedReply is null ? [] : new[] { expectedReply }, replies);
+        }
+        finally { window.Close(); }
+    }
+
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task MobileKeysSendRawInputAndRespectApplicationCursorMode()
     {

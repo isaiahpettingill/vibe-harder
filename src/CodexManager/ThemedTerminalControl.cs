@@ -56,6 +56,10 @@ public sealed partial class ThemedTerminalControl : TerminalControl
     {
         var text = string.Join("\n", (SelectedText ?? "").Replace("\r\n", "\n").Split('\n').Select(line => line.TrimEnd(' ', '\t'))).TrimEnd('\n', '\r');
         if (string.IsNullOrEmpty(text)) return;
+        await SetClipboardText(text);
+    }
+    private async Task SetClipboardText(string text)
+    {
         try
         {
             var topLevel = TopLevel.GetTopLevel(this);
@@ -64,6 +68,21 @@ public sealed partial class ThemedTerminalControl : TerminalControl
             await clipboard.SetTextAsync(text);
         }
         catch (Exception error) { AppDiagnostics.Record("Terminal copy", error); }
+    }
+    private void OnTerminalOsc(object? sender, XTerm.Events.TerminalEvents.OscReceivedEventArgs e)
+    {
+        if (e.Code != 52) return;
+        var separator = e.Data.IndexOf(';');
+        if (separator < 0 || e.Data.Length > 1_400_000) return;
+        var selection = e.Data[..separator];
+        if (selection.Length > 0 && selection != "c") return;
+        try
+        {
+            // Writes only: a terminal process must never read the host clipboard.
+            var text = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(e.Data[(separator + 1)..]));
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => _ = SetClipboardText(text));
+        }
+        catch (FormatException) { }
     }
     public async Task PasteText()
     {

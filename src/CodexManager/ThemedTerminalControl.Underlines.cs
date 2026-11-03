@@ -18,6 +18,7 @@ public sealed partial class ThemedTerminalControl
     {
         Interlocked.Increment(ref linkRevision); linkCache.Clear();
         if (underlineModel is { } old && old.UpdateUI == underlineRefresh) old.UpdateUI = originalUnderlineRefresh;
+        if (underlineModel is { } previous) previous.Terminal.Engine.OscReceived -= OnTerminalOsc;
         underlineModel = null; underlineRefresh = originalUnderlineRefresh = null;
     }
     private void HookUnderlines()
@@ -25,6 +26,7 @@ public sealed partial class ThemedTerminalControl
         UnhookUnderlines();
         if (!underlinesAttached || Model is not { } model) return;
         underlineModel = model;
+        model.Terminal.Engine.OscReceived += OnTerminalOsc;
         var original = originalUnderlineRefresh = model.UpdateUI;
         underlineRefresh = () =>
         {

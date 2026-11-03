@@ -95,7 +95,7 @@ public sealed class TerminalSession : IDisposable
             // wsl.exe treats quoted switches as a Linux command. Porta otherwise quotes every argument.
             options.VerbatimCommandLine = true;
             options.CommandLine = ["--distribution", Hosts.WindowsArgument(workspace.Distro!), "--cd", Hosts.WindowsArgument(workspace.Path)];
-            if (command is not null) options.CommandLine = [.. options.CommandLine, "--exec", "bash", "-lc", Hosts.WindowsArgument("exec " + command)];
+            options.CommandLine = [.. options.CommandLine, "--exec", "bash", "-lc", Hosts.WindowsArgument(Hosts.WslTerminalCommand(command ?? "\"${SHELL:-/bin/bash}\" -il"))];
         }
         else if (OperatingSystem.IsWindows())
         { options.App = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"); options.CommandLine = ["-NoLogo"]; }

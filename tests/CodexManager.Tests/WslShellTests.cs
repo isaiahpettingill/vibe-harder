@@ -4,6 +4,32 @@ namespace CodexManager.Tests;
 
 public class WslShellTests
 {
+    [Trait("Category", "Integration")]
+    [Theory]
+    [InlineData("https://claude.ai/oauth/authorize?client=abc&state=xyz", true)]
+    [InlineData("https://example.com/a'quote?x=$(touch nope)&y=2", true)]
+    [InlineData("file:///tmp/untrusted", false)]
+    public async Task TerminalBrowserBridgePassesWebUrlsAsOneWindowsArgument(string url, bool allowed)
+    {
+        var distro = OperatingSystem.IsWindows() ? (await Hosts.Distros()).FirstOrDefault() : null;
+        if (OperatingSystem.IsWindows() && distro is null) Assert.Skip("No WSL distro is installed.");
+        if (OperatingSystem.IsMacOS()) Assert.Skip("This launcher targets WSL/Linux.");
+        var script = """
+            vibe_test_home=$(mktemp -d)
+            trap 'rm -rf "$vibe_test_home"' EXIT
+            export HOME="$vibe_test_home"
+            mkdir -p "$HOME/bin"
+            printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$HOME/bin/opener"' > "$HOME/bin/wslpath"
+            printf '%s\n' '#!/bin/sh' 'printf "%s\\n" "$#" "$1" "$2"' > "$HOME/bin/opener"
+            chmod +x "$HOME/bin/"*
+            export PATH="$HOME/bin:$PATH"
+            bash -c
+            """.ReplaceLineEndings("\n") + " " + Hosts.Quote(Hosts.WslTerminalCommand("\"$BROWSER\" " + Hosts.Quote(url)));
+        var info = OperatingSystem.IsWindows() ? Hosts.Info("wsl.exe", "-d", distro!, "--exec", "bash", "-c", script) : Hosts.Info("bash", "-c", script);
+        if (allowed) Assert.Equal("2\nurl.dll,FileProtocolHandler\n" + url + "\n", await Hosts.Capture(info));
+        else await Assert.ThrowsAsync<IOException>(() => Hosts.Capture(info));
+    }
+
     [Trait("Category", "CI")]
     [Fact]
     public async Task WslShellSetupRunsBeforeTheAgentExec()
