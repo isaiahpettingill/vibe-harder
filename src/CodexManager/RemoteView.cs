@@ -372,6 +372,18 @@ public sealed partial class RemoteView : UserControl, IDisposable
             finally { copyChat.IsEnabled = true; }
         };
         Grid.SetColumn(copyChat, 3); remoteHeader.Children.Add(copyChat);
+        var copyProviderId = new IconButton { Name = "RemoteCopyProviderChatId", Icon = "collapse-all-compact", Label = "Copy provider chat ID" };
+        copyProviderId.Click += async (_, _) =>
+        {
+            if (chatId is not { } id || TopLevel.GetTopLevel(this)?.Clipboard is not { } clipboard) return;
+            try
+            {
+                var result = await Call(new() { ["method"] = "chat", ["chatId"] = id, ["activate"] = false });
+                if (result?["sessionId"]?.GetValue<string>() is { } sessionId && !string.IsNullOrWhiteSpace(sessionId)) await clipboard.SetTextAsync(sessionId);
+            }
+            catch (Exception error) { status.IsVisible = true; status.Text = "Could not copy provider chat ID: " + error.Message; }
+        };
+        remoteHeader.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto)); Grid.SetColumn(copyProviderId, remoteHeader.ColumnDefinitions.Count - 1); remoteHeader.Children.Add(copyProviderId);
         var searchChat = new IconButton { Icon = "search", Label = "Search in chat (Ctrl+F)" };
         searchChat.Click += (_, _) => OpenChatSearch();
         remoteHeader.ColumnDefinitions.Add(new ColumnDefinition(GridLength.Auto)); Grid.SetColumn(searchChat, remoteHeader.ColumnDefinitions.Count - 1); remoteHeader.Children.Add(searchChat);

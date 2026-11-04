@@ -104,6 +104,7 @@ public sealed class RemoteChatSession : IChatSession
     // Also applied from the host catalog for chats that are not open.
     public static void ApplySummary(Chat chat, JsonNode summary)
     {
+        chat.SessionId = summary["sessionId"]?.GetValue<string>();
         if (summary["title"]?.GetValue<string>() is { } title) chat.Title = title;
         if (summary["status"]?.GetValue<string>() is { } status) chat.Status = status;
         if (summary["busy"] is { } busy) chat.Busy = busy.GetValue<bool>();

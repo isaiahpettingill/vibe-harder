@@ -761,6 +761,7 @@ public partial class MainView : UserControl
         ComposerBorder.IsVisible = !remoteOnly;
         WelcomeOpenButton.IsVisible = workspace is null;
         CopyChatButton.IsEnabled = current is not null;
+        CopyProviderChatIdButton.IsEnabled = !string.IsNullOrWhiteSpace(current?.SessionId);
         MessageList.IsVisible = current is not null; UpdateHistoryNavigation();
         ComposerBorder.IsEnabled = current is not null;
         ImportChatsButton.IsEnabled = workspace is not null || remoteView?.HasWorkspace == true;
@@ -811,6 +812,12 @@ public partial class MainView : UserControl
     private void CollapseOutputClick(object? sender, RoutedEventArgs e)
     {
         foreach (var view in MessageList.GetVisualDescendants().OfType<MessageView>()) view.Collapse();
+    }
+    private async void CopyProviderChatIdClick(object? sender, RoutedEventArgs e)
+    {
+        if (current?.SessionId is not { } id || string.IsNullOrWhiteSpace(id) || Clipboard is null) return;
+        try { await Clipboard.SetTextAsync(id); }
+        catch (Exception error) { StatusText.Text = "Could not copy provider chat ID: " + error.Message; }
     }
     private async void CopyChatClick(object? sender, RoutedEventArgs e)
     {

@@ -271,8 +271,12 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             // The runtime state a desktop client needs to enable its controls as it would locally.
             result["session"] = new JsonObject
             {
-                ["connected"] = active.IsConnected, ["reconnecting"] = active.IsReconnecting, ["configuring"] = active.IsConfiguring,
-                ["loadingHistory"] = active.IsLoadingHistory, ["recovering"] = active.IsRecovering, ["prompting"] = active.IsPrompting,
+                ["connected"] = active.IsConnected,
+                ["reconnecting"] = active.IsReconnecting,
+                ["configuring"] = active.IsConfiguring,
+                ["loadingHistory"] = active.IsLoadingHistory,
+                ["recovering"] = active.IsRecovering,
+                ["prompting"] = active.IsPrompting,
                 ["needsLogin"] = chat.NeedsLogin
             };
             result["canSteer"] = active.SupportsSteering && active.IsPrompting && !active.IsSteering;
@@ -319,5 +323,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
+    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
 }

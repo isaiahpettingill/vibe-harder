@@ -6,6 +6,25 @@ public class RemoteCatalogTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(null)]
+    [InlineData("provider-session-123")]
+    public async Task CatalogIncludesProviderSessionIdForFailedAndArchivedChats(string? sessionId)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("catalog-session-").FullName);
+        var owner = new Workspace("workspace", "Project", store.DirectoryPath);
+        var chat = new Chat { Id = "local-chat", WorkspaceId = owner.Id, SessionId = sessionId, Archived = true, Status = "Failed" };
+        using var service = new SessionService(store, [owner], [chat], (_, _) => throw new InvalidOperationException());
+        var catalog = await service.Handle(new() { ["method"] = "list" });
+        var record = Assert.Single(catalog!["chats"]!.AsArray());
+        Assert.Equal(chat.Id, record!["id"]!.GetValue<string>());
+        Assert.Equal(sessionId, record["sessionId"]?.GetValue<string>());
+        var remoteChat = new Chat { Id = "remote-local-chat", WorkspaceId = owner.Id };
+        RemoteChatSession.ApplySummary(remoteChat, record);
+        Assert.Equal(sessionId, remoteChat.SessionId);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("  My_project-name  ", "My_project-name")]
     [InlineData("Project with spaces", "Project with spaces")]
     [InlineData("", null)]

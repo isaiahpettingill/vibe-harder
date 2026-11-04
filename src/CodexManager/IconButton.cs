@@ -44,7 +44,7 @@ public static class AppIcons
     }
     public static PathIcon Create(string name, double size = 13) => new()
     {
-        Data = name is "openai" or "claude" or "steer" or "agent" or "mode" or "permission" or "command" ? Additional(name switch { "steer" => "forward", "mode" => "edit-compact", "permission" => "shield-compact", "command" => "run-with-deps", _ => name }) : Geometry(name switch
+        Data = name is "collapse-all-compact" or "openai" or "claude" or "steer" or "agent" or "mode" or "permission" or "command" ? Additional(name switch { "steer" => "forward", "mode" => "edit-compact", "permission" => "shield-compact", "command" => "run-with-deps", _ => name }) : Geometry(name switch
         {
             "provider" => PackIconCodiconsKind.Server,
             "mic" => PackIconCodiconsKind.Mic,
