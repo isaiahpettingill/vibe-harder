@@ -33,6 +33,36 @@ public class AcpTests
         while (Running() && DateTime.UtcNow < deadline) await Task.Delay(50);
         Assert.False(Running());
     }
+    // An agent that writes `banner` to stdout in `encoding`, then either exits with 255 or echoes requests.
+    private static AcpClient BannerAgent(string banner, string encoding, bool exit) => new(Hosts.Info("node", "-e",
+        $"process.stdout.write(Buffer.from({JsonSerializer.Serialize(banner)}, '{encoding}'));" +
+        (exit ? "setTimeout(() => process.exit(255), 100);" :
+            "require('readline').createInterface({ input: process.stdin }).on('line', l => { const m = JSON.parse(l); " +
+            "process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result: m.params }) + '\\n'); });")));
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("Welcome to Ubuntu\n", "utf8")]
+    [InlineData("conda: environment activated\r\n\n  \n", "utf8")]
+    [InlineData("Catastrophic failure\r\n", "utf16le")]
+    public async Task PlainTextOnStdoutDoesNotBreakTheConnection(string banner, string encoding)
+    {
+        await using var client = BannerAgent(banner, encoding, exit: false);
+        var result = await client.Request("echo", RpcJson.Object(("number", 7))).WaitAsync(TimeSpan.FromSeconds(10));
+        Assert.Equal(7, result.GetProperty("number").GetInt32());
+        Assert.True(client.Alive);
+    }
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("Catastrophic failure\r\n\r\nError code: Wsl/Service/E_UNEXPECTED\r\n", "utf16le", "Wsl/Service/E_UNEXPECTED")]
+    [InlineData("bash: codex-acp: command not found\n", "utf8", "command not found")]
+    public async Task LauncherFailuresOnStdoutAreReportedAsTheDisconnectReason(string banner, string encoding, string reported)
+    {
+        // wsl.exe writes its own failures to stdout in UTF-16; they must reach the user, not a JSON parse error.
+        await using var client = BannerAgent(banner, encoding, exit: true);
+        var error = await Assert.ThrowsAsync<IOException>(() => client.Request("echo", new JsonObject()).WaitAsync(TimeSpan.FromSeconds(10)));
+        Assert.Contains(reported, error.Message);
+        Assert.Contains(reported, client.DisconnectReason);
+    }
     [Trait("Category", "CI")]
     [Fact]
     public async Task RpcCorrelatesConcurrentRequestsAndPropagatesExit()

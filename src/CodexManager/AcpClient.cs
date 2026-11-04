@@ -31,7 +31,7 @@ public sealed class AcpClient : IAsyncDisposable
     public AcpClient(ProcessStartInfo start)
     {
         process = Process.Start(start) ?? throw new IOException("Could not start the agent.");
-        errorReader = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync(lifetime.Token) is { } line) diagnostics = (diagnostics + "\n" + line)[^Math.Min(4000, diagnostics.Length + line.Length + 1)..]; } catch (Exception error) when (error is OperationCanceledException or IOException or ObjectDisposedException) { } });
+        errorReader = Task.Run(async () => { try { while (await process.StandardError.ReadLineAsync(lifetime.Token) is { } line) Diagnose(line); } catch (Exception error) when (error is OperationCanceledException or IOException or ObjectDisposedException) { } });
         reader = Task.Run(ReadLoop);
     }
     public async Task<JsonElement> Request(string method, JsonObject parameters, CancellationToken cancellation = default)
@@ -72,14 +72,24 @@ public sealed class AcpClient : IAsyncDisposable
         process.StandardInput.WriteLine(line);
         process.StandardInput.Flush();
     }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default);
+    private void Diagnose(string line)
+    {
+        if (string.IsNullOrWhiteSpace(line)) return;
+        lock (pending) diagnostics = (diagnostics + "\n" + line)[^Math.Min(4000, diagnostics.Length + line.Length + 1)..];
+    }
     private async Task ReadLoop()
     {
         Exception? failure = null;
         try
         {
-            while (await process.StandardOutput.ReadLineAsync(lifetime.Token) is { } line)
+            while (await process.StandardOutput.ReadLineAsync(lifetime.Token) is { } raw)
             {
+                // Launchers and shell profiles can print plain text to stdout (wsl.exe reports its own
+                // failures there in UTF-16, leaving NULs). Keep it as a diagnostic instead of failing the
+                // connection; a raw NUL is never valid JSON.
+                var line = raw.Contains('\0') ? raw.Replace("\0", "") : raw;
                 if (string.IsNullOrWhiteSpace(line)) continue;
+                if (line.TrimStart()[0] != '{') { Diagnose(line); continue; }
                 using var doc = JsonDocument.Parse(line); var message = doc.RootElement;
                 if (message.TryGetProperty("method", out var method))
                 {
