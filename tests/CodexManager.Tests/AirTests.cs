@@ -12,6 +12,28 @@ public class AirTests
     private static JsonElement Json(string json) => JsonDocument.Parse(json).RootElement.Clone();
 
     [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("{\"_meta\":{\"terminal_output_delta\":null}}")]
+    [InlineData("{\"_meta\":{\"terminal_output\":null}}")]
+    [InlineData("{\"_meta\":{\"terminal_exit\":null}}")]
+    [InlineData("{\"_meta\":{\"jetbrains\":{\"air\":{\"asyncTasks\":null}}}}")]
+    [InlineData("{\"rawOutput\":{\"result\":null,\"error\":null}}")]
+    [InlineData("{\"rawOutput\":{\"result\":{\"content\":[null]}}}")]
+    [InlineData("{\"content\":[null,{\"type\":\"content\",\"content\":null}]}")]
+    [InlineData("{\"content\":[{\"type\":\"diff\",\"_meta\":{\"jetbrains\":{\"air\":{\"diffPatch\":null}}}}]}")]
+    public void NullableToolFieldsDoNotInterruptSubsequentOutput(string update)
+    {
+        var call = new AcpToolCall();
+        call.Merge(Json("""{"title":"command","status":"in_progress","rawInput":{"command":"run"}}"""));
+        call.Merge(Json(update));
+        call.Merge(Json("""{"status":"completed","_meta":{"terminal_output_delta":{"data":"finished"},"terminal_exit":{"exit_code":0}}}"""));
+        Assert.Equal("completed", call.Status);
+        Assert.Equal(0, call.ExitCode);
+        Assert.Contains("finished", call.Render());
+        Assert.Contains("run", call.Input);
+    }
+
+    [Trait("Category", "CI")]
     [Fact]
     public async Task ClientDeclaresAirAndATerminalOutputChannel()
     {

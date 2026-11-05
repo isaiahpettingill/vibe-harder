@@ -52,12 +52,12 @@ public sealed class AcpToolCall
     private void MergeMeta(JsonElement meta)
     {
         foreach (var channel in new[] { "terminal_output_delta", "terminal_output" })
-            if (meta.TryGetProperty(channel, out var chunk) && chunk.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.String) Append(data.GetString()!);
-        if (meta.TryGetProperty("terminal_exit", out var exit) && exit.TryGetProperty("exit_code", out var code) && code.ValueKind == JsonValueKind.Number) ExitCode = code.GetInt32();
+            if (meta.TryGetProperty(channel, out var chunk) && chunk.ValueKind == JsonValueKind.Object && chunk.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.String) Append(data.GetString()!);
+        if (meta.TryGetProperty("terminal_exit", out var exit) && exit.ValueKind == JsonValueKind.Object && exit.TryGetProperty("exit_code", out var code) && code.ValueKind == JsonValueKind.Number) ExitCode = code.GetInt32();
         if (Air.Meta(meta) is { } air)
         {
             if (air.TryGetProperty("commandTitle", out var commandTitle) && commandTitle.ValueKind == JsonValueKind.String) CommandTitle = commandTitle.GetString();
-            if (air.TryGetProperty("asyncTasks", out var tasks) && tasks.TryGetProperty("backgrounded", out var backgrounded)) Backgrounded = backgrounded.ValueKind == JsonValueKind.True;
+            if (air.TryGetProperty("asyncTasks", out var tasks) && tasks.ValueKind == JsonValueKind.Object && tasks.TryGetProperty("backgrounded", out var backgrounded)) Backgrounded = backgrounded.ValueKind == JsonValueKind.True;
         }
     }
     private void Append(string data)
@@ -103,10 +103,11 @@ public sealed class AcpToolCall
         var text = new StringBuilder();
         foreach (var item in contents.EnumerateArray())
         {
+            if (item.ValueKind != JsonValueKind.Object) continue;
             var type = item.TryGetProperty("type", out var t) ? t.GetString() : null;
             string? part = type switch
             {
-                "content" when item.TryGetProperty("content", out var inner) && inner.TryGetProperty("text", out var value) => value.GetString(),
+                "content" when item.TryGetProperty("content", out var inner) && inner.ValueKind == JsonValueKind.Object && inner.TryGetProperty("text", out var value) => value.GetString(),
                 "diff" => Diff(item),
                 _ => null
             };
@@ -127,9 +128,9 @@ public sealed class AcpToolCall
     private static string McpText(JsonElement output)
     {
         var text = new StringBuilder();
-        if (output.TryGetProperty("result", out var result) && result.TryGetProperty("content", out var items) && items.ValueKind == JsonValueKind.Array)
+        if (output.TryGetProperty("result", out var result) && result.ValueKind == JsonValueKind.Object && result.TryGetProperty("content", out var items) && items.ValueKind == JsonValueKind.Array)
             foreach (var item in items.EnumerateArray())
-                if (item.TryGetProperty("text", out var value) && value.ValueKind == JsonValueKind.String) text.Append(value.GetString()).Append('\n');
+                if (item.ValueKind == JsonValueKind.Object && item.TryGetProperty("text", out var value) && value.ValueKind == JsonValueKind.String) text.Append(value.GetString()).Append('\n');
         if (output.TryGetProperty("error", out var error) && error.ValueKind == JsonValueKind.Object && error.TryGetProperty("message", out var message)) text.Append("Error: ").Append(message.GetString());
         return text.Length > 0 ? text.ToString().TrimEnd() : output.GetRawText();
     }
@@ -139,7 +140,7 @@ public sealed class AcpToolCall
     {
         var path = item.TryGetProperty("path", out var p) ? p.GetString() ?? "" : "";
         if (item.TryGetProperty("_meta", out var meta) && Air.Meta(meta) is { } air && air.TryGetProperty("diffPatch", out var patch)
-            && patch.TryGetProperty("format", out var format) && format.GetString() == "git_patch" && patch.TryGetProperty("text", out var patchText) && patchText.ValueKind == JsonValueKind.String)
+            && patch.ValueKind == JsonValueKind.Object && patch.TryGetProperty("format", out var format) && format.GetString() == "git_patch" && patch.TryGetProperty("text", out var patchText) && patchText.ValueKind == JsonValueKind.String)
             return Fence(patchText.GetString()!.TrimEnd('\n'), "diff");
         var oldText = item.TryGetProperty("oldText", out var o) && o.ValueKind == JsonValueKind.String ? o.GetString()! : null;
         var newText = item.TryGetProperty("newText", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString()! : "";
