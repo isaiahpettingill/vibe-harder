@@ -77,7 +77,9 @@ identity for every update.
 
 Choose **Actions → Release → Run workflow**, supply a numeric `major.minor.patch`
 version, and wait for all builds. Only after every platform succeeds does the
-workflow publish a release with all assets and `SHA256SUMS.txt`.
+workflow publish a release with all assets and `SHA256SUMS.txt`. After publication,
+it deletes the run’s temporary Actions artifacts. Build and release artifacts
+otherwise expire after one day; published release downloads are retained.
 
 See [remote and headless setup](../REMOTE.md) for persistent pairing and Android access.
 

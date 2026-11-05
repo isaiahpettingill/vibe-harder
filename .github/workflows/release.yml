@@ -48,6 +48,7 @@ jobs:
           ./tools/package.ps1 -Runtime '${{ matrix.platform.rid }}' -Mode '${{ matrix.mode }}' -Version $env:RELEASE_VERSION
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}
           path: artifacts/packages/*
           if-no-files-found: error
@@ -70,6 +71,7 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo -e RELEASE_VERSION -e RELEASE_RID -e RELEASE_MODE mcr.microsoft.com/dotnet/sdk:11.0-alpine sh -c 'apk add --no-cache clang build-base zlib-dev icu-libs && sh tools/package-musl.sh "$RELEASE_RID" "$RELEASE_MODE" "$RELEASE_VERSION"'
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: desktop-${{ matrix.platform.rid }}-${{ matrix.mode }}
           path: artifacts/packages/*
           if-no-files-found: error
@@ -110,6 +112,7 @@ jobs:
           python3 tools/check-android-package.py "${{ matrix.rid }}" "artifacts/packages/${{ matrix.filename }}" src/CodexManager.Mobile.UI/obj/project.assets.json
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: ${{ matrix.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
@@ -130,6 +133,7 @@ jobs:
         run: ./tools/package-web.ps1 -Version $env:RELEASE_VERSION
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: web
           path: artifacts/packages/VibeHarder-Web.zip
           if-no-files-found: error
@@ -149,6 +153,7 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      actions: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -165,3 +170,16 @@ jobs:
           cd release
           sha256sum * > SHA256SUMS.txt
           gh release create "v$RELEASE_VERSION" --target '${{ github.sha }}' --title "Vibe Harder $RELEASE_VERSION" --generate-notes ./*
+      - name: Delete temporary build artifacts after publication
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const artifacts = await github.paginate(github.rest.actions.listWorkflowRunArtifacts, {
+              ...context.repo,
+              run_id: context.runId,
+              per_page: 100
+            });
+            for (const artifact of artifacts) {
+              await github.rest.actions.deleteArtifact({ ...context.repo, artifact_id: artifact.id });
+            }
+            core.info(`Deleted ${artifacts.length} temporary build artifacts.`);

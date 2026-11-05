@@ -47,6 +47,7 @@ jobs:
           sh tools/check-native-linux.sh
       - uses: actions/upload-artifact@v4
         with:
+          retention-days: 1
           name: VibeHarder-${{ matrix.rid }}
           path: |
             artifacts/packages/*.exe
