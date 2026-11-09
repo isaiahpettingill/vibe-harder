@@ -754,7 +754,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             // Updates carry only what changed; merge into the call's state and render all of it.
             if (id is null || !toolCalls.TryGetValue(id, out var call)) call = message.Text.Length == 0 ? new AcpToolCall() : AcpToolCall.FromText(message.Text);
             call.Merge(update);
-            if (call.CreatedGitHubPullRequest() is { } pullRequest && createdPullRequests.Add(pullRequest) && !replaying) PullRequestCreated?.Invoke();
+            foreach (var pullRequest in call.CreatedGitHubPullRequests())
+            {
+                ChatPullRequests.Add(store, chat, pullRequest);
+                if (createdPullRequests.Add(pullRequest) && !replaying) PullRequestCreated?.Invoke();
+            }
             if (id is not null) { if (call.Status is "completed" or "failed" && !call.Backgrounded) toolCalls.Remove(id); else toolCalls[id] = call; }
             message.Text = call.Render(); if (!replaying) store.SaveMessage(chat, message);
         }

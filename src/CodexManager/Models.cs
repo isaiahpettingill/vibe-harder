@@ -57,6 +57,13 @@ public sealed class Chat : Observable
     public string? RemoteId { get; init; }
     public bool IsRemote => Remote is not null;
     public string? SessionId { get; set; }
+    public List<ChatPullRequest> PullRequests { get; } = [];
+    internal bool PullRequestsLoaded { get; set; }
+    private int openPullRequestCount;
+    public int OpenPullRequestCount { get => openPullRequestCount; internal set => Set(ref openPullRequestCount, value); }
+    public bool HasOpenPullRequests => OpenPullRequestCount > 0;
+    internal void PullRequestsChanged() { OpenPullRequestCount = PullRequests.Count(p => p.State != "MERGED" && !p.Dismissed); Changed(nameof(HasOpenPullRequests)); }
+
     public AgentProvider Provider { get; init; }
     public string ProviderIcon => AgentProviders.Get(Provider).Icon;
     public string ProviderLabel => AgentProviders.Get(Provider).Label;

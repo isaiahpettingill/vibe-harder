@@ -3,6 +3,36 @@ namespace CodexManager.Tests;
 public class StoreTests
 {
     [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("OPEN", true, 1)]
+    [InlineData("CLOSED", false, 1)]
+    [InlineData("CLOSED", true, 0)]
+    [InlineData("MERGED", false, 0)]
+    public void PullRequestStateAndDismissalPersist(string state, bool dismiss, int expected)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("chat-prs-").FullName);
+        var chat = new Chat { Id = "chat", WorkspaceId = "workspace" };
+        const string url = "https://github.com/org/repo/pull/12";
+        ChatPullRequests.Add(store, chat, url);
+        ChatPullRequests.Add(store, chat, url);
+        ChatPullRequests.Add(store, chat, "https://evil.example/pr; bad-command");
+        ChatPullRequests.Apply(store, chat, url, "Feature", state);
+        if (dismiss) ChatPullRequests.Dismiss(store, chat, url);
+        var restored = new Chat { Id = chat.Id, WorkspaceId = chat.WorkspaceId };
+        ChatPullRequests.Load(store, restored);
+        Assert.Single(restored.PullRequests);
+        Assert.Equal(expected, restored.OpenPullRequestCount);
+        Assert.Equal("Feature", restored.PullRequests[0].Title);
+        if (state == "CLOSED" && dismiss)
+        {
+            ChatPullRequests.Add(store, restored, url);
+            Assert.Equal(0, restored.OpenPullRequestCount);
+            ChatPullRequests.Apply(store, restored, url, "Feature", "OPEN");
+            Assert.Equal(1, restored.OpenPullRequestCount);
+        }
+    }
+
+    [Trait("Category", "CI")]
     [Fact]
     public void ExistingDatabaseMigratesWithoutChangingCodexSessions()
     {

@@ -175,6 +175,7 @@ public partial class MainView : UserControl
     {
         this.store = store; this.remoteOnly = remoteOnly;
         InitializeComponent();
+        ConfigurePullRequests();
         InitializeDownloads();
         InitializeChatSearch();
         OpenWorkspaceButton.Content = AppIcons.Label("add", "Open workspace");
@@ -720,6 +721,7 @@ public partial class MainView : UserControl
     }
     private void UpdateControls()
     {
+        UpdatePullRequestPane();
         ApplyChatColors();
         UpdatePermissions();
         if (uiSleeping) { UpdateTray(); return; }
@@ -880,7 +882,7 @@ public partial class MainView : UserControl
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
             runtime.TurnCompleted += () => NotifyCompleted(chat);
-            runtime.PullRequestCreated += CelebratePullRequest;
+            runtime.PullRequestCreated += () => { CelebratePullRequest(); UpdatePullRequestPane(); _ = RefreshPullRequests(); };
             runtime.Changed += () =>
             {
                 if (closing) return;

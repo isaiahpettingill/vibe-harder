@@ -49,17 +49,18 @@ public sealed class AcpToolCall
         if (update.TryGetProperty("rawOutput", out var rawOutput)) RawOutput = OutputText(rawOutput);
         if (update.TryGetProperty("_meta", out var meta) && meta.ValueKind == JsonValueKind.Object) MergeMeta(meta);
     }
-    public string? CreatedGitHubPullRequest()
+    public string? CreatedGitHubPullRequest() => CreatedGitHubPullRequests().FirstOrDefault();
+    public string[] CreatedGitHubPullRequests()
     {
-        if (Status != "completed" || Backgrounded || ExitCode is not (null or 0)) return null;
+        if (Status != "completed" || Backgrounded || ExitCode is not (null or 0)) return [];
         var command = Input.Length > 0 ? Input : Title;
         var options = System.Text.RegularExpressions.RegexOptions.CultureInvariant;
         var timeout = TimeSpan.FromMilliseconds(100);
         if (!System.Text.RegularExpressions.Regex.IsMatch(command,
-            @"(?:^|[\n;&|])\s*gh\s+(?:(?:--repo|-R)\s+\S+\s+)?pr\s+create(?:\s|$)", options, timeout)) return null;
-        var match = System.Text.RegularExpressions.Regex.Match(Content + "\n" + output + "\n" + RawOutput,
+            @"(?:^|[\n;&|])\s*gh\s+(?:(?:--repo|-R)\s+\S+\s+)?pr\s+create(?:\s|$)", options, timeout)) return [];
+        var matches = System.Text.RegularExpressions.Regex.Matches(Content + "\n" + output + "\n" + RawOutput,
             @"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*(?![0-9])", options, timeout);
-        return match.Success ? match.Value : null;
+        return matches.Select(match => match.Value).Distinct(StringComparer.Ordinal).ToArray();
     }
     private void MergeMeta(JsonElement meta)
     {

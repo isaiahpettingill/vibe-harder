@@ -13,6 +13,17 @@ public class AirTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/13", 2)]
+    [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/12", 1)]
+    public void CommandsCreatingMultiplePullRequestsKeepEveryDistinctResult(string output, int expected)
+    {
+        var call = new AcpToolCall();
+        call.Merge(Json(new JsonObject { ["rawInput"] = new JsonObject { ["command"] = "gh pr create --fill && gh pr create --fill" }, ["status"] = "completed", ["rawOutput"] = output }.ToJsonString()));
+        Assert.Equal(expected, call.CreatedGitHubPullRequests().Length);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("gh pr create --fill", "completed", 0, "https://github.com/org/repo/pull/12", true)]
     [InlineData("cd repo && gh pr create --draft", "completed", null, "https://github.com/org/repo/pull/12", true)]
     [InlineData("gh -R org/repo pr create --fill", "completed", 0, "https://github.com/org/repo/pull/12", true)]
