@@ -663,7 +663,8 @@ public partial class MainView : UserControl
             Action(2, "edit", "Edit queued message", () =>
             {
                 if (Runtime(chat, owner) is RemoteChatSession remote) { EditRemoteQueued(remote, input, row); return Task.CompletedTask; }
-                Runtime(chat, owner).RemoveQueued(input); chat.RecoverInput(input); if (ReferenceEquals(chat, current)) { Composer.Text = chat.Draft; Composer.Focus(); } store.Save(chat); return Task.CompletedTask;
+                Runtime(chat, owner).RemoveQueued(input); chat.RecoverInput(input); if (ReferenceEquals(chat, current)) { Composer.Text = chat.Draft; Composer.Focus(); }
+                store.Save(chat); return Task.CompletedTask;
             });
             Action(3, "steer", "Steer current turn (when supported by ACP)", async () =>
             {
@@ -813,6 +814,14 @@ public partial class MainView : UserControl
     {
         foreach (var view in MessageList.GetVisualDescendants().OfType<MessageView>()) view.Collapse();
     }
+    private void CelebratePullRequest()
+    {
+        if (closing || store.Setting("pullRequestConfetti") != "1") return;
+        foreach (var existing in RootPanes.Children.OfType<PullRequestConfetti>().ToArray()) RootPanes.Children.Remove(existing);
+        var confetti = new PullRequestConfetti();
+        Grid.SetColumnSpan(confetti, 3); Grid.SetRowSpan(confetti, 3);
+        RootPanes.Children.Add(confetti);
+    }
     private async void CopyProviderChatIdClick(object? sender, RoutedEventArgs e)
     {
         if (current?.SessionId is not { } id || string.IsNullOrWhiteSpace(id) || Clipboard is null) return;
@@ -871,6 +880,7 @@ public partial class MainView : UserControl
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
             runtime.TurnCompleted += () => NotifyCompleted(chat);
+            runtime.PullRequestCreated += CelebratePullRequest;
             runtime.Changed += () =>
             {
                 if (closing) return;
@@ -1205,6 +1215,9 @@ public partial class MainView : UserControl
         ToolTip.SetTip(notify, "Desktop notifications, and push notifications on paired phones that enabled them.");
         notify.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(ChatNotifications.EnabledKey, notify.IsChecked == true ? "1" : "0"));
         panel.Children.Add(notify);
+        var confetti = new CheckBox { Content = "Celebrate agent-created GitHub pull requests with confetti", IsChecked = store.Setting("pullRequestConfetti") == "1" };
+        confetti.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("pullRequestConfetti", confetti.IsChecked == true ? "1" : "0"));
+        panel.Children.Add(confetti);
         var eyeHealth = new CheckBox { Name = "EyeHealthMode", Content = "Eye health reminder every 20 minutes", IsChecked = store.Setting("eyeHealthMode") == "1" };
         eyeHealth.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("eyeHealthMode", eyeHealth.IsChecked == true ? "1" : "0"); ConfigureHealthReminders(); });
         panel.Children.Add(eyeHealth);

@@ -13,6 +13,29 @@ public class AirTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("gh pr create --fill", "completed", 0, "https://github.com/org/repo/pull/12", true)]
+    [InlineData("cd repo && gh pr create --draft", "completed", null, "https://github.com/org/repo/pull/12", true)]
+    [InlineData("gh -R org/repo pr create --fill", "completed", 0, "https://github.com/org/repo/pull/12", true)]
+    [InlineData("gh pr create --fill", "failed", 1, "https://github.com/org/repo/pull/12", false)]
+    [InlineData("gh pr create --fill", "completed", 1, "https://github.com/org/repo/pull/12", false)]
+    [InlineData("gh pr create --fill", "in_progress", null, "https://github.com/org/repo/pull/12", false)]
+    [InlineData("gh pr create --fill", "completed", 0, "authentication failed", false)]
+    [InlineData("gh pr view", "completed", 0, "https://github.com/org/repo/pull/12", false)]
+    [InlineData("echo gh pr create", "completed", 0, "https://github.com/org/repo/pull/12", false)]
+    [InlineData("gh pr create", "completed", 0, "https://example.com/org/repo/pull/12", false)]
+    public void SuccessfulPullRequestCreationRequiresCommandAndResult(string command, string status, int? exitCode, string output, bool expected)
+    {
+        var call = new AcpToolCall();
+        call.Merge(Json(new JsonObject { ["rawInput"] = new JsonObject { ["command"] = command } }.ToJsonString()));
+        Assert.Null(call.CreatedGitHubPullRequest());
+        var completion = new JsonObject { ["status"] = status, ["rawOutput"] = output };
+        if (exitCode is { } code) completion["_meta"] = new JsonObject { ["terminal_exit"] = new JsonObject { ["exit_code"] = code } };
+        call.Merge(Json(completion.ToJsonString()));
+        Assert.Equal(expected ? "https://github.com/org/repo/pull/12" : null, call.CreatedGitHubPullRequest());
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("{\"_meta\":{\"terminal_output_delta\":null}}")]
     [InlineData("{\"_meta\":{\"terminal_output\":null}}")]
     [InlineData("{\"_meta\":{\"terminal_exit\":null}}")]

@@ -8,6 +8,30 @@ public class StreamingTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(false, "completed", 1)]
+    [InlineData(false, "failed", 0)]
+    [InlineData(true, "completed", 0)]
+    public async Task PullRequestCelebrationFiresOnceForLiveSuccessfulCreation(bool replay, string status, int expected)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("pr-celebration-").FullName);
+        var workspace = new Workspace("w", "Project", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "unused");
+        var flags = System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic;
+        typeof(ChatRuntime).GetField("replaying", flags)!.SetValue(runtime, replay);
+        var update = typeof(ChatRuntime).GetMethod("Update", flags, [typeof(System.Text.Json.JsonElement)])!;
+        var count = 0; runtime.PullRequestCreated += () => count++;
+        foreach (var packet in new[] {
+            """{"sessionUpdate":"tool_call","toolCallId":"pr","status":"in_progress","rawInput":{"command":"gh pr create --fill"}}""",
+            """{"sessionUpdate":"tool_call_update","toolCallId":"pr","rawOutput":"https://github.com/org/repo/pull/12"}""",
+            new System.Text.Json.Nodes.JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "pr", ["status"] = status }.ToJsonString(),
+            new System.Text.Json.Nodes.JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "pr", ["status"] = status }.ToJsonString()
+        }) await (Task)update.Invoke(runtime, [System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(packet)])!;
+        Assert.Equal(expected, count);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(AgentProvider.Claude, 1)]
     [InlineData(AgentProvider.Codex, 3)]
     public async Task ClaudeChunksWithFlippingMessageIdsStayOneMessage(AgentProvider provider, int expected)
