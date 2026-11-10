@@ -84,11 +84,13 @@ public partial class MainView
                 foreach (var record in byWorkspace[ownerId])
                 {
                     var id = record["id"]!.GetValue<string>(); var activityKey = connectionScope + id;
-                    if (!remoteActivity.TryGetValue(activityKey, out var chat)) remoteActivity[activityKey] = chat = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(record["provider"]!.GetValue<string>()) };
+                    if (!remoteActivity.TryGetValue(activityKey, out var chat)) remoteActivity[activityKey] = chat = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(record["provider"]!.GetValue<string>()), Remote = host };
                     if (DateTimeOffset.TryParse(record["updated"]?.GetValue<string>(), out var updated)) chat.Updated = updated;
                     chat.SessionId = record["sessionId"]?.GetValue<string>();
                     chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
+                    chat.CostLabel = record["cost"]?.GetValue<string>() ?? "";
+                    chat.ContextLabel = record["context"]?.GetValue<string>() ?? "";
                     if (chat.Title.Contains(SearchBox.Text ?? "", StringComparison.OrdinalIgnoreCase)) rows.Add(chat);
                 }
                 var scope = "remote:" + host.Address + ":" + host.Port + ":";

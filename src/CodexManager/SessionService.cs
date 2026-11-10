@@ -91,7 +91,9 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             var orderedWorkspaces = SidebarOrder.Apply(store, "workspaces", workspaces.Where(w => store.Setting("closed:" + w.Id) != "1"), w => w.Id);
             var orderedChats = orderedWorkspaces.SelectMany(w =>
                 SidebarOrder.Apply(store, "chats:" + w.Id, chats.Where(c => c.WorkspaceId == w.Id), c => c.Id).Where(c => !c.Archived)
-                    .Concat(chats.Where(c => c.WorkspaceId == w.Id && c.Archived).OrderByDescending(c => c.Updated).ThenBy(c => c.Id)));
+                    .Concat(chats.Where(c => c.WorkspaceId == w.Id && c.Archived).OrderByDescending(c => c.Updated).ThenBy(c => c.Id))).ToArray();
+            // Paired devices show the same cost and token labels as this computer, including after a restart.
+            foreach (var known in orderedChats) ChatUsage.Load(store, known);
             return new JsonObject
             {
                 ["providers"] = new JsonArray(AgentProviders.Enabled(store).Select(p => (JsonNode)JsonValue.Create(p.Provider.ToString())!).ToArray()),
@@ -323,5 +325,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null };
+    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
 }

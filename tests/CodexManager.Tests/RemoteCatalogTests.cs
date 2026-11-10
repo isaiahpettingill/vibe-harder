@@ -25,6 +25,28 @@ public class RemoteCatalogTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("{\"used\":4200}", "", "4.2K context tokens")]
+    [InlineData("{\"used\":900,\"totalTokens\":1255515,\"inputTokens\":1200000,\"outputTokens\":55515}", "", "1.3M tokens")]
+    [InlineData("{\"used\":1200,\"totals\":{\"USD\":0.42}}", "USD 0.42", "1.2K context tokens")]
+    [InlineData("{}", "", "")]
+    public async Task CatalogReportsHostUsageToPairedDevices(string usage, string expectedCost, string expectedContext)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("catalog-usage-").FullName);
+        var owner = new Workspace("workspace", "Project", store.DirectoryPath);
+        var chat = new Chat { Id = "chat", WorkspaceId = owner.Id };
+        store.Setting("usage:" + chat.Id, usage);
+        using var service = new SessionService(store, [owner], [chat], (_, _) => throw new InvalidOperationException());
+        var record = Assert.Single((await service.Handle(new() { ["method"] = "list" }))!["chats"]!.AsArray());
+        Assert.Equal(expectedCost, record!["cost"]?.GetValue<string>());
+        Assert.Equal(expectedContext, record["context"]?.GetValue<string>());
+        var paired = new Chat { Id = "paired", WorkspaceId = owner.Id };
+        RemoteChatSession.ApplySummary(paired, record);
+        Assert.Equal(expectedCost, paired.CostLabel);
+        Assert.Equal(expectedContext, paired.ContextLabel);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("  My_project-name  ", "My_project-name")]
     [InlineData("Project with spaces", "Project with spaces")]
     [InlineData("", null)]

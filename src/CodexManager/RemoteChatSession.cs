@@ -113,6 +113,9 @@ public sealed class RemoteChatSession : IChatSession
         if (summary["archived"] is { } archived) chat.Archived = archived.GetValue<bool>();
         if (DateTimeOffset.TryParse(summary["updated"]?.GetValue<string>(), out var updated)) chat.Updated = updated;
         chat.NeedsLogin = summary["session"]?["needsLogin"]?.GetValue<bool>() == true;
+        // The host reports its cost and token labels so a paired device shows the same usage line.
+        chat.CostLabel = summary["cost"]?.GetValue<string>() ?? "";
+        chat.ContextLabel = summary["context"]?.GetValue<string>() ?? "";
         // The host owns the interrupted request; a marker lets the pane offer Resume.
         chat.InterruptedInput = summary["interrupted"]?.GetValue<bool>() == true ? chat.InterruptedInput ?? new PendingInput("", []) : null;
     }
