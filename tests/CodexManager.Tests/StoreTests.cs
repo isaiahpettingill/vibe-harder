@@ -41,6 +41,19 @@ public class StoreTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("USD", "0.0065", "$0.0065")]
+    [InlineData("USD", "12", "$12.00")]
+    [InlineData("EUR", "1.5", "€1.50")]
+    [InlineData("GBP", "0.42", "£0.42")]
+    [InlineData("CAD", "3", "C$3.00")]
+    [InlineData("CHF", "2.25", "CHF 2.25")]
+    public void CostsShowTheCurrencySymbolInsteadOfItsCode(string currency, string amount, string expected)
+    {
+        Assert.Equal(expected, ChatUsage.Money(currency, decimal.Parse(amount, System.Globalization.CultureInfo.InvariantCulture)));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("{\"used\":123}", true)]
     [InlineData("{\"totalTokens\":456,\"inputTokens\":400,\"outputTokens\":56}", true)]
     [InlineData("{\"used\":null,\"cost\":null}", false)]

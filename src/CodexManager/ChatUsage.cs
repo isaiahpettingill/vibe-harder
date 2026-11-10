@@ -19,7 +19,26 @@ public static class ChatUsage
         try { return JsonNode.Parse(store.Setting(key) ?? "{}") as JsonObject ?? new(); }
         catch (JsonException) { return new(); }
     }
-    private static void SetLabel(Chat chat, JsonObject totals) => chat.CostLabel = string.Join(" · ", totals.Select(p => p.Key + " " + p.Value!.GetValue<decimal>().ToString("0.00##", CultureInfo.InvariantCulture)));
+    private static void SetLabel(Chat chat, JsonObject totals) => chat.CostLabel = string.Join(" · ", totals.Select(p => Money(p.Key, p.Value!.GetValue<decimal>())));
+    // Costs sit in narrow sidebar rows, so use the familiar symbol rather than the ISO code.
+    public static string Money(string currency, decimal amount)
+    {
+        var text = amount.ToString("0.00####", CultureInfo.InvariantCulture);
+        return currency switch
+        {
+            "USD" => "$" + text,
+            "EUR" => "€" + text,
+            "GBP" => "£" + text,
+            "JPY" or "CNY" => "¥" + text,
+            "INR" => "₹" + text,
+            "KRW" => "₩" + text,
+            "RUB" => "₽" + text,
+            "BRL" => "R$" + text,
+            "AUD" => "A$" + text,
+            "CAD" => "C$" + text,
+            _ => currency + " " + text
+        };
+    }
     private static void SetTokens(Chat chat, JsonObject state)
     {
         chat.ContextLabel = state["totalTokens"] is { } total ? Compact(total.GetValue<long>()) + " tokens" : state["used"] is { } used ? Compact(used.GetValue<long>()) + " context tokens" : "";

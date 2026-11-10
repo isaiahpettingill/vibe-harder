@@ -65,9 +65,9 @@ public sealed class CostHistoryView : Control
             if (points.Count > 0)
             {
                 details.Children.Add(new TextBlock { Text = points[0].Date.ToString("yyyy-MM-dd") + " — " + points[^1].Date.ToString("yyyy-MM-dd"), Classes = { "muted" } });
-                details.Children.Add(new TextBlock { Text = "Total: " + currency + " " + points.Sum(p => p.Cost).ToString("0.00##", System.Globalization.CultureInfo.InvariantCulture) });
+                details.Children.Add(new TextBlock { Text = "Total: " + ChatUsage.Money(currency, points.Sum(p => p.Cost)) });
                 foreach (var point in points.Reverse().Take(30))
-                    details.Children.Add(new TextBlock { Text = point.Date.ToString("yyyy-MM-dd") + "   " + currency + " " + point.Cost.ToString("0.00##", System.Globalization.CultureInfo.InvariantCulture) });
+                    details.Children.Add(new TextBlock { Text = point.Date.ToString("yyyy-MM-dd") + "   " + ChatUsage.Money(currency, point.Cost) });
             }
         }
         picker.SelectionChanged += (_, _) => Refresh();

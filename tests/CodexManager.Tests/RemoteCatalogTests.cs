@@ -27,7 +27,7 @@ public class RemoteCatalogTests
     [Theory]
     [InlineData("{\"used\":4200}", "", "4.2K context tokens")]
     [InlineData("{\"used\":900,\"totalTokens\":1255515,\"inputTokens\":1200000,\"outputTokens\":55515}", "", "1.3M tokens")]
-    [InlineData("{\"used\":1200,\"totals\":{\"USD\":0.42}}", "USD 0.42", "1.2K context tokens")]
+    [InlineData("{\"used\":1200,\"totals\":{\"USD\":0.42}}", "$0.42", "1.2K context tokens")]
     [InlineData("{}", "", "")]
     public async Task CatalogReportsHostUsageToPairedDevices(string usage, string expectedCost, string expectedContext)
     {
