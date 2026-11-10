@@ -27,12 +27,16 @@ public partial class MainView
         ColorMenu(row, "chatColor:" + (colorId ?? chat.Id), "Chat input border color", () => { ApplyChatColors(); foreach (var view in remoteViews.Values) view.ApplyColors(); });
         row.Children.Add(new ChatActivityIndicator(chat) { Name = "Activity_" + chat.Id, VerticalAlignment = VerticalAlignment.Top, Margin = new(0, 2, 0, 0) });
         ChatPullRequests.Load(store, chat);
+        ChatUsage.Load(store, chat);
         var details = new StackPanel { Spacing = 3 };
         var title = new TextBlock { TextTrimming = TextTrimming.CharacterEllipsis };
         title.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Title, source: chat));
         var state = new TextBlock { FontSize = 11, Classes = { "muted" } };
         state.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Status, source: chat));
         details.Children.Add(title); details.Children.Add(state);
+        var cost = new TextBlock { FontSize = 11, Classes = { "muted" } };
+        cost.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.UsageLabel, source: chat));
+        details.Children.Add(cost);
         var pullRequests = new WrapPanel { Orientation = Orientation.Horizontal };
         void UpdatePullRequests()
         {

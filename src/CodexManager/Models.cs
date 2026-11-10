@@ -57,6 +57,12 @@ public sealed class Chat : Observable
     public string? RemoteId { get; init; }
     public bool IsRemote => Remote is not null;
     public string? SessionId { get; set; }
+    internal bool UsageLoaded { get; set; }
+    private string costLabel = "";
+    public string CostLabel { get => costLabel; set { if (Set(ref costLabel, value)) Changed(nameof(UsageLabel)); } }
+    private string contextLabel = "";
+    public string ContextLabel { get => contextLabel; set { if (Set(ref contextLabel, value)) Changed(nameof(UsageLabel)); } }
+    public string UsageLabel => string.Join(" · ", new[] { CostLabel, ContextLabel }.Where(s => s.Length > 0));
     public List<ChatIssue> Issues { get; } = [];
     internal bool IssuesLoaded { get; set; }
     public List<ChatPullRequest> PullRequests { get; } = [];

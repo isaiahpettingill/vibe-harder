@@ -12,6 +12,19 @@ namespace CodexManager.Tests;
 
 public class UiTests
 {
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CostHistoryBuildsWithAndWithoutReportedCosts(bool reported)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("cost-chart-").FullName);
+        if (reported) store.Setting("usage:daily", """{"2026-11-09":{"USD":1.25},"2026-11-10":{"USD":2.50,"EUR":1.00}}""");
+        var window = new Window { Width = 600, Height = 400, Content = CostHistoryView.Create(store) };
+        try { window.Show(); window.UpdateLayout(); Assert.NotNull(window.Content); }
+        finally { window.Close(); }
+    }
+
     [AvaloniaTheory]
     [InlineData("SettingsButton")]
     [InlineData("SearchBox")]

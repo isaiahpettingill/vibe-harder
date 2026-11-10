@@ -6,6 +6,28 @@ namespace CodexManager.Tests;
 
 public class StreamingTests
 {
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData("usage-report")]
+    [InlineData("usage-report-late")]
+    public async Task TurnAndLateUsageAreSavedWithoutEstimatingCost(string prompt)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("usage-flow-").FullName);
+        var workspace = new Workspace("w", "Fixture", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id, Provider = AgentProvider.Claude }; store.Save(chat);
+        var fixture = System.IO.Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs");
+        var command = OperatingSystem.IsWindows() ? "node '" + fixture.Replace("'", "''") + "'" : "node " + Hosts.Quote(fixture);
+        await using var runtime = new ChatRuntime(chat, workspace, store, command);
+        await runtime.Send(prompt, []).WaitAsync(TimeSpan.FromSeconds(15), TestContext.Current.CancellationToken);
+        var until = DateTime.UtcNow.AddSeconds(5);
+        while (ChatUsage.Currencies(store).Length == 0 && DateTime.UtcNow < until) await Task.Delay(25, TestContext.Current.CancellationToken);
+        Assert.Equal(1.25m, Assert.Single(ChatUsage.Daily(store, "USD")).Cost);
+        using var state = System.Text.Json.JsonDocument.Parse(store.Setting("usage:" + chat.Id)!);
+        Assert.Equal(123, state.RootElement.GetProperty("used").GetInt32());
+        Assert.Equal(500, state.RootElement.GetProperty("totalTokens").GetInt32());
+        Assert.False(chat.Busy);
+    }
+
     [Trait("Category", "CI")]
     [Theory]
     [InlineData("gh issue create --title bug", "completed", 1)]

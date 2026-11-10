@@ -4,6 +4,42 @@ public class StoreTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(false, 3)]
+    [InlineData(true, 2)]
+    public void UsageSnapshotsPersistWithoutCountingRepeatedOrReplayedCosts(bool replayFirst, int expectedDailyCost)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("usage-").FullName);
+        var chat = new Chat { Id = "chat", WorkspaceId = "workspace", SessionId = "session" };
+        var day = DateTimeOffset.Parse("2026-11-10T12:00:00Z");
+        System.Text.Json.JsonElement Packet(int cost) => System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>("{\"used\":100,\"size\":1000,\"cost\":{\"amount\":" + cost + ",\"currency\":\"USD\"}}");
+        ChatUsage.Apply(store, chat, Packet(1), replayFirst, day);
+        ChatUsage.Apply(store, chat, Packet(1), false, day);
+        ChatUsage.Apply(store, chat, Packet(3), false, day);
+        ChatUsage.Apply(store, chat, Packet(2), false, day);
+        Assert.Equal(expectedDailyCost, Assert.Single(ChatUsage.Daily(store, "USD")).Cost);
+        var restored = new Chat { Id = chat.Id, WorkspaceId = chat.WorkspaceId };
+        ChatUsage.Load(store, restored);
+        Assert.Equal(chat.CostLabel, restored.CostLabel);
+        Assert.Equal(chat.ContextLabel, restored.ContextLabel);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("{\"used\":123}", true)]
+    [InlineData("{\"totalTokens\":456,\"inputTokens\":400,\"outputTokens\":56}", true)]
+    [InlineData("{\"used\":null,\"cost\":null}", false)]
+    [InlineData("{\"used\":-1,\"cost\":{\"amount\":-1,\"currency\":\"USD\"}}", false)]
+    public void TokenOnlyUsageDoesNotInventCost(string json, bool expectedTokens)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("usage-tokens-").FullName);
+        var chat = new Chat { WorkspaceId = "workspace" };
+        ChatUsage.Apply(store, chat, System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(json), false, DateTimeOffset.UtcNow);
+        Assert.Equal(expectedTokens, chat.ContextLabel.Length > 0);
+        Assert.Empty(chat.CostLabel); Assert.Empty(ChatUsage.Currencies(store));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(0, false)]
     [InlineData(1, false)]
     [InlineData(299, false)]

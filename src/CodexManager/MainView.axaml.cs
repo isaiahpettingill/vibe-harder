@@ -1318,7 +1318,7 @@ public partial class MainView : UserControl
             finally { save.IsEnabled = true; }
         }
         save.Click += SaveAgentCommands;
-        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Connections"] = connections };
+        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Costs"] = CostHistoryView.Create(store), ["Connections"] = connections };
         var navigation = new ListBox { Name = "SettingsCategories", Classes = { "settingsNavigation" }, ItemsSource = pages.Keys.ToArray(), Background = Brushes.Transparent, Margin = new Thickness(8, 16) };
         var content = new Grid { Margin = new Thickness(24, 20), RowDefinitions = new("Auto,*,Auto") };
         var heading = new TextBlock { FontSize = 20, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 20) }; content.Children.Add(heading);

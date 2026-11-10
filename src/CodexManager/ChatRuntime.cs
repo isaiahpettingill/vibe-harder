@@ -6,6 +6,13 @@ namespace CodexManager;
 
 public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store store, string command) : IChatSession
 {
+    private bool usagePending;
+    private void PublishUsage()
+    {
+        if (!usagePending || replaying) return;
+        usagePending = false;
+        if (ChatUsage.Summary(store, chat) is { Length: > 0 } summary) Add("system", summary);
+    }
     private AcpClient? client;
     public BackendUpdates? BackendMaintenance { get; set; }
     public Func<string>? ResolveCommand { get; set; }
@@ -570,6 +577,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             {
                 turnFailure = null;
                 var response = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content.DeepClone())), lifetime.Token);
+                if (response.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object && ChatUsage.Apply(store, chat, usage, false, DateTimeOffset.UtcNow)) usagePending = true;
                 // A turn-ending failure arrives on the prompt response.
                 if (Air.Of(response) is { } air && air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
                 return response;
@@ -623,6 +631,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             var finishedTurn = turn; turn = null;
             try { finishedTurn?.Cancel(); } finally { finishedTurn?.Dispose(); chat.Busy = detachedTurn; }
             if (following is not null) await following;
+            PublishUsage();
             try
             {
                 foreach (var message in chat.Messages) store.SaveMessage(chat, message);
@@ -723,6 +732,12 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
         if (update.TryGetProperty("sessionUpdate", out var configKind) && configKind.GetString() == "config_option_update") { Configure(update); if (connected && !loading && !reconnecting && !IsConfiguring) _ = RestoreConfiguration(); return; }
         if ((loading && !replaying) || lifetime.IsCancellationRequested) return;
         var kind = update.GetProperty("sessionUpdate").GetString();
+        if (kind == "usage_update")
+        {
+            if (ChatUsage.Apply(store, chat, update, replaying, DateTimeOffset.UtcNow) && !replaying) usagePending = true;
+            if (!chat.Busy) PublishUsage();
+            Changed?.Invoke(); return;
+        }
         if (kind is "agent_message_chunk" or "agent_thought_chunk" or "user_message_chunk")
         {
             var content = update.GetProperty("content");

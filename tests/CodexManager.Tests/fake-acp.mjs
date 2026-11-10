@@ -67,6 +67,14 @@ createInterface({input:process.stdin}).on('line',line=>{
    } else update('REPLAY SHOULD NOT DUPLICATE');
    response(m.id,process.argv.includes('--config')?{configOptions}:{});break;
   case 'session/prompt':
+   if(['usage-report','usage-report-late'].includes(m.params.prompt[0]?.text)) {
+     const report=()=>emit({jsonrpc:'2.0',method:'session/update',params:{sessionId:activeSession,update:{sessionUpdate:'usage_update',used:123,size:1000,cost:{amount:1.25,currency:'USD'}}}});
+     update('Finished');
+     if(m.params.prompt[0].text==='usage-report') report();
+     response(m.id,{stopReason:'end_turn',usage:{totalTokens:500,inputTokens:400,outputTokens:100}});
+     if(m.params.prompt[0].text==='usage-report-late') setTimeout(report,50);
+     break;
+   }
    if(process.argv.includes('--expired-auth')) { emit({jsonrpc:'2.0',id:m.id,error:{code:-32603,message:'Provider request failed',data:{error:{code:'invalid_grant',message:'Refresh token expired'}}}}); break; }
    if(process.argv.includes('--silent-turn')) { response(m.id,{stopReason:'end_turn'}); break; }
    if(m.params.prompt[0]?.text==='subagents') {
