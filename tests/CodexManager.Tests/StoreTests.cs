@@ -101,15 +101,21 @@ public class StoreTests
         Assert.Empty(reopened.Chats()); Assert.Single(reopened.Workspaces());
     }
     [Trait("Category", "CI")]
-    [Fact]
-    public void WslArgumentsKeepPathAsOneArgument()
+    [Theory]
+    [InlineData("/home/test/a b's; echo bad")]
+    [InlineData("/home/test/plain")]
+    [InlineData("/home/test/$(echo bad)")]
+    public void WslArgumentsKeepPathAsOneArgument(string path)
     {
         if (!OperatingSystem.IsWindows()) return;
-        var w = new Workspace("w", "Project", "/home/test/a b's; echo bad", "Debian");
+        var w = new Workspace("w", "Project", path, "Debian");
         var start = Hosts.Agent(w, "codex-acp");
         Assert.Equal(w.Path, start.ArgumentList[3]);
         Assert.EndsWith("exec codex-acp", start.ArgumentList.Last());
         Assert.DoesNotContain(w.Path, start.ArgumentList.Last());
-        Assert.Equal(Hosts.WindowsArgument(w.Path), TerminalSession.Options(w).CommandLine.Last());
+        var terminal = TerminalSession.Options(w);
+        Assert.Equal("--cd", terminal.CommandLine[2]);
+        Assert.Equal(Hosts.WindowsArgument(w.Path), terminal.CommandLine[3]);
+        Assert.DoesNotContain(w.Path, terminal.CommandLine.Last());
     }
 }

@@ -99,14 +99,17 @@ public class ConfigurationTests
         Assert.Contains(files, f => f.Path == "/home/test/.claude.json");
     }
     [Trait("Category", "CI")]
-    [Fact]
-    public void ProviderLoginCommandsAndWslTerminalArgumentsStaySeparate()
+    [Theory]
+    [InlineData("opencode auth login")]
+    [InlineData("claude auth login")]
+    [InlineData("codex login")]
+    public void ProviderLoginCommandsAndWslTerminalArgumentsStaySeparate(string command)
     {
         var workspace = new Workspace("w", "Login", "/home/test/a b", "Debian");
         if (!OperatingSystem.IsWindows()) return;
-        var options = TerminalSession.Options(workspace, "opencode auth login");
+        var options = TerminalSession.Options(workspace, command);
         Assert.Contains("--exec", options.CommandLine);
-        Assert.Equal(Hosts.WindowsArgument("exec opencode auth login"), options.CommandLine.Last());
+        Assert.EndsWith("exec " + command + "\"", options.CommandLine.Last());
         Assert.Contains(Hosts.WindowsArgument(workspace.Path), options.CommandLine);
     }
 }
