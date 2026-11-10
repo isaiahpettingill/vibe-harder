@@ -25,6 +25,22 @@ public class StoreTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(0, "0")]
+    [InlineData(999, "999")]
+    [InlineData(1000, "1K")]
+    [InlineData(1700, "1.7K")]
+    [InlineData(999999, "1M")]
+    [InlineData(1255515, "1.3M")]
+    [InlineData(10800000, "10.8M")]
+    [InlineData(10000000, "10M")]
+    [InlineData(1000000000, "1B")]
+    public void LargeTokenCountsShortenToFitTheSidebar(long count, string expected)
+    {
+        Assert.Equal(expected, ChatUsage.Compact(count));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("{\"used\":123}", true)]
     [InlineData("{\"totalTokens\":456,\"inputTokens\":400,\"outputTokens\":56}", true)]
     [InlineData("{\"used\":null,\"cost\":null}", false)]

@@ -18,6 +18,24 @@ public partial class MainView
         ToolTip.SetTip(icon, request.Title + " · " + request.State.ToLowerInvariant());
         return icon;
     }
+    // One sidebar icon stands for every pull request of a chat; hovering summarizes them.
+    private static PathIcon PullRequestSummaryIcon(IReadOnlyList<ChatPullRequest> requests)
+    {
+        var state = requests.Any(p => p.State == "OPEN") ? "OPEN" : requests.Any(p => p.State == "MERGED") ? "MERGED" : "CLOSED";
+        var icon = AppIcons.Create(state switch { "MERGED" => "git-merge", "CLOSED" => "git-pull-request-closed", _ => "git-pull-request" });
+        icon.Foreground = state switch { "MERGED" => mergedPullRequestBrush, "CLOSED" => closedPullRequestBrush, _ => openPullRequestBrush };
+        ToolTip.SetTip(icon, PullRequestSummary(requests));
+        return icon;
+    }
+    private static string PullRequestSummary(IReadOnlyList<ChatPullRequest> requests)
+    {
+        var counts = new[] { ("OPEN", "open"), ("MERGED", "merged"), ("CLOSED", "closed") }
+            .Select(state => (state.Item2, Count: requests.Count(p => p.State == state.Item1))).Where(state => state.Count > 0)
+            .Select(state => state.Count + " " + state.Item2);
+        var lines = new List<string> { requests.Count + (requests.Count == 1 ? " pull request · " : " pull requests · ") + string.Join(", ", counts) };
+        lines.AddRange(requests.Select(p => "#" + p.Url[(p.Url.LastIndexOf('/') + 1)..] + " " + (p.Title.Length > 60 ? p.Title[..59] + "…" : p.Title) + " · " + p.State.ToLowerInvariant()));
+        return string.Join("\n", lines);
+    }
     private bool refreshingPullRequests;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Message, object> scannedPullRequestTools = new();
     private string pullRequestSignature = "";

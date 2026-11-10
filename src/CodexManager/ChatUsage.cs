@@ -22,7 +22,22 @@ public static class ChatUsage
     private static void SetLabel(Chat chat, JsonObject totals) => chat.CostLabel = string.Join(" · ", totals.Select(p => p.Key + " " + p.Value!.GetValue<decimal>().ToString("0.00##", CultureInfo.InvariantCulture)));
     private static void SetTokens(Chat chat, JsonObject state)
     {
-        chat.ContextLabel = state["totalTokens"] is { } total ? total.GetValue<long>().ToString("N0", CultureInfo.InvariantCulture) + " tokens" : state["used"] is { } used ? used.GetValue<long>().ToString("N0", CultureInfo.InvariantCulture) + " context tokens" : "";
+        chat.ContextLabel = state["totalTokens"] is { } total ? Compact(total.GetValue<long>()) + " tokens" : state["used"] is { } used ? Compact(used.GetValue<long>()) + " context tokens" : "";
+    }
+    // Sidebar rows show this beside the status, so long counts must not widen them: 1,255,515 becomes 1.3M.
+    public static string Compact(long count)
+    {
+        if (count < 1000) return count.ToString("N0", CultureInfo.InvariantCulture);
+        ReadOnlySpan<string> units = ["K", "M", "B", "T"];
+        decimal value = count;
+        for (var unit = 0; ; unit++)
+        {
+            value /= 1000;
+            // A rounded value can carry into the next unit, as 999,999 would become 1000K.
+            var rounded = decimal.Round(value, 1);
+            var text = rounded.ToString("0.#", CultureInfo.InvariantCulture);
+            if (rounded < 1000 || unit == units.Length - 1) return text + units[unit];
+        }
     }
     public static bool Apply(Store store, Chat chat, JsonElement update, bool replay, DateTimeOffset now)
     {

@@ -33,27 +33,28 @@ public partial class MainView
         title.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Title, source: chat));
         var state = new TextBlock { FontSize = 11, Classes = { "muted" } };
         state.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Status, source: chat));
-        details.Children.Add(title); details.Children.Add(state);
-        var cost = new TextBlock { FontSize = 11, Classes = { "muted" } };
+        var cost = new TextBlock { FontSize = 11, Classes = { "muted" }, Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         cost.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.UsageLabel, source: chat));
-        details.Children.Add(cost);
-        var pullRequests = new WrapPanel { Orientation = Orientation.Horizontal };
+        void UpdateUsage() => cost.IsVisible = chat.UsageLabel.Length > 0;
+        UpdateUsage();
+        // Status, usage, and pull requests share one line so a chat row stays two lines tall.
+        var meta = new WrapPanel { Orientation = Orientation.Horizontal };
+        meta.Children.Add(state); meta.Children.Add(cost);
+        var pullRequests = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         void UpdatePullRequests()
         {
             pullRequests.Children.Clear();
-            foreach (var request in chat.PullRequests.Where(p => !p.Dismissed))
-            {
-                var icon = PullRequestIcon(request); icon.Margin = new Thickness(0, 0, 4, 0);
-                pullRequests.Children.Add(icon);
-            }
-            pullRequests.IsVisible = pullRequests.Children.Count > 0;
+            var requests = chat.PullRequests.Where(p => !p.Dismissed).ToArray();
+            if (requests.Length > 0) pullRequests.Children.Add(PullRequestSummaryIcon(requests));
+            pullRequests.IsVisible = requests.Length > 0;
         }
-        UpdatePullRequests(); details.Children.Add(pullRequests); Grid.SetColumn(details, 1); row.Children.Add(details);
+        UpdatePullRequests(); meta.Children.Add(pullRequests);
+        details.Children.Add(title); details.Children.Add(meta); Grid.SetColumn(details, 1); row.Children.Add(details);
         var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
         var archive = new IconButton { Name = "Archive_" + chat.Id, ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         void UpdateAction() { archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
-        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status)) UpdateAction(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
+        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status)) UpdateAction(); if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
         UpdateAction();
         row.AttachedToVisualTree += (_, _) => chat.PropertyChanged += ChatChanged;
         row.DetachedFromVisualTree += (_, _) => chat.PropertyChanged -= ChatChanged;
