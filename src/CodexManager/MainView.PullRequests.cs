@@ -8,12 +8,22 @@ namespace CodexManager;
 
 public partial class MainView
 {
+    private static readonly IBrush openPullRequestBrush = Brush.Parse("#3fb950");
+    private static readonly IBrush mergedPullRequestBrush = Brush.Parse("#a371f7");
+    private static readonly IBrush closedPullRequestBrush = Brush.Parse("#f85149");
+    private static PathIcon PullRequestIcon(ChatPullRequest request)
+    {
+        var icon = AppIcons.Create(request.State switch { "MERGED" => "git-merge", "CLOSED" => "git-pull-request-closed", _ => "git-pull-request" });
+        icon.Foreground = request.State switch { "MERGED" => mergedPullRequestBrush, "CLOSED" => closedPullRequestBrush, _ => openPullRequestBrush };
+        ToolTip.SetTip(icon, request.Title + " · " + request.State.ToLowerInvariant());
+        return icon;
+    }
     private bool refreshingPullRequests;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Message, object> scannedPullRequestTools = new();
     private string pullRequestSignature = "";
     private void ConfigurePullRequests()
     {
-        var timer = new DispatcherTimer { Interval = TimeSpan.FromMinutes(1) };
+        var timer = new DispatcherTimer { Interval = GitHubRefreshSchedule.Interval };
         timer.Tick += async (_, _) => await RefreshPullRequests();
         AttachedToVisualTree += (_, _) => { timer.Start(); _ = RefreshPullRequests(); };
         DetachedFromVisualTree += (_, _) => timer.Stop();
@@ -46,7 +56,7 @@ public partial class MainView
                 foreach (var url in AcpToolCall.FromText(message.Text).CreatedGitHubPullRequests()) ChatPullRequests.Add(store, chat, url);
             }
         }
-        var requests = current?.PullRequests.Where(p => p.State != "MERGED" && !p.Dismissed).ToArray() ?? [];
+        var requests = current?.PullRequests.Where(p => !p.Dismissed).ToArray() ?? [];
         var signature = current?.Id + "\n" + string.Join("\n", requests.Select(p => p.ToString()));
         if (signature == pullRequestSignature) return;
         pullRequestSignature = signature;
@@ -55,16 +65,16 @@ public partial class MainView
         {
             var row = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 4 };
             var label = new Grid { ColumnDefinitions = new("Auto,*"), ColumnSpacing = 6 };
-            label.Children.Add(AppIcons.Create(request.State == "CLOSED" ? "git-pull-request-closed" : "git-pull-request"));
+            label.Children.Add(PullRequestIcon(request));
             var title = new TextBlock { Text = "#" + request.Url[(request.Url.LastIndexOf('/') + 1)..] + " · " + request.Title, TextTrimming = TextTrimming.CharacterEllipsis };
             Grid.SetColumn(title, 1); label.Children.Add(title);
             var link = new Button { Content = label, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left, Padding = new Thickness(4, 2) };
             ToolTip.SetTip(link, request.Url + (request.State == "CLOSED" ? " · Closed" : ""));
             link.Click += async (_, _) => { if (Launcher is { } launcher) await launcher.LaunchUriAsync(new Uri(request.Url)); };
             row.Children.Add(link);
-            if (request.State == "CLOSED" && current is { IsRemote: false } owner)
+            if (request.State is "CLOSED" or "MERGED" && current is { IsRemote: false } owner)
             {
-                var dismiss = new IconButton { Icon = "remove", Label = "Dismiss closed pull request" };
+                var dismiss = new IconButton { Icon = "remove", Label = "Dismiss pull request" };
                 dismiss.Click += (_, _) => { ChatPullRequests.Dismiss(store, owner, request.Url); UpdatePullRequestPane(); };
                 Grid.SetColumn(dismiss, 1); row.Children.Add(dismiss);
             }

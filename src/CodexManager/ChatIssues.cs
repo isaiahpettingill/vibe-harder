@@ -82,7 +82,7 @@ public static class ChatIssues
         foreach (var issue in chat.Issues.Where(p => !p.Dismissed).ToArray())
         {
             if (token.IsCancellationRequested) return;
-            if (!ValidUrl(issue.Url)) continue;
+            if (!ValidUrl(issue.Url) || !GitHubRefreshSchedule.For(chat).TryStart(issue.Url, DateTimeOffset.UtcNow)) continue;
             try
             {
                 var json = await Hosts.Capture(Hosts.Agent(workspace, "gh issue view " + issue.Url + " --json title,state"), TimeSpan.FromSeconds(15));

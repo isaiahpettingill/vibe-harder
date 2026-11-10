@@ -41,23 +41,23 @@ public static class ChatPullRequests
         var index = chat.PullRequests.FindIndex(p => p.Url == url);
         if (index < 0 || state is not ("OPEN" or "CLOSED" or "MERGED")) return;
         var previous = chat.PullRequests[index];
-        var updated = previous with { Title = title, State = state, Dismissed = state == "CLOSED" && previous.Dismissed };
+        var updated = previous with { Title = title, State = state, Dismissed = state is "CLOSED" or "MERGED" && previous.Dismissed };
         if (previous == updated) return;
         chat.PullRequests[index] = updated; Save(store, chat);
     }
     public static void Dismiss(Store store, Chat chat, string url)
     {
-        var index = chat.PullRequests.FindIndex(p => p.Url == url && p.State == "CLOSED");
+        var index = chat.PullRequests.FindIndex(p => p.Url == url && p.State is "CLOSED" or "MERGED");
         if (index < 0) return;
         chat.PullRequests[index] = chat.PullRequests[index] with { Dismissed = true }; Save(store, chat);
     }
     public static async Task Refresh(Store store, Chat chat, Workspace workspace, CancellationToken token = default)
     {
         Load(store, chat);
-        foreach (var pullRequest in chat.PullRequests.Where(p => p.State != "MERGED").ToArray())
+        foreach (var pullRequest in chat.PullRequests.Where(p => p.State != "MERGED" && !p.Dismissed).ToArray())
         {
             if (token.IsCancellationRequested) return;
-            if (!ValidUrl(pullRequest.Url)) continue;
+            if (!ValidUrl(pullRequest.Url) || !GitHubRefreshSchedule.For(chat).TryStart(pullRequest.Url, DateTimeOffset.UtcNow)) continue;
             try
             {
                 var json = await Hosts.Capture(Hosts.Agent(workspace, "gh pr view " + pullRequest.Url + " --json title,state"), TimeSpan.FromSeconds(15));

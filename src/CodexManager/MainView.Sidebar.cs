@@ -33,18 +33,23 @@ public partial class MainView
         var state = new TextBlock { FontSize = 11, Classes = { "muted" } };
         state.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.Status, source: chat));
         details.Children.Add(title); details.Children.Add(state);
-        var pullRequests = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 4 };
-        pullRequests.Children.Add(AppIcons.Create("git-pull-request"));
-        var count = new TextBlock { FontSize = 11 };
-        count.Bind(TextBlock.TextProperty, CompiledBinding.Create((Chat c) => c.OpenPullRequestCount, source: chat));
-        pullRequests.Children.Add(count);
-        pullRequests.Bind(IsVisibleProperty, CompiledBinding.Create((Chat c) => c.HasOpenPullRequests, source: chat));
-        ToolTip.SetTip(pullRequests, "Unmerged pull requests"); details.Children.Add(pullRequests); Grid.SetColumn(details, 1); row.Children.Add(details);
+        var pullRequests = new WrapPanel { Orientation = Orientation.Horizontal };
+        void UpdatePullRequests()
+        {
+            pullRequests.Children.Clear();
+            foreach (var request in chat.PullRequests.Where(p => !p.Dismissed))
+            {
+                var icon = PullRequestIcon(request); icon.Margin = new Thickness(0, 0, 4, 0);
+                pullRequests.Children.Add(icon);
+            }
+            pullRequests.IsVisible = pullRequests.Children.Count > 0;
+        }
+        UpdatePullRequests(); details.Children.Add(pullRequests); Grid.SetColumn(details, 1); row.Children.Add(details);
         var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
         var archive = new IconButton { Name = "Archive_" + chat.Id, ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         void UpdateAction() { archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
-        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status)) UpdateAction(); }
+        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status)) UpdateAction(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
         UpdateAction();
         row.AttachedToVisualTree += (_, _) => chat.PropertyChanged += ChatChanged;
         row.DetachedFromVisualTree += (_, _) => chat.PropertyChanged -= ChatChanged;

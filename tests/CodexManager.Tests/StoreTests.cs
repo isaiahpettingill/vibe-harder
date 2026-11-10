@@ -4,6 +4,22 @@ public class StoreTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(0, false)]
+    [InlineData(1, false)]
+    [InlineData(299, false)]
+    [InlineData(300, true)]
+    [InlineData(301, true)]
+    public void GitHubRefreshesAreLimitedPerItem(int seconds, bool expected)
+    {
+        var schedule = new GitHubRefreshSchedule();
+        var start = DateTimeOffset.UnixEpoch;
+        Assert.True(schedule.TryStart("https://github.com/org/repo/pull/1", start));
+        Assert.Equal(expected, schedule.TryStart("https://github.com/org/repo/pull/1", start.AddSeconds(seconds)));
+        Assert.True(schedule.TryStart("https://github.com/org/repo/pull/2", start.AddSeconds(seconds)));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("OPEN", true, false)]
     [InlineData("CLOSED", true, true)]
     [InlineData("CLOSED", false, false)]
@@ -28,6 +44,7 @@ public class StoreTests
     [InlineData("CLOSED", false, 1)]
     [InlineData("CLOSED", true, 0)]
     [InlineData("MERGED", false, 0)]
+    [InlineData("MERGED", true, 0)]
     public void PullRequestStateAndDismissalPersist(string state, bool dismiss, int expected)
     {
         using var store = new Store(Directory.CreateTempSubdirectory("chat-prs-").FullName);
@@ -43,6 +60,7 @@ public class StoreTests
         Assert.Single(restored.PullRequests);
         Assert.Equal(expected, restored.OpenPullRequestCount);
         Assert.Equal("Feature", restored.PullRequests[0].Title);
+        Assert.Equal(dismiss && state != "OPEN", restored.PullRequests[0].Dismissed);
         if (state == "CLOSED" && dismiss)
         {
             ChatPullRequests.Add(store, restored, url);

@@ -64,7 +64,8 @@ public sealed class Chat : Observable
     private int openPullRequestCount;
     public int OpenPullRequestCount { get => openPullRequestCount; internal set => Set(ref openPullRequestCount, value); }
     public bool HasOpenPullRequests => OpenPullRequestCount > 0;
-    internal void PullRequestsChanged() { OpenPullRequestCount = PullRequests.Count(p => p.State != "MERGED" && !p.Dismissed); Changed(nameof(HasOpenPullRequests)); }
+    public int PullRequestVersion { get; private set; }
+    internal void PullRequestsChanged() { PullRequestVersion++; Changed(nameof(PullRequestVersion)); OpenPullRequestCount = PullRequests.Count(p => p.State != "MERGED" && !p.Dismissed); Changed(nameof(HasOpenPullRequests)); }
 
     public AgentProvider Provider { get; init; }
     public string ProviderIcon => AgentProviders.Get(Provider).Icon;
