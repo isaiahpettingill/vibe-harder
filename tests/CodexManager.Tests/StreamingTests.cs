@@ -8,6 +8,27 @@ public class StreamingTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("gh issue create --title bug", "completed", 1)]
+    [InlineData("gh issue edit 12 --repo org/repo --title fix", "completed", 1)]
+    [InlineData("gh issue edit 12", "failed", 0)]
+    public async Task SuccessfulIssueMutationsAreSavedFromStreamedUpdates(string command, string status, int expected)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("issue-stream-").FullName);
+        var workspace = new Workspace("w", "Project", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = workspace.Id }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "unused");
+        var update = typeof(ChatRuntime).GetMethod("Update", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, [typeof(System.Text.Json.JsonElement)])!;
+        foreach (var packet in new[] {
+            new System.Text.Json.Nodes.JsonObject { ["sessionUpdate"] = "tool_call", ["toolCallId"] = "issue", ["status"] = "in_progress", ["rawInput"] = new System.Text.Json.Nodes.JsonObject { ["command"] = command } },
+            new System.Text.Json.Nodes.JsonObject { ["sessionUpdate"] = "tool_call_update", ["toolCallId"] = "issue", ["status"] = status, ["rawOutput"] = "https://github.com/org/repo/issues/12" }
+        }) await (Task)update.Invoke(runtime, [System.Text.Json.JsonSerializer.Deserialize<System.Text.Json.JsonElement>(packet.ToJsonString())])!;
+        var restored = new Chat { Id = chat.Id, WorkspaceId = workspace.Id };
+        ChatIssues.Load(store, restored);
+        Assert.Equal(expected, restored.Issues.Count);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(false, "completed", 1)]
     [InlineData(false, "failed", 0)]
     [InlineData(true, "completed", 0)]

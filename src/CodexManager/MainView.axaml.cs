@@ -722,6 +722,7 @@ public partial class MainView : UserControl
     private void UpdateControls()
     {
         UpdatePullRequestPane();
+        UpdateIssuePane();
         ApplyChatColors();
         UpdatePermissions();
         if (uiSleeping) { UpdateTray(); return; }
@@ -882,6 +883,7 @@ public partial class MainView : UserControl
             runtime.Permission = (request, token) => Permission(chat, request, token);
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
             runtime.TurnCompleted += () => NotifyCompleted(chat);
+            runtime.IssuesChanged += UpdateIssuePane;
             runtime.PullRequestCreated += () => { CelebratePullRequest(); UpdatePullRequestPane(); _ = RefreshPullRequests(); };
             runtime.Changed += () =>
             {

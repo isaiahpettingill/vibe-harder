@@ -57,6 +57,8 @@ public sealed class Chat : Observable
     public string? RemoteId { get; init; }
     public bool IsRemote => Remote is not null;
     public string? SessionId { get; set; }
+    public List<ChatIssue> Issues { get; } = [];
+    internal bool IssuesLoaded { get; set; }
     public List<ChatPullRequest> PullRequests { get; } = [];
     internal bool PullRequestsLoaded { get; set; }
     private int openPullRequestCount;

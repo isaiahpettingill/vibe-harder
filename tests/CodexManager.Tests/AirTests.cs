@@ -13,6 +13,26 @@ public class AirTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("gh issue create --title bug", "completed", "https://github.com/org/repo/issues/12", null, null, 1)]
+    [InlineData("gh issue edit 12 --repo org/repo --title fix", "completed", "", "12", "org/repo", 0)]
+    [InlineData("gh -R org/repo issue comment 12 --body done", "completed", "", "12", "org/repo", 0)]
+    [InlineData("gh issue close https://github.com/org/repo/issues/12", "completed", "", null, null, 1)]
+    [InlineData("gh issue edit 12 --body 'https://github.com/org/repo/issues/99'", "completed", "", "12", null, 0)]
+    [InlineData("gh issue view 12", "completed", "", null, null, -1)]
+    [InlineData("echo gh issue create", "completed", "", null, null, -1)]
+    [InlineData("gh issue edit 12", "failed", "", null, null, -1)]
+    public void IssueChangesRequireSuccessfulMutationCommands(string command, string status, string output, string? number, string? repository, int urls)
+    {
+        var call = new AcpToolCall();
+        call.Merge(Json(new JsonObject { ["rawInput"] = new JsonObject { ["command"] = command }, ["status"] = status, ["rawOutput"] = output }.ToJsonString()));
+        var result = call.UpdatedGitHubIssues();
+        if (urls < 0) { Assert.Null(result); return; }
+        Assert.NotNull(result);
+        Assert.Equal(number, result.Number); Assert.Equal(repository, result.Repository); Assert.Equal(urls, result.Urls.Length);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/13", 2)]
     [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/12", 1)]
     public void CommandsCreatingMultiplePullRequestsKeepEveryDistinctResult(string output, int expected)

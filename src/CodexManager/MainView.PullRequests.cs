@@ -26,8 +26,11 @@ public partial class MainView
         {
             foreach (var chat in chats.Where(c => !c.IsRemote).ToArray())
                 if (!closing && workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner)
+                {
                     await ChatPullRequests.Refresh(store, chat, owner, discoveryLifetime.Token);
-            if (!closing) UpdatePullRequestPane();
+                    await ChatIssues.Refresh(store, chat, owner, discoveryLifetime.Token);
+                }
+            if (!closing) { UpdatePullRequestPane(); UpdateIssuePane(); }
         }
         finally { refreshingPullRequests = false; }
     }

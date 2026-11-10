@@ -62,6 +62,25 @@ public sealed class AcpToolCall
             @"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*(?![0-9])", options, timeout);
         return matches.Select(match => match.Value).Distinct(StringComparer.Ordinal).ToArray();
     }
+    public GitHubIssueCommand? UpdatedGitHubIssues()
+    {
+        if (Status != "completed" || Backgrounded || ExitCode is not (null or 0)) return null;
+        var command = Input.Length > 0 ? Input : Title;
+        var timeout = TimeSpan.FromMilliseconds(100);
+        var options = System.Text.RegularExpressions.RegexOptions.CultureInvariant;
+        var match = System.Text.RegularExpressions.Regex.Match(command,
+            @"(?:^|[\n;&|])\s*gh\s+(?:(?:--repo|-R)\s+(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s+)?issue\s+(?:create|edit|comment|close|reopen)\b(?<args>[^\r\n;&|]*)", options, timeout);
+        if (!match.Success) return null;
+        var args = match.Groups["args"].Value;
+        var repo = match.Groups["repo"].Value;
+        var repository = System.Text.RegularExpressions.Regex.Match(args, @"(?:^|\s)(?:--repo|-R)\s+(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)(?:\s|$)", options, timeout);
+        if (repository.Success) repo = repository.Groups["repo"].Value;
+        var targetUrl = System.Text.RegularExpressions.Regex.Match(args, @"^\s+https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*", options, timeout).Value.Trim();
+        var urls = System.Text.RegularExpressions.Regex.Matches(Content + "\n" + output + "\n" + RawOutput + "\n" + targetUrl,
+            @"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues/[1-9][0-9]*", options, timeout).Select(m => m.Value).Distinct(StringComparer.Ordinal).ToArray();
+        var number = System.Text.RegularExpressions.Regex.Match(args, @"^\s+[1-9][0-9]*(?=\s|$)", options, timeout);
+        return new(urls, number.Success ? number.Value.Trim() : null, repo.Length == 0 ? null : repo);
+    }
     private void MergeMeta(JsonElement meta)
     {
         foreach (var channel in new[] { "terminal_output_delta", "terminal_output" })

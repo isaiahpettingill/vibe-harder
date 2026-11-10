@@ -46,6 +46,8 @@ public static class AppIcons
     {
         Data = name is "collapse-all-compact" or "openai" or "claude" or "steer" or "agent" or "mode" or "permission" or "command" ? Additional(name switch { "steer" => "forward", "mode" => "edit-compact", "permission" => "shield-compact", "command" => "run-with-deps", _ => name }) : Geometry(name switch
         {
+            "issue-closed" => PackIconCodiconsKind.Check,
+            "issue-opened" => PackIconCodiconsKind.Issues,
             "git-pull-request" => PackIconCodiconsKind.GitPullRequest,
             "git-merge" => PackIconCodiconsKind.GitMerge,
             "git-pull-request-closed" => PackIconCodiconsKind.GitPullRequestClosed,

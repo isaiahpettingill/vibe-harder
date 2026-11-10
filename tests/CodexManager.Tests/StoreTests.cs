@@ -4,6 +4,26 @@ public class StoreTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("OPEN", true, false)]
+    [InlineData("CLOSED", true, true)]
+    [InlineData("CLOSED", false, false)]
+    public void TrackedIssuesPersistAndDismissOnlyWhenClosed(string state, bool dismiss, bool expectedDismissed)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("issues-").FullName);
+        var chat = new Chat { Id = "chat", WorkspaceId = "workspace" };
+        const string url = "https://github.com/org/repo/issues/12";
+        ChatIssues.Add(store, chat, url); ChatIssues.Add(store, chat, url);
+        ChatIssues.Add(store, chat, "https://github.com/org/repo/pull/12");
+        ChatIssues.Apply(store, chat, url, "Updated title", state);
+        if (dismiss) ChatIssues.Dismiss(store, chat, url);
+        var restored = new Chat { Id = chat.Id, WorkspaceId = chat.WorkspaceId };
+        ChatIssues.Load(store, restored);
+        var issue = Assert.Single(restored.Issues);
+        Assert.Equal("Updated title", issue.Title); Assert.Equal(state, issue.State); Assert.Equal(expectedDismissed, issue.Dismissed);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("OPEN", true, 1)]
     [InlineData("CLOSED", false, 1)]
     [InlineData("CLOSED", true, 0)]

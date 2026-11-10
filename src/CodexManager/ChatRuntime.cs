@@ -82,6 +82,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     }
     public event Action? Changed;
     public event Action? PullRequestCreated;
+    public event Action? IssuesChanged;
+    private readonly HashSet<string> trackedIssueCalls = [];
     private readonly HashSet<string> createdPullRequests = [];
     public bool IsLoadingHistory { get; private set; }
     public bool IsReconnecting => reconnecting;
@@ -754,6 +756,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             // Updates carry only what changed; merge into the call's state and render all of it.
             if (id is null || !toolCalls.TryGetValue(id, out var call)) call = message.Text.Length == 0 ? new AcpToolCall() : AcpToolCall.FromText(message.Text);
             call.Merge(update);
+            if (!replaying && call.UpdatedGitHubIssues() is { } issueCommand && trackedIssueCalls.Add(id + ":" + issueCommand.Number + ":" + string.Join(";", issueCommand.Urls))) _ = ChatIssues.Track(store, chat, workspace, issueCommand, () => { IssuesChanged?.Invoke(); Changed?.Invoke(); }, lifetime.Token);
             foreach (var pullRequest in call.CreatedGitHubPullRequests())
             {
                 ChatPullRequests.Add(store, chat, pullRequest);
