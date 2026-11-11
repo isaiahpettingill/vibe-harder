@@ -35,7 +35,7 @@ public static class WebAssets
         var current = Path.Combine(root, "wwwroot");
         if (File.Exists(Path.Combine(current, ".complete")))
         {
-            try { Validate(current); return current; }
+            try { Validate(current); Cleanup(dataDirectory, version); return current; }
             catch (IOException) { /* Repair an incomplete cache through the same verified download. */ }
         }
         status("Downloading web UI…");
@@ -54,9 +54,26 @@ public static class WebAssets
             // Never replace a running bundle with partially downloaded or extracted files.
             if (Directory.Exists(current)) Directory.Move(current, Path.Combine(root, "previous-" + Guid.NewGuid().ToString("N")));
             Directory.Move(staging, current);
+            Cleanup(dataDirectory, version);
             return current;
         }
         finally { if (Directory.Exists(staging)) Directory.Delete(staging, true); }
+    }
+    private static void Cleanup(string dataDirectory, string version)
+    {
+        try
+        {
+            var web = Path.Combine(dataDirectory, "web");
+            if (Directory.Exists(web))
+                foreach (var directory in Directory.GetDirectories(web))
+                    if (Path.GetFileName(directory) != version) Directory.Delete(directory, true);
+            var downloads = Path.Combine(dataDirectory, "web-downloads");
+            if (Directory.Exists(downloads)) Directory.Delete(downloads, true);
+            var root = Path.Combine(web, version);
+            foreach (var directory in Directory.GetDirectories(root, "previous-*")) Directory.Delete(directory, true);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
     }
     public static void Extract(string archive, string destination, CancellationToken token = default)
     {

@@ -58,7 +58,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
             if (TopLevel.GetTopLevel(this) is not { } top) return;
             var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
-            if (file is null || !await top.Launcher.LaunchFileAsync(file)) throw new IOException("No installed app can open this file.");
+            if (file is null || !await top.Launcher.LaunchFileAsync(file)) FileLinks.Reveal(path);
         }
         finally { downloads.Finish(transfer.Id); }
     }
