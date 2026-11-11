@@ -45,6 +45,16 @@ public static class ChatPullRequests
         if (previous == updated) return;
         chat.PullRequests[index] = updated; Save(store, chat);
     }
+    // An agent-reported merge, matched to a tracked request by URL or by "#<number>" when the repository is unknown.
+    public static bool Merged(Store store, Chat chat, string reference)
+    {
+        Load(store, chat);
+        var target = chat.PullRequests.FirstOrDefault(p => p.Url == reference || reference.StartsWith('#') && p.Url.EndsWith("/pull/" + reference[1..], StringComparison.Ordinal));
+        if (target is null || target.State == "MERGED") return false;
+        chat.PullRequests[chat.PullRequests.IndexOf(target)] = target with { State = "MERGED" };
+        Save(store, chat);
+        return true;
+    }
     public static void Dismiss(Store store, Chat chat, string url)
     {
         var index = chat.PullRequests.FindIndex(p => p.Url == url && p.State is "CLOSED" or "MERGED");

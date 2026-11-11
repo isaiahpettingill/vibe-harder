@@ -885,6 +885,7 @@ public partial class MainView : UserControl
             runtime.TurnCompleted += () => NotifyCompleted(chat);
             runtime.IssuesChanged += UpdateIssuePane;
             runtime.PullRequestCreated += () => { CelebratePullRequest(); UpdatePullRequestPane(); _ = RefreshPullRequests(); };
+            runtime.PullRequestMerged += UpdatePullRequestPane;
             runtime.Changed += () =>
             {
                 if (closing) return;

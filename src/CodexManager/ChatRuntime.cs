@@ -89,6 +89,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     }
     public event Action? Changed;
     public event Action? PullRequestCreated;
+    public event Action? PullRequestMerged;
     public event Action? IssuesChanged;
     private readonly HashSet<string> trackedIssueCalls = [];
     private readonly HashSet<string> createdPullRequests = [];
@@ -777,6 +778,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 ChatPullRequests.Add(store, chat, pullRequest);
                 if (createdPullRequests.Add(pullRequest) && !replaying) PullRequestCreated?.Invoke();
             }
+            foreach (var merged in call.MergedGitHubPullRequests())
+                if (ChatPullRequests.Merged(store, chat, merged) && !replaying) PullRequestMerged?.Invoke();
             if (id is not null) { if (call.Status is "completed" or "failed" && !call.Backgrounded) toolCalls.Remove(id); else toolCalls[id] = call; }
             message.Text = call.Render(); if (!replaying) store.SaveMessage(chat, message);
         }

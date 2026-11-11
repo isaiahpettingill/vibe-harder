@@ -62,6 +62,38 @@ public sealed class AcpToolCall
             @"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*(?![0-9])", options, timeout);
         return matches.Select(match => match.Value).Distinct(StringComparer.Ordinal).ToArray();
     }
+    // A merge the agent ran itself; the app updates that pull request now instead of waiting for the next GitHub poll.
+    // References are full URLs, or "#<number>" when the repository is not named by the command or its output.
+    public string[] MergedGitHubPullRequests()
+    {
+        if (Status != "completed" || Backgrounded || ExitCode is not (null or 0)) return [];
+        var command = Input.Length > 0 ? Input : Title;
+        var options = System.Text.RegularExpressions.RegexOptions.CultureInvariant;
+        var timeout = TimeSpan.FromMilliseconds(100);
+        var merge = System.Text.RegularExpressions.Regex.Match(command,
+            @"(?:^|[\n;&|])\s*gh\s+(?:(?:--repo|-R)\s+(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)\s+)?pr\s+merge\b(?<args>[^\r\n;&|]*)", options, timeout);
+        if (!merge.Success) return [];
+        var text = command + "\n" + Content + "\n" + output + "\n" + RawOutput;
+        var references = new List<string>();
+        foreach (System.Text.RegularExpressions.Match url in System.Text.RegularExpressions.Regex.Matches(text,
+            @"https://github\.com/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pull/[1-9][0-9]*(?![0-9])", options, timeout))
+            references.Add(url.Value);
+        var repository = merge.Groups["repo"].Value;
+        var numbers = System.Text.RegularExpressions.Regex.Matches(merge.Groups["args"].Value,
+            @"(?<![\w./-])#?(?<number>[1-9][0-9]*)(?![\w.])", options, timeout).Select(match => match.Groups["number"].Value).ToList();
+        // "Merged pull request owner/repo#95" names the request even when the command inferred it from the branch.
+        var reported = System.Text.RegularExpressions.Regex.Match(text,
+            @"(?i)\bmerged (?:pull request|pr) (?:(?<repo>[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+))?#?(?<number>[1-9][0-9]*)", options, timeout);
+        if (reported.Success)
+        {
+            numbers.Add(reported.Groups["number"].Value);
+            if (repository.Length == 0) repository = reported.Groups["repo"].Value;
+        }
+        numbers = numbers.Distinct(StringComparer.Ordinal).ToList();
+        if (repository.Length > 0) references.AddRange(numbers.Select(number => $"https://github.com/{repository}/pull/{number}"));
+        else references.AddRange(numbers.Where(number => !references.Any(url => url.EndsWith("/pull/" + number, StringComparison.Ordinal))).Select(number => "#" + number));
+        return references.Distinct(StringComparer.Ordinal).ToArray();
+    }
     public GitHubIssueCommand? UpdatedGitHubIssues()
     {
         if (Status != "completed" || Backgrounded || ExitCode is not (null or 0)) return null;

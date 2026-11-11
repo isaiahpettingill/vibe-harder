@@ -136,6 +136,26 @@ public class StoreTests
     }
 
     [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("https://github.com/org/repo/pull/95", "OPEN", true, "MERGED")]
+    [InlineData("#95", "OPEN", true, "MERGED")]
+    [InlineData("#96", "OPEN", false, "OPEN")]
+    [InlineData("#95", "MERGED", false, "MERGED")]
+    public void AgentReportedMergeUpdatesOnlyMatchingOpenPullRequests(string reference, string state, bool changed, string expected)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("agent-merge-").FullName);
+        var chat = new Chat { Id = "chat", WorkspaceId = "workspace" };
+        ChatPullRequests.Add(store, chat, "https://github.com/org/repo/pull/95");
+        ChatPullRequests.Apply(store, chat, "https://github.com/org/repo/pull/95", "Feature", state);
+        Assert.Equal(changed, ChatPullRequests.Merged(store, chat, reference));
+        Assert.Equal(expected, chat.PullRequests[0].State);
+        Assert.Equal(expected == "OPEN" ? 1 : 0, chat.OpenPullRequestCount);
+        var restored = new Chat { Id = chat.Id, WorkspaceId = chat.WorkspaceId };
+        ChatPullRequests.Load(store, restored);
+        Assert.Equal(expected, restored.PullRequests[0].State);
+    }
+
+    [Trait("Category", "CI")]
     [Fact]
     public void ExistingDatabaseMigratesWithoutChangingCodexSessions()
     {

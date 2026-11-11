@@ -33,6 +33,28 @@ public class AirTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("gh pr merge 95 --squash --delete-branch", "completed", 0, "", "#95")]
+    [InlineData("gh pr merge https://github.com/org/repo/pull/95 --merge", "completed", 0, "", "https://github.com/org/repo/pull/95")]
+    [InlineData("gh -R org/repo pr merge 95 --merge", "completed", null, "", "https://github.com/org/repo/pull/95")]
+    [InlineData("gh pr merge --merge", "completed", 0, "✓ Merged pull request org/repo#95", "https://github.com/org/repo/pull/95")]
+    [InlineData("cd repo && gh pr merge --squash 95", "completed", 0, "https://github.com/org/repo/pull/95", "https://github.com/org/repo/pull/95")]
+    [InlineData("gh pr view 95", "completed", 0, "", "")]
+    [InlineData("echo gh pr merge 95", "completed", 0, "", "")]
+    [InlineData("gh pr merge 95", "failed", 1, "", "")]
+    [InlineData("gh pr merge 95", "completed", 1, "", "")]
+    [InlineData("gh pr merge 95", "in_progress", null, "", "")]
+    public void MergesRequireASuccessfulMergeCommand(string command, string status, int? exitCode, string output, string expected)
+    {
+        var call = new AcpToolCall();
+        call.Merge(Json(new JsonObject { ["rawInput"] = new JsonObject { ["command"] = command } }.ToJsonString()));
+        var completion = new JsonObject { ["status"] = status, ["rawOutput"] = output };
+        if (exitCode is { } code) completion["_meta"] = new JsonObject { ["terminal_exit"] = new JsonObject { ["exit_code"] = code } };
+        call.Merge(Json(completion.ToJsonString()));
+        Assert.Equal(expected, string.Join("|", call.MergedGitHubPullRequests()));
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/13", 2)]
     [InlineData("https://github.com/org/repo/pull/12\nhttps://github.com/org/repo/pull/12", 1)]
     public void CommandsCreatingMultiplePullRequestsKeepEveryDistinctResult(string output, int expected)

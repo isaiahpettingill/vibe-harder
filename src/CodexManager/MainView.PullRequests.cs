@@ -71,7 +71,10 @@ public partial class MainView
             {
                 if (scannedPullRequestTools.TryGetValue(message, out _)) continue;
                 scannedPullRequestTools.Add(message, new object());
-                foreach (var url in AcpToolCall.FromText(message.Text).CreatedGitHubPullRequests()) ChatPullRequests.Add(store, chat, url);
+                var call = AcpToolCall.FromText(message.Text);
+                foreach (var url in call.CreatedGitHubPullRequests()) ChatPullRequests.Add(store, chat, url);
+                // Merges recorded before the next GitHub poll, including ones already in a saved transcript.
+                foreach (var merged in call.MergedGitHubPullRequests()) ChatPullRequests.Merged(store, chat, merged);
             }
         }
         var requests = current?.PullRequests.Where(p => !p.Dismissed).ToArray() ?? [];
