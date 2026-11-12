@@ -3,7 +3,7 @@ using System.Text.RegularExpressions;
 
 namespace CodexManager;
 
-public sealed record ChatPullRequest(string Url, string Title, string State = "OPEN", bool Dismissed = false);
+public sealed record ChatPullRequest(string Url, string Title, string State = "OPEN", bool Dismissed = false, string? MergePrompt = null);
 
 public static class ChatPullRequests
 {
@@ -17,12 +17,35 @@ public static class ChatPullRequests
             if (JsonNode.Parse(store.Setting("pullRequests:" + chat.Id) ?? "[]") is JsonArray saved)
                 foreach (var item in saved.OfType<JsonObject>())
                     if (item["url"]?.GetValue<string>() is { } url && ValidUrl(url))
-                        chat.PullRequests.Add(new(url, item["title"]?.GetValue<string>() ?? url, item["state"]?.GetValue<string>() ?? "OPEN", item["dismissed"]?.GetValue<bool>() == true));
+                        chat.PullRequests.Add(new(url, item["title"]?.GetValue<string>() ?? url, item["state"]?.GetValue<string>() ?? "OPEN", item["dismissed"]?.GetValue<bool>() == true, item["mergePrompt"]?.GetValue<string>()));
         }
         catch (System.Text.Json.JsonException error) { AppDiagnostics.Record("Load pull requests", error); }
         chat.PullRequestsChanged();
     }
-    public static JsonArray ToJson(Chat chat) => new(chat.PullRequests.Select(p => (JsonNode)new JsonObject { ["url"] = p.Url, ["title"] = p.Title, ["state"] = p.State, ["dismissed"] = p.Dismissed }).ToArray());
+    public static JsonArray ToJson(Chat chat) => new(chat.PullRequests.Select(p => (JsonNode)new JsonObject { ["url"] = p.Url, ["title"] = p.Title, ["state"] = p.State, ["dismissed"] = p.Dismissed, ["mergePrompt"] = p.MergePrompt }).ToArray());
+    public static void SetMergePrompt(Store store, Chat chat, string url, string? prompt)
+    {
+        Load(store, chat);
+        var index = chat.PullRequests.FindIndex(p => p.Url == url && p.State == "OPEN");
+        if (index < 0) return;
+        chat.PullRequests[index] = chat.PullRequests[index] with { MergePrompt = string.IsNullOrWhiteSpace(prompt) ? null : prompt };
+        Save(store, chat);
+    }
+    public static PendingInput[] QueueMergedPrompts(Store store, Chat chat)
+    {
+        Load(store, chat);
+        var queued = new List<PendingInput>();
+        for (var i = 0; i < chat.PullRequests.Count; i++)
+        {
+            var request = chat.PullRequests[i];
+            if (request.State != "MERGED" || string.IsNullOrWhiteSpace(request.MergePrompt)) continue;
+            var input = new PendingInput(request.MergePrompt, []);
+            chat.QueuedInputs.Add(input); queued.Add(input);
+            chat.PullRequests[i] = request with { MergePrompt = null };
+        }
+        if (queued.Count > 0) { store.Save(chat); Save(store, chat); }
+        return queued.ToArray();
+    }
     private static void Save(Store store, Chat chat)
     {
         store.Setting("pullRequests:" + chat.Id, ToJson(chat).ToJsonString()); chat.PullRequestsChanged();

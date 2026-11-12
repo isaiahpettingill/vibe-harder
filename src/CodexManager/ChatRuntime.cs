@@ -779,7 +779,8 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 if (createdPullRequests.Add(pullRequest) && !replaying) PullRequestCreated?.Invoke();
             }
             foreach (var merged in call.MergedGitHubPullRequests())
-                if (ChatPullRequests.Merged(store, chat, merged) && !replaying) PullRequestMerged?.Invoke();
+                if (ChatPullRequests.Merged(store, chat, merged) && !replaying)
+                { ChatPullRequests.QueueMergedPrompts(store, chat); PullRequestMerged?.Invoke(); }
             if (id is not null) { if (call.Status is "completed" or "failed" && !call.Backgrounded) toolCalls.Remove(id); else toolCalls[id] = call; }
             message.Text = call.Render(); if (!replaying) store.SaveMessage(chat, message);
         }

@@ -56,6 +56,9 @@ public partial class MainView
                 if (!closing && workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner)
                 {
                     await ChatPullRequests.Refresh(store, chat, owner, discoveryLifetime.Token);
+                    var queued = ChatPullRequests.QueueMergedPrompts(store, chat);
+                    if (!chat.Busy && !chat.Archived && queued.Length > 0)
+                        await Runtime(chat, owner).SendQueuedNow(chat.QueuedInputs[0], waitForCompletion: false);
                     await ChatIssues.Refresh(store, chat, owner, discoveryLifetime.Token);
                 }
             if (!closing) { UpdatePullRequestPane(); UpdateIssuePane(); }
@@ -93,6 +96,12 @@ public partial class MainView
             ToolTip.SetTip(link, request.Url + (request.State == "CLOSED" ? " · Closed" : ""));
             link.Click += async (_, _) => { if (Launcher is { } launcher) await launcher.LaunchUriAsync(new Uri(request.Url)); };
             row.Children.Add(link);
+            if (request.State == "OPEN" && current is { IsRemote: false } promptOwner)
+            {
+                var prompt = new IconButton { Icon = "terminal", Label = request.MergePrompt is null ? "Set prompt to run after merge" : "Edit prompt to run after merge" };
+                prompt.Click += async (_, _) => await EditMergePrompt(promptOwner, request);
+                Grid.SetColumn(prompt, 1); row.Children.Add(prompt);
+            }
             if (request.State is "CLOSED" or "MERGED" && current is { IsRemote: false } owner)
             {
                 var dismiss = new IconButton { Icon = "remove", Label = "Dismiss pull request" };
@@ -101,5 +110,24 @@ public partial class MainView
             }
             PullRequestPane.Children.Add(row);
         }
+    }
+    private async Task EditMergePrompt(Chat chat, ChatPullRequest request)
+    {
+        if (desktopWindow is null) return;
+        var dialog = new Window { Title = "Prompt after PR merge", Width = 520, Height = 360, MinWidth = 360, MinHeight = 300, WindowStartupLocation = WindowStartupLocation.CenterOwner };
+        var input = new TextBox { Text = request.MergePrompt ?? "", AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 140 };
+        var save = new Button { Content = "Save", Classes = { "accent" } };
+        var cancel = new Button { Content = "Cancel" };
+        save.Click += (_, _) => { ChatPullRequests.SetMergePrompt(store, chat, request.Url, input.Text); UpdatePullRequestPane(); dialog.Close(); };
+        cancel.Click += (_, _) => dialog.Close();
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Spacing = 8, Children = { cancel, save } };
+        Grid.SetRow(input, 1); Grid.SetRow(actions, 2);
+        dialog.Content = new Grid { RowDefinitions = new("Auto,*,Auto"), Margin = new Thickness(16), RowSpacing = 12, Children =
+        {
+            new TextBlock { Text = "Send this prompt to this chat when the PR merges. If a turn is running, the prompt waits in the queue. Clear the prompt to remove it.", TextWrapping = TextWrapping.Wrap },
+            input, actions
+        } };
+        dialog.Opened += (_, _) => input.Focus();
+        await dialog.ShowDialog(desktopWindow);
     }
 }

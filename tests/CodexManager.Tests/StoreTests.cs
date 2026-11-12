@@ -4,6 +4,35 @@ public class StoreTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("OPEN", "Follow up", false, 0)]
+    [InlineData("CLOSED", "Follow up", false, 0)]
+    [InlineData("MERGED", "Follow up", false, 1)]
+    [InlineData("MERGED", "Follow up", true, 1)]
+    [InlineData("MERGED", "", false, 0)]
+    public void MergePromptsPersistAndQueueOnceForTheOwningChat(string state, string prompt, bool agentReported, int expected)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("merge-prompt-").FullName);
+        store.Save(new Workspace("workspace", "Test", store.DirectoryPath));
+        var chat = new Chat { WorkspaceId = "workspace" }; store.Save(chat);
+        const string url = "https://github.com/org/repo/pull/12";
+        ChatPullRequests.Add(store, chat, url);
+        ChatPullRequests.SetMergePrompt(store, chat, url, prompt);
+        var restored = store.Chats().Single(); ChatPullRequests.Load(store, restored);
+        if (agentReported) ChatPullRequests.Merged(store, restored, url);
+        else ChatPullRequests.Apply(store, restored, url, "Feature", state);
+        Assert.Equal(expected, ChatPullRequests.QueueMergedPrompts(store, restored).Length);
+        Assert.Empty(ChatPullRequests.QueueMergedPrompts(store, restored));
+        var reloaded = store.Chats().Single(); ChatPullRequests.Load(store, reloaded);
+        Assert.Equal(expected, reloaded.QueuedInputs.Count);
+        if (expected > 0)
+        {
+            Assert.Equal(prompt, reloaded.QueuedInputs[0].Text);
+            Assert.Null(reloaded.PullRequests[0].MergePrompt);
+        }
+        Assert.Empty(chat.QueuedInputs);
+    }
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(false, 3)]
     [InlineData(true, 2)]
     public void UsageSnapshotsPersistWithoutCountingRepeatedOrReplayedCosts(bool replayFirst, int expectedDailyCost)

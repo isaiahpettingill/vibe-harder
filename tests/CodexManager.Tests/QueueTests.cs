@@ -5,6 +5,32 @@ namespace CodexManager.Tests;
 public class QueueTests
 {
     [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MergedPullRequestPromptUsesTheSameChatAndWaitsForItsTurn(bool busy)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("merge-queue-").FullName);
+        var workspace = new Workspace("w", "Queue", store.DirectoryPath); store.Save(workspace);
+        var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
+        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        var sending = busy ? runtime.Send("slow", []) : Task.CompletedTask;
+        const string url = "https://github.com/org/repo/pull/12";
+        ChatPullRequests.Add(store, chat, url);
+        ChatPullRequests.SetMergePrompt(store, chat, url, "Review the merged result");
+        ChatPullRequests.Apply(store, chat, url, "Feature", "MERGED");
+        var queued = Assert.Single(ChatPullRequests.QueueMergedPrompts(store, chat));
+        if (busy) Assert.DoesNotContain(chat.Messages, m => m.Text == queued.Text);
+        else await runtime.SendQueuedNow(queued, waitForCompletion: false);
+        await sending;
+        var until = DateTime.UtcNow.AddSeconds(10);
+        while ((chat.Busy || !chat.Messages.Any(m => m.Role == "user" && m.Text == queued.Text)) && DateTime.UtcNow < until)
+            await Task.Delay(20, TestContext.Current.CancellationToken);
+        Assert.Single(chat.Messages, m => m.Role == "user" && m.Text == queued.Text);
+        Assert.Empty(chat.QueuedInputs);
+        Assert.Single(store.Chats());
+    }
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task FailedReconnectKeepsQueuedMessages()
     {
