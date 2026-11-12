@@ -5,13 +5,13 @@ namespace CodexManager.Tests;
 
 public class HistoryBranchTests
 {
-    private static (Store Store, Workspace Workspace, Chat Chat, string Command) Setup(string flags = "")
+    private static (Store Store, Workspace Workspace, Chat Chat, string Command) Setup(string flags = "", AgentProvider provider = AgentProvider.Claude)
     {
         var directory = Directory.CreateTempSubdirectory("history-branch-").FullName;
         var file = Path.Combine(directory, "provider.json");
         File.WriteAllText(file, """{"original":[{"id":"u1","role":"user","text":"First question"},{"id":"a1","role":"assistant","text":"First answer"},{"id":"u2","role":"user","text":"Second question"},{"id":"a2","role":"assistant","text":"Second answer"}]}""");
         var store = new Store(directory); var workspace = new Workspace("workspace", "Test", directory); store.Save(workspace);
-        var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "original", Provider = AgentProvider.Claude }; store.Save(chat);
+        var chat = new Chat { WorkspaceId = workspace.Id, SessionId = "original", Provider = provider }; store.Save(chat);
         return (store, workspace, chat, "node \"" + Path.Combine(AppContext.BaseDirectory, "history-acp.mjs") + "\" \"" + file + "\" " + flags);
     }
     [Trait("Category", "Integration")]
@@ -43,6 +43,30 @@ public class HistoryBranchTests
         Assert.NotEqual(chat.Id, fork.Id); Assert.Equal("original", chat.SessionId);
         Assert.Equal(4, chat.Messages.Count); Assert.Equal(2, fork.Messages.Count); Assert.Equal(2, store.Chats().Count);
         Assert.Equal("a1", (await store.ReadPageAsync(fork)).Last().ProviderMessageId);
+    }
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CodexForkReleasesWriterBeforeLoadingInAnotherRuntime(bool running)
+    {
+        var (store, workspace, chat, command) = Setup("--exclusive-fork", AgentProvider.Codex); using var dispose = store;
+        await using var runtime = new ChatRuntime(chat, workspace, store, command); await runtime.LoadHistory();
+        var prompt = running ? runtime.Send("Keep running", []) : Task.CompletedTask;
+        async Task WaitForOutput()
+        {
+            while (!chat.Messages.Any(m => m.Text == "New answer")) await Task.Delay(10);
+        }
+        if (running) await WaitForOutput().WaitAsync(TimeSpan.FromSeconds(10));
+        var original = chat.Messages.Select(m => m.Text).ToArray();
+        var fork = await runtime.BranchHistory(null, -1, null, true);
+        await prompt;
+        Assert.NotEqual(chat.SessionId, fork.SessionId);
+        Assert.Equal(original, fork.Messages.Select(m => m.Text));
+        Assert.Equal(2, store.Chats().Count);
+        await runtime.Send("Continue original", []);
+        Assert.Contains(chat.Messages, m => m.Text == "Continue original");
+        Assert.DoesNotContain(fork.Messages, m => m.Text == "Continue original");
     }
     [Trait("Category", "Integration")]
     [AvaloniaFact]

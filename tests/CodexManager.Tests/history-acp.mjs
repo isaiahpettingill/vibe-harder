@@ -1,7 +1,10 @@
 import { createInterface } from 'node:readline';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 const path = process.argv[2];
+const exclusive = process.argv.includes('--exclusive-fork');
+let pendingPrompt;
+const lockPath = id => path + '.' + id + '.writer';
 const emit = value => process.stdout.write(JSON.stringify(value) + '\n');
 const result = (id, value) => emit({ jsonrpc: '2.0', id, result: value });
 const failure = (id, message) => emit({ jsonrpc: '2.0', id, error: { code: -32602, message } });
@@ -17,6 +20,10 @@ createInterface({ input: process.stdin }).on('line', line => {
       const sessionId = randomUUID(); sessions[sessionId] = []; writeFileSync(path, JSON.stringify(sessions)); result(request.id, { sessionId }); break;
     }
     case 'session/load':
+      if (exclusive && existsSync(lockPath(params.sessionId))) {
+        let alive = false; try { process.kill(Number(readFileSync(lockPath(params.sessionId), 'utf8')), 0); alive = true; } catch {}
+        if (alive) { failure(request.id, 'Thread already has an active writer'); break; }
+      }
       if (!sessions[params.sessionId] || process.argv.includes('--reject-load') && params.sessionId !== 'original') { failure(request.id, 'Could not load fork'); break; }
       for (const message of sessions[params.sessionId]) update(params.sessionId, message);
       result(request.id, {}); break;
@@ -27,14 +34,19 @@ createInterface({ input: process.stdin }).on('line', line => {
       const index = point ? original.findIndex(m => m.id === point) : original.length - 1;
       if (index < 0) { failure(request.id, 'Unknown fork point'); break; }
       const sessionId = randomUUID(); sessions[sessionId] = original.slice(0, process.argv.includes('--ignore-point') ? original.length : index + 1);
+      if (exclusive) writeFileSync(lockPath(sessionId), String(process.pid));
       writeFileSync(path, JSON.stringify(sessions)); result(request.id, { sessionId }); break;
     }
     case 'session/prompt': {
       const user = { id: randomUUID(), role: 'user', text: params.prompt.find(p => p.type === 'text')?.text ?? '' };
       const answer = { id: randomUUID(), role: 'assistant', text: 'New answer' };
-      sessions[params.sessionId].push(user, answer); writeFileSync(path, JSON.stringify(sessions)); update(params.sessionId, answer); result(request.id, { stopReason: 'end_turn' }); break;
+      sessions[params.sessionId].push(user, answer); writeFileSync(path, JSON.stringify(sessions)); update(params.sessionId, answer);
+      if (user.text === 'Keep running') { pendingPrompt = request.id; break; }
+      result(request.id, { stopReason: 'end_turn' }); break;
     }
-    case 'session/cancel': break;
+    case 'session/cancel':
+      if (pendingPrompt) { result(pendingPrompt, { stopReason: 'cancelled' }); pendingPrompt = undefined; }
+      break;
     default: failure(request.id, 'Unknown method');
   }
 });

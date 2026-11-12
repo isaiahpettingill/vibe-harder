@@ -121,6 +121,13 @@ public sealed partial class ChatRuntime
                 finally { loading = false; }
                 candidate.SessionId = response.GetProperty("sessionId").GetString();
                 if (string.IsNullOrWhiteSpace(candidate.SessionId) || candidate.SessionId == chat.SessionId) throw new IOException("The adapter did not create a separate session.");
+                // Codex keeps an exclusive writer for the fork even after session/close.
+                // Release the adapter before another runtime loads the fork's history.
+                if (chat.Provider == AgentProvider.Codex)
+                {
+                    connected = false;
+                    await client!.DisposeAsync(); client = null;
+                }
             }
             foreach (var option in chat.ConfigOptions.Where(option => FullAccess(option) is not null))
                 store.Setting("sessionAccess:" + candidate.Id + ":" + option.Id, option.Current);
