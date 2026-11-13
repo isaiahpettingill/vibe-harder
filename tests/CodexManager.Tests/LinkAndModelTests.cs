@@ -124,22 +124,25 @@ public class LinkAndModelTests
     }
 
     [Trait("Category", "Integration")]
-    [AvaloniaFact]
-    public async Task OpenCodeUsesLastModelForNewChatsAndPickerFiltersRecentFirst()
+    [AvaloniaTheory]
+    [InlineData(AgentProvider.OpenCode)]
+    [InlineData(AgentProvider.Pi)]
+    public async Task ModelPickerFiltersRecentFirstAndKeepsTheChatPreference(AgentProvider provider)
     {
         using var store = new Store(Directory.CreateTempSubdirectory("model-test-").FullName);
         var workspace = new Workspace("w", "Test", Path.GetTempPath()); store.Save(workspace);
-        ModelPicker.Remember(store, AgentProvider.OpenCode, "small"); ModelPicker.Remember(store, AgentProvider.OpenCode, "large");
-        var chat = new Chat { WorkspaceId = "w", Provider = AgentProvider.OpenCode }; store.Save(chat);
+        ModelPicker.Remember(store, provider, "small"); ModelPicker.Remember(store, provider, "large");
+        if (provider == AgentProvider.Pi) store.Setting("globalConfig:Pi:model", "large");
+        var chat = new Chat { WorkspaceId = "w", Provider = provider }; store.Save(chat);
         await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config");
         await runtime.Connect(); var model = chat.ConfigOptions.Single(c => c.Id == "model"); Assert.Equal("large", model.Current);
-        var picker = ModelPicker.Create(model, ModelPicker.Recent(store, AgentProvider.OpenCode), _ => Task.CompletedTask);
+        var picker = ModelPicker.Create(model, ModelPicker.Recent(store, provider), _ => Task.CompletedTask);
         var panel = Assert.IsType<StackPanel>(picker.Content); var search = panel.Children.OfType<TextBox>().Single(); var list = panel.Children.OfType<ListBox>().Single();
         Assert.Equal("large", Assert.IsType<SessionValue>(list.Items[0]).Value);
         search.Text = "SMALL"; search.RaiseEvent(new TextChangedEventArgs(TextBox.TextChangedEvent));
         Assert.Equal("small", Assert.IsType<SessionValue>(Assert.Single(list.Items)).Value);
         // The migrated value is now chat-local, even if another chat changes recents.
-        ModelPicker.Remember(store, AgentProvider.OpenCode, "small");
+        ModelPicker.Remember(store, provider, "small");
         await runtime.Reconnect();
         Assert.Equal("large", chat.ConfigOptions.Single(c => c.Id == "model").Current);
     }

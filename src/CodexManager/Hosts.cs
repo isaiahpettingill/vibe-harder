@@ -88,8 +88,8 @@ public static class Hosts
         {
             var wrapper = Path.Combine(Path.GetTempPath(), OperatingSystem.IsWindows() ? "codex-manager-codex-full-access.cmd" : "codex-manager-codex-full-access");
             var content = OperatingSystem.IsWindows()
-                ? "@echo off\r\ncodex --dangerously-bypass-approvals-and-sandbox %*\r\n"
-                : "#!/bin/sh\nexec codex --dangerously-bypass-approvals-and-sandbox \"$@\"\n";
+                ? "@echo off\r\ncodex --disable guardian_approval --dangerously-bypass-approvals-and-sandbox %*\r\n"
+                : "#!/bin/sh\nexec codex --disable guardian_approval --dangerously-bypass-approvals-and-sandbox \"$@\"\n";
             File.WriteAllText(wrapper, content);
             if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(wrapper, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
             launchEnvironment!["CODEX_PATH"] = wrapper;
@@ -102,7 +102,7 @@ public static class Hosts
             if (fullAccessCodex)
             {
                 launchEnvironment!["CODEX_PATH"] = WslFullAccessCodexPath;
-                setup = "printf '%s\\n' '#!/bin/sh' 'exec codex --dangerously-bypass-approvals-and-sandbox \"$@\"' > " + WslFullAccessCodexPath + " && chmod +x " + WslFullAccessCodexPath;
+                setup = "printf '%s\\n' '#!/bin/sh' 'exec codex --disable guardian_approval --dangerously-bypass-approvals-and-sandbox \"$@\"' > " + WslFullAccessCodexPath + " && chmod +x " + WslFullAccessCodexPath;
             }
             if (launchEnvironment is not null) command = "env " + string.Join(" ", launchEnvironment.Select(pair => Quote(pair.Key + "=" + pair.Value))) + " " + command;
             info = Info("wsl.exe", "--distribution", workspace.Distro!, "--cd", workspace.Path, "--exec", "bash", "-lc", WslShellCommand(command, setup));

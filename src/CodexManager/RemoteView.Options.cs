@@ -92,7 +92,7 @@ public sealed partial class RemoteView
                 if (compact) optionRows.Children.Add(OptionRow(option.Name, badge)); else configs.Children.Add(badge);
                 continue;
             }
-            if (provider == AgentProvider.OpenCode && ModelPicker.IsModel(option))
+            if (provider is AgentProvider.OpenCode or AgentProvider.Pi && ModelPicker.IsModel(option))
             {
                 var picker = new Button { Content = new OptionContent(option, provider), FontSize = compact ? 14 : 11, MinHeight = compact ? 44 : 24, Padding = new Thickness(compact ? 8 : 4), HorizontalAlignment = compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left };
                 ToolTip.SetTip(picker, option.Name);

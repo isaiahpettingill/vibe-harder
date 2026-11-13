@@ -2,6 +2,51 @@ namespace CodexManager.Tests;
 
 public class ConfigurationTests
 {
+    [Trait("Category", "Integration")]
+    [Theory]
+    [InlineData("0")]
+    [InlineData("1")]
+    public async Task FullAccessCodexProcessStartsWithGuardianDisabled(string autoReview)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-process-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        store.Setting(AgentProviders.AutoReviewKey, autoReview);
+        var executable = Path.Combine(store.DirectoryPath, OperatingSystem.IsWindows() ? "codex.cmd" : "codex");
+        await File.WriteAllTextAsync(executable, OperatingSystem.IsWindows()
+            ? "@echo off\r\nfor %%a in (%*) do echo %%~a\r\n"
+            : "#!/bin/sh\nprintf '%s\\n' \"$@\"\n", TestContext.Current.CancellationToken);
+        if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(executable, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute);
+        store.Setting(AgentProviders.CommandKey(AgentProvider.Codex, false), OperatingSystem.IsWindows() ? "& $env:CODEX_PATH app-server" : "\"$CODEX_PATH\" app-server");
+        var command = AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex);
+        var start = AgentProviders.Start(workspace, command, AgentProvider.Codex);
+        start.Environment["PATH"] = store.DirectoryPath + Path.PathSeparator + start.Environment["PATH"];
+        var arguments = (await Hosts.Capture(start)).Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries);
+        Assert.Equal(new[] { "--disable", "guardian_approval", "--dangerously-bypass-approvals-and-sandbox", "app-server" }, arguments);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(null, false, false, "workspace-write")]
+    [InlineData(null, null, false, "agent-full-access")]
+    [InlineData("0", false, false, "workspace-write")]
+    [InlineData("1", false, true, "agent")]
+    [InlineData("0", true, false, "agent-full-access")]
+    [InlineData("1", true, false, "agent-full-access")]
+    public void CodexLaunchDisablesGuardianUnlessExplicitlyEnabled(string? setting, bool? fullAccess, bool guardian, string mode)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-guardian-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        if (setting is not null) store.Setting(AgentProviders.AutoReviewKey, setting);
+        if (fullAccess is not null) store.Setting(AgentProviders.FullAccessKey, fullAccess.Value ? "1" : "0");
+        var command = AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex);
+        var start = AgentProviders.Start(workspace, command, AgentProvider.Codex);
+        using var config = System.Text.Json.JsonDocument.Parse(start.Environment["CODEX_CONFIG"]!);
+        Assert.Equal(guardian, config.RootElement.GetProperty("features").GetProperty("guardian_approval").GetBoolean());
+        Assert.Equal(guardian ? "auto_review" : "user", config.RootElement.GetProperty("approvals_reviewer").GetString());
+        Assert.Equal(mode, start.Environment["INITIAL_AGENT_MODE"]);
+        Assert.DoesNotContain("--codex-auto-review", start.ArgumentList.Last());
+    }
+
     [Trait("Category", "CI")]
     [Theory]
     [InlineData(null)]
@@ -28,6 +73,7 @@ public class ConfigurationTests
         var key = AgentProviders.CommandKey(AgentProvider.Codex, false);
         store.Setting(key, "npx -y @agentclientprotocol/codex-acp@latest");
         Assert.Equal(Hosts.DefaultAdapter, AgentProviders.Command(store, workspace, AgentProvider.Codex));
+        store.Setting(AgentProviders.FullAccessKey, "0");
         Assert.DoesNotContain("--dangerously-bypass-approvals-and-sandbox", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
         store.Setting(AgentProviders.FullAccessKey, "1");
         Assert.EndsWith("--dangerously-bypass-approvals-and-sandbox", AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));

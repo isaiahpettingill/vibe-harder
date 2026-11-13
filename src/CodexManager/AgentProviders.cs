@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Text.Json.Nodes;
 
 namespace CodexManager;
 
@@ -14,6 +15,8 @@ public static class AgentProviders
 {
     internal const string FullAccessArgument = "--dangerously-bypass-approvals-and-sandbox";
     public const string FullAccessKey = "codexFullAccess";
+    public const string AutoReviewKey = "codexAutoReview";
+    private const string AutoReviewArgument = "--codex-auto-review";
     public static IReadOnlyList<AgentOption> All { get; } = [
         new(AgentProvider.Codex, "Codex", "◇", Hosts.DefaultAdapter),
         new(AgentProvider.Claude, "Claude", "✳", "npx -y @agentclientprotocol/claude-agent-acp@latest"),
@@ -46,7 +49,8 @@ public static class AgentProviders
         var command = Command(store, workspace, provider);
         if (provider == AgentProvider.Codex) command = RemoveFullAccessArgument(command);
         command = BundledPackages.Apply(store, workspace, provider, command);
-        return provider == AgentProvider.Codex && store.Setting(FullAccessKey) == "1"
+        if (provider == AgentProvider.Codex && store.Setting(AutoReviewKey) == "1") command += " " + AutoReviewArgument;
+        return provider == AgentProvider.Codex && store.Setting(FullAccessKey) != "0"
             ? command + " " + FullAccessArgument
             : command;
     }
@@ -60,6 +64,8 @@ public static class AgentProviders
     };
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider)
     {
+        var autoReview = provider == AgentProvider.Codex && Regex.IsMatch(command, $@"(?<!\S){AutoReviewArgument}(?!\S)");
+        if (autoReview) command = Regex.Replace(command, $@"(?<!\S){AutoReviewArgument}(?!\S)", "").Trim();
         var fullAccess = RequestsFullAccess(command, provider);
         if (fullAccess) command = RemoveFullAccessArgument(command);
         var environment = provider switch
@@ -75,6 +81,17 @@ public static class AgentProviders
             environment ??= [];
             environment["INITIAL_AGENT_MODE"] = "agent-full-access";
             environment["CODEX_PATH"] = Hosts.FullAccessCodexPath;
+        }
+        if (provider == AgentProvider.Codex)
+        {
+            environment ??= [];
+            var config = JsonNode.Parse(Environment.GetEnvironmentVariable("CODEX_CONFIG") ?? "{}")!.AsObject();
+            var features = config["features"] as JsonObject ?? new JsonObject();
+            features["guardian_approval"] = autoReview && !fullAccess;
+            config["features"] = features.DeepClone();
+            config["approvals_reviewer"] = autoReview && !fullAccess ? "auto_review" : "user";
+            environment["CODEX_CONFIG"] = config.ToJsonString();
+            if (!fullAccess) environment["INITIAL_AGENT_MODE"] = autoReview ? "agent" : "workspace-write";
         }
         return Hosts.Agent(workspace, command, environment);
     }
