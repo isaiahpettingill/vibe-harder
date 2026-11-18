@@ -22,7 +22,11 @@ public class MobileInteractionTests
             var value = (key == "data" ? content[key] : content["resource"]![key])!.GetValue<string>();
             Assert.Equal(bytes, key == "text" ? Encoding.UTF8.GetBytes(value) : Convert.FromBase64String(value));
         }
-        await Assert.ThrowsAsync<IOException>(() => AttachmentFiles.Read("large.txt", new MemoryStream(new byte[AttachmentFiles.MaximumBytes + 1]), TestContext.Current.CancellationToken));
+        using var large = new MemoryStream(new byte[AttachmentFiles.MaximumBytes + 1]);
+        await Assert.ThrowsAsync<IOException>(() => AttachmentFiles.Read("large.txt", large, TestContext.Current.CancellationToken));
+        Assert.Equal(0, large.Position);
+        large.Position = large.Length - 1;
+        Assert.Equal(new byte[] { 0 }, AttachmentFiles.Bytes(await AttachmentFiles.Read("tail.bin", large, TestContext.Current.CancellationToken)));
     }
 
     [Trait("Category", "Integration")]

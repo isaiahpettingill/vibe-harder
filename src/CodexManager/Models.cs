@@ -155,7 +155,7 @@ public sealed record Attachment(string Name, string MimeType, string Data, strin
     public bool IsImage => MimeType.StartsWith("image/", StringComparison.Ordinal);
     public JsonObject ToContent() => IsImage
         ? RpcJson.Object(("type", "image"), ("mimeType", MimeType), ("data", Data))
-        : RpcJson.Object(("type", "resource"), ("resource", RpcJson.Object(("uri", new Uri(SourcePath!).AbsoluteUri), ("mimeType", MimeType), (Binary ? "blob" : "text", Data))));
+        : RpcJson.Object(("type", "resource"), ("resource", RpcJson.Object(("uri", SourcePath is null ? "file:///" + Uri.EscapeDataString(Name) : new Uri(SourcePath).AbsoluteUri), ("mimeType", MimeType), (Binary ? "blob" : "text", Data))));
 }
 // An agent's background task (AIR async task): a backgrounded command, a workflow, or a monitor.
 public sealed record AsyncTaskInfo(string Id, string State, string? Summary, bool CanStop)

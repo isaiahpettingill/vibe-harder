@@ -107,6 +107,9 @@ public class ComposerInputTests
     {
         Assert.Equal("If I paste a super long amount of text…", AttachmentClipboard.Preview("\n  If I paste a super   long amount of text into a chat it should save\nmore"));
         Assert.Equal("short line…", AttachmentClipboard.Preview("short line\nsecond line"));
+        Assert.Equal(new string('x', 39) + "…", AttachmentClipboard.Preview(new string('x', 39) + "🌎more"));
+        Assert.Equal("[\"first…\"]", AttachmentClipboard.LongText("first" + new string('\r', 100) + "last", [])?.Reference);
+        Assert.Null(AttachmentClipboard.LongText(string.Concat(Enumerable.Repeat("x\r\n", 99)), []));
         var pasted = AttachmentClipboard.LongText(new string('x', 10) + "\n" + new string('y', 6000), [])!;
         var path = AttachmentFiles.WriteCopy(pasted);
         Assert.Equal(pasted.Data, File.ReadAllText(path));

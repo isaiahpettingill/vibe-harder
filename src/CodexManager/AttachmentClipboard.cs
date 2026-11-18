@@ -29,28 +29,47 @@ public static class AttachmentClipboard
     // composer never has to lay out (or the user scroll past) the whole block.
     public static Attachment? LongText(string text, IEnumerable<Attachment> existing)
     {
-        if (text.Length < LongPasteCharacters && text.AsSpan().Count('\n') < LongPasteLines) return null;
+        if (text.Length < LongPasteCharacters)
+        {
+            var breaks = 0;
+            for (var i = 0; i < text.Length; i++)
+                if (text[i] == '\r' || text[i] == '\n' && (i == 0 || text[i - 1] != '\r')) breaks++;
+            if (breaks < LongPasteLines) return null;
+        }
         if (Encoding.UTF8.GetByteCount(text) > AttachmentFiles.MaximumBytes) throw new IOException("Paste less than 20 MB of text.");
-        var used = existing.ToArray();
+        var names = new HashSet<string>(); var references = new HashSet<string>();
+        foreach (var item in existing) { names.Add(item.Name); if (item.Reference is { } marker) references.Add(marker); }
         var index = 1;
-        while (used.Any(a => a.Name == $"Pasted text {index}.txt")) index++;
+        while (names.Contains($"Pasted text {index}.txt")) index++;
         var name = $"Pasted text {index}.txt";
         // The marker previews the paste so a draft with several of them stays readable.
         var preview = Preview(text);
         var reference = $"[\"{preview}\"]";
-        for (var n = 2; used.Any(a => a.Reference == reference); n++) reference = $"[\"{preview}\" #{n}]";
-        return new(name, "text/plain", text, "file:///" + Uri.EscapeDataString(name), reference);
+        for (var n = 2; references.Contains(reference); n++) reference = $"[\"{preview}\" #{n}]";
+        return new(name, "text/plain", text, Reference: reference);
     }
     private const int PreviewCharacters = 40;
     public static string Preview(string text)
     {
-        var line = text.Split('\n').Select(l => l.Trim()).FirstOrDefault(l => l.Length > 0) ?? "";
-        var words = string.Join(' ', line.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)).Replace('"', '\'');
-        if (words.Length <= PreviewCharacters) return words + (line.Length < text.Trim().Length ? "…" : "");
-        var cut = words.LastIndexOf(' ', PreviewCharacters);
-        return words[..(cut > PreviewCharacters / 2 ? cut : PreviewCharacters)].TrimEnd() + "…";
+        var content = text.AsSpan().Trim();
+        var newline = content.IndexOfAny('\r', '\n');
+        var line = newline < 0 ? content : content[..newline].TrimEnd();
+        Span<char> prefix = stackalloc char[PreviewCharacters + 1];
+        var count = 0; var space = false;
+        foreach (var ch in line)
+        {
+            if (char.IsWhiteSpace(ch)) { space = true; continue; }
+            if (space) { prefix[count++] = ' '; space = false; }
+            if (count < prefix.Length) prefix[count++] = ch == '"' ? '\'' : ch;
+            if (count == prefix.Length) break;
+        }
+        if (count <= PreviewCharacters) return prefix[..count].ToString() + (newline >= 0 ? "…" : "");
+        var cut = prefix.LastIndexOf(' ');
+        if (cut <= PreviewCharacters / 2) cut = PreviewCharacters;
+        if (char.IsHighSurrogate(prefix[cut - 1])) cut--;
+        return prefix[..cut].ToString() + "…";
     }
-    private static Attachment Bytes(byte[] bytes, string extension)
+    private static Attachment Bytes(ReadOnlySpan<byte> bytes, string extension)
     {
         if (bytes.Length > AttachmentFiles.MaximumBytes) throw new IOException("Choose an image smaller than 20 MB.");
         var mime = ImageTypes.Single(t => t.Extension == extension).Mime;
@@ -59,6 +78,6 @@ public static class AttachmentClipboard
     private static Attachment Bitmap(Bitmap bitmap)
     {
         using var stream = new MemoryStream(); bitmap.Save(stream, PngBitmapEncoderOptions.Default);
-        return Bytes(stream.ToArray(), "png");
+        return Bytes(stream.GetBuffer().AsSpan(0, (int)stream.Length), "png");
     }
 }
