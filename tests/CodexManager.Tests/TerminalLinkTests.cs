@@ -48,6 +48,40 @@ public class TerminalLinkTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("(https://example.com/a.)", "https://example.com/a")]
+    [InlineData("(https://example.com/a_(b)).", "https://example.com/a_(b)")]
+    public void WebLinksExcludeSurroundingProse(string text, string url)
+    {
+        var terminal = new ThemedTerminalControl { Model = new TerminalControlModel() };
+        var window = new Window { Content = terminal, Width = 900, Height = 300 }; window.Show();
+        try
+        {
+            terminal.Model.Feed(text);
+            Assert.Equal(url, terminal.LinkAt(Cell(terminal, 5, 0))?.AbsoluteUri);
+            Assert.Null(terminal.LinkAt(Cell(terminal, 1 + url.Length, 0)));
+        }
+        finally { window.Close(); }
+    }
+
+    [Trait("Category", "CI")]
+    [AvaloniaFact]
+    public void InterleavedFileAndWebLinksKeepTheirTargets()
+    {
+        var terminal = new ThemedTerminalControl { Model = new TerminalControlModel(), FileWorkspace = new Workspace("w", "Test", "/tmp", "Debian") };
+        var window = new Window { Content = terminal, Width = 900, Height = 300 }; window.Show();
+        try
+        {
+            const string line = "/tmp/a https://example.org /tmp/b www.example.com /tmp/c";
+            terminal.Model.Feed(line);
+            Assert.Equal(5, terminal.LinkUnderlines().Count);
+            Assert.Equal("https://www.example.com/", terminal.LinkAt(Cell(terminal, line.IndexOf("www", StringComparison.Ordinal), 0))?.AbsoluteUri);
+            Assert.Equal(@"\\wsl.localhost\Debian\tmp\c", terminal.LinkAt(Cell(terminal, line.Length - 1, 0))?.LocalPath);
+        }
+        finally { window.Close(); }
+    }
+
     private static Point Cell(ThemedTerminalControl terminal, int col, int row)
     {
         // Use the library's actual render metrics to verify our independent hit testing.

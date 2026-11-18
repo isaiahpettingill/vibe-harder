@@ -13,7 +13,12 @@ public sealed partial class TerminalOutput
     {
         var chars = new char[Encoding.UTF8.GetMaxCharCount(bytes.Length)];
         var count = decoder.GetChars(bytes, 0, bytes.Length, chars, 0);
-        raw += new string(chars, 0, count);
+        Append(new string(chars, 0, count));
+    }
+    internal void Append(string text)
+    {
+        if (text.Length == 0) return;
+        raw += text;
         if (raw.Length > 65536) raw = raw[^65536..];
         Text = EscapeCodes().Replace(raw, "");
         // Wait for a delimiter, so a URL split between PTY reads is never opened halfway.

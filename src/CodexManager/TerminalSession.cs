@@ -30,7 +30,7 @@ public sealed class TerminalSession : IDisposable
         {
             DurableId = durableId;
             durable = new DurableTerminalConnection(settings?.DirectoryPath ?? Store.DataDirectory, durableId, Model,
-                text => { Model.Feed(text); RawOutput?.Invoke(text); Output.Append(System.Text.Encoding.UTF8.GetBytes(text)); OutputChanged?.Invoke(); },
+                PublishOutput,
                 () => { exited = true; Completed?.Invoke(); });
             await durable.Start(workspace, resumeOnly);
             Model.UserInput += (_, e) => Write(e.Data.Span);
@@ -108,18 +108,22 @@ public sealed class TerminalSession : IDisposable
             options.CommandLine = OperatingSystem.IsWindows() ? ["-NoLogo", "-NoProfile", "-Command", Hosts.WindowsShellCommand(command)] : ["-lc", Hosts.LocalShellCommand(command)];
         return options;
     }
+    private void PublishOutput(string text)
+    {
+        Model.Feed(text); RawOutput?.Invoke(text); Output.Append(text); OutputChanged?.Invoke();
+    }
     private async Task Pump()
     {
         try
         {
             var buffer = new byte[8192];
+            var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(buffer.Length)];
             while (await connection!.ReaderStream.ReadAsync(buffer, lifetime.Token) is var read && read > 0)
             {
-                var copy = buffer[..read];
-                var chars = new char[System.Text.Encoding.UTF8.GetMaxCharCount(read)];
-                var count = decoder.GetChars(copy, chars, false);
+                var count = decoder.GetChars(buffer.AsSpan(0, read), chars, false);
+                if (count == 0) continue; // A partial UTF-8 character needs another read.
                 var text = new string(chars, 0, count);
-                await Dispatcher.UIThread.InvokeAsync(() => { Model.Feed(text); RawOutput?.Invoke(text); Output.Append(copy); OutputChanged?.Invoke(); });
+                await Dispatcher.UIThread.InvokeAsync(() => PublishOutput(text));
             }
             await Dispatcher.UIThread.InvokeAsync(() => { if (!disposed) { Model.Feed("\r\n[Shell exited]\r\n"); RawOutput?.Invoke("\r\n[Shell exited]\r\n"); } });
         }

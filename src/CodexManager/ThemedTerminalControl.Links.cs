@@ -72,8 +72,10 @@ public sealed partial class ThemedTerminalControl
         }
         if (linkCache.TryGetValue(targetRow, out var cached)) return cached;
         var parsed = ParseLinks(targetRow);
-        if (linkCache.Count >= 256) linkCache.Clear();
-        linkCache[targetRow] = parsed;
+        // Hit testing and underlining share the parse of the whole wrapped line.
+        var through = Math.Min(parsed.LastRow, targetRow + 255);
+        if (linkCache.Count + through - targetRow + 1 > 256) linkCache.Clear();
+        for (var row = targetRow; row <= through; row++) linkCache[row] = parsed;
         return parsed;
     }
     private (List<LinkSpan> Links, int LastRow) ParseLinks(int targetRow)
@@ -111,14 +113,8 @@ public sealed partial class ThemedTerminalControl
         var lineText = text.ToString();
         foreach (Match match in UrlPattern.Matches(lineText))
         {
-            var target = match.Value.TrimEnd('.', ',', ';', ':', '!', '?');
-            while (target.Length > 0 && target[^1] is ')' or ']' or '}')
-            {
-                var close = target[^1]; var open = close == ')' ? '(' : close == ']' ? '[' : '{';
-                if (target.Count(c => c == close) <= target.Count(c => c == open)) break;
-                target = target[..^1];
-            }
-            var length = target.Length;
+            var length = TerminalFileLinks.UnquotedLength(match.ValueSpan, ".,;:!?");
+            var target = match.Value[..length];
             if (target.StartsWith("www.", StringComparison.OrdinalIgnoreCase)) target = "https://" + target;
             if (length > 0 && Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
                 (uri.Scheme is "http" or "https" && !string.IsNullOrEmpty(uri.Host) || uri.Scheme == "mailto" && uri.OriginalString.Length > 7))
@@ -127,10 +123,14 @@ public sealed partial class ThemedTerminalControl
                 links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, uri));
             }
         }
+        // Both matchers return spans in reading order; advance past each web link once.
+        var webCount = links.Count;
+        var web = 0;
         foreach (var file in TerminalFileLinks.Find(lineText, FileWorkspace))
         {
             var start = cells[file.Start]; var end = cells[file.Start + file.Length - 1];
-            if (!links.Any(link => link.Contains(start.Row, start.Column)))
+            while (web < webCount && (links[web].LastRow, links[web].LastColumn).CompareTo((start.Row, start.Column)) < 0) web++;
+            if (web == webCount || !links[web].Contains(start.Row, start.Column))
                 links.Add(new(start.Row, start.Column, end.Row, end.Column + end.Width - 1, file.Uri));
         }
         return (links, lastRow);
