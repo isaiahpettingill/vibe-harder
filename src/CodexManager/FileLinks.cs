@@ -75,15 +75,20 @@ public static class FileLinks
                     var chunk = await call(new() { ["method"] = "file/read", ["chatId"] = chatId, ["path"] = target, ["offset"] = offset, ["stamp"] = stamp }) ?? throw new IOException("File download failed.");
                     var size = chunk["length"]!.GetValue<long>();
                     if (size < 0 || size > 512L * 1024 * 1024 || (length is not null && length != size)) throw new IOException("File is too large or changed during download.");
-                    length = size; stamp ??= chunk["stamp"]!.GetValue<long>();
+                    var version = chunk["stamp"]!.GetValue<long>();
+                    if (stamp is not null && stamp != version) throw new IOException("File changed while downloading. Open the link again.");
+                    length = size; stamp = version;
                     if (output is null)
                     {
                         var name = Path.GetFileName(chunk["name"]!.GetValue<string>().Replace('\\', '/'));
                         if (string.IsNullOrWhiteSpace(name) || name is "." or "..") throw new IOException("Invalid filename.");
                         path = Path.Combine(folder, name); output = new FileStream(path, FileMode.CreateNew, FileAccess.Write, FileShare.None, 65536, true);
                     }
-                    var bytes = Convert.FromBase64String(chunk["data"]!.GetValue<string>());
-                    if (bytes.Length > 256 * 1024 || offset + bytes.Length > size || (bytes.Length == 0 && offset < size)) throw new IOException("Invalid file download response.");
+                    var encoded = chunk["data"]!.GetValue<string>();
+                    var remaining = Math.Min(256 * 1024, size - offset);
+                    if (encoded.Length > (remaining + 2) / 3 * 4) throw new IOException("Invalid file download response.");
+                    var bytes = Convert.FromBase64String(encoded);
+                    if (bytes.Length > remaining || (bytes.Length == 0 && offset < size)) throw new IOException("Invalid file download response.");
                     await output.WriteAsync(bytes, token); offset += bytes.Length;
                     progress?.Invoke(offset, size);
                 } while (offset < length);

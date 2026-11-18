@@ -111,6 +111,26 @@ public class LinkAndModelTests
         File.Delete(path); Directory.Delete(directory);
     }
 
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(2, "Yg==")]
+    [InlineData(1, "Yg==    ")]
+    public async Task ClientRejectsChangedOrOversizedDownloadChunks(int secondStamp, string secondChunk)
+    {
+        Task<JsonNode?> Call(JsonObject request)
+        {
+            var first = request["offset"]!.GetValue<long>() == 0;
+            return Task.FromResult<JsonNode?>(new JsonObject
+            {
+                ["name"] = "file",
+                ["length"] = 2L,
+                ["stamp"] = first ? 1L : secondStamp,
+                ["data"] = first ? "YQ==" : secondChunk
+            });
+        }
+        await Assert.ThrowsAsync<IOException>(() => FileLinks.Download(Call, "chat", "file", TestContext.Current.CancellationToken));
+    }
+
     [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task ClaudeDefaultsToBypassAndKeepsItAfterReconnect()

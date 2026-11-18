@@ -10,8 +10,8 @@ public static partial class ChatImages
     private const long MaxBytes = 25L * 1024 * 1024;
     private const int MaxWidth = 1600;
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
-    private static readonly Dictionary<string, Task<Bitmap>> Cache = [];
-    private static readonly LinkedList<string> Order = [];
+    private static readonly Dictionary<(string? Scope, string Url), Task<Bitmap>> Cache = [];
+    private static readonly LinkedList<(string? Scope, string Url)> Order = [];
 
     [GeneratedRegex(@"\.(?:png|jpe?g|gif|webp|bmp)$", RegexOptions.IgnoreCase)]
     private static partial Regex ImageExtension();
@@ -28,14 +28,14 @@ public static partial class ChatImages
     // Stops a remote image download as soon as the host reports a file too large to show.
     public static void CheckDownload(long received, long total)
     {
-        if (total > MaxBytes) throw new IOException("The image is too large to show.");
+        if (received > MaxBytes || total > MaxBytes) throw new IOException("The image is too large to show.");
     }
     public static bool IsWeb(string url) => Uri.TryCreate(url, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https";
 
     // Files resolve through the caller: a local path, a WSL share, or a download from a remote host.
     public static Task<Bitmap> Load(string url, string scope, Func<string, CancellationToken, Task<string>> resolveFile)
     {
-        var key = (IsWeb(url) || DataImage().IsMatch(url) ? "" : scope + "|") + url;
+        var key = (IsWeb(url) || DataImage().IsMatch(url) ? null : scope, url);
         lock (Cache)
         {
             if (Cache.TryGetValue(key, out var cached) && !cached.IsFaulted && !cached.IsCanceled)
@@ -51,6 +51,10 @@ public static partial class ChatImages
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
         if (DataImage().Match(url) is { Success: true } data)
         {
+            var payload = url.AsSpan(data.Length);
+            const long maxEncoded = (MaxBytes + 2) / 3 * 4;
+            if (payload.Length > maxEncoded && payload.Length - (long)payload.CountAny(" \t\r\n") > maxEncoded)
+                throw new IOException("The image is too large to show.");
             var bytes = Convert.FromBase64String(url[data.Length..]);
             return bytes.Length <= MaxBytes ? bytes : throw new IOException("The image is too large to show.");
         }

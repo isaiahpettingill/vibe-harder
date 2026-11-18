@@ -7,6 +7,20 @@ namespace CodexManager.Tests;
 public class ChatMediaTests
 {
     [Trait("Category", "CI")]
+    [Fact]
+    public async Task DifferentWorkspaceImagePathsDoNotShareALoadWhenTheyContainSeparators()
+    {
+        var scope = Guid.NewGuid().ToString();
+        var resolve = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = ChatImages.Load("album|pic.png", scope, (_, _) => resolve.Task);
+        var second = ChatImages.Load("pic.png", scope + "|album", (_, _) => resolve.Task);
+        resolve.SetException(new IOException("Missing file"));
+        await Assert.ThrowsAsync<IOException>(() => first);
+        await Assert.ThrowsAsync<IOException>(() => second);
+        Assert.NotSame(first, second);
+    }
+
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public void MermaidFencesAndImageLinksBecomeTheirOwnBlocks()
     {
