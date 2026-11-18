@@ -12,7 +12,7 @@ public class RemoteCatalogTests
     {
         using var store = new Store(Directory.CreateTempSubdirectory("catalog-session-").FullName);
         var owner = new Workspace("workspace", "Project", store.DirectoryPath);
-        var chat = new Chat { Id = "local-chat", WorkspaceId = owner.Id, SessionId = sessionId, Archived = true, Status = "Failed" };
+        var chat = new Chat { Id = "local-chat", WorkspaceId = owner.Id, SessionId = sessionId, Archived = true, Status = "Failed", NeedsLogin = true };
         using var service = new SessionService(store, [owner], [chat], (_, _) => throw new InvalidOperationException());
         var catalog = await service.Handle(new() { ["method"] = "list" });
         var record = Assert.Single(catalog!["chats"]!.AsArray());
@@ -21,6 +21,13 @@ public class RemoteCatalogTests
         var remoteChat = new Chat { Id = "remote-local-chat", WorkspaceId = owner.Id };
         RemoteChatSession.ApplySummary(remoteChat, record);
         Assert.Equal(sessionId, remoteChat.SessionId);
+        Assert.True(remoteChat.NeedsLogin);
+        RemoteChatSession.ApplySummary(remoteChat, new JsonObject { ["id"] = chat.Id }); // Older host catalog omits login state.
+        Assert.True(remoteChat.NeedsLogin);
+        chat.NeedsLogin = false;
+        var refreshed = await service.Handle(new() { ["method"] = "list" });
+        RemoteChatSession.ApplySummary(remoteChat, refreshed!["chats"]![0]!);
+        Assert.False(remoteChat.NeedsLogin);
     }
 
     [Trait("Category", "CI")]

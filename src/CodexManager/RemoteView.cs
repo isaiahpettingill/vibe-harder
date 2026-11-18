@@ -739,38 +739,10 @@ public sealed partial class RemoteView : UserControl, IDisposable
             Grid.SetColumn(remove, 1); row.Children.Add(remove); Grid.SetColumn(edit, 2); row.Children.Add(edit); Grid.SetColumn(steer, 3); row.Children.Add(steer); Grid.SetColumn(sendNow, 4); row.Children.Add(sendNow); queuedMessages.Children.Add(row);
         }
     }
-    private Message ReadMessage(JsonNode row)
-    {
-        var message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]!.GetValue<string>() };
-        message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
-        message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
-        foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
-        return message;
-    }
+    private Message ReadMessage(JsonNode row) => RemoteTranscript.Read(row, messageProvider);
     private void ApplyMessages(JsonArray rows)
     {
-        if (presentationSleeping) return;
-        Dictionary<string, Message>? byId = null;
-        foreach (var row in rows)
-        {
-            var id = row!["id"]!.GetValue<string>();
-            if (row["revision"] is { } revision) messageRevisions[id] = revision.GetValue<string>();
-            if (row["text"] is null) continue;
-            byId ??= messages.ToDictionary(m => m.Id);
-            if (!byId.TryGetValue(id, out var message)) { message = new Message { Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null, Provider = messageProvider, Id = id, Role = row["role"]!.GetValue<string>(), Sequence = row["sequence"]?.GetValue<int>() ?? 0 }; messages.Add(message); byId.Add(id, message); }
-            message.Text = row["text"]!.GetValue<string>();
-            message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
-            message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
-            if (row["attachments"] is { } files)
-            {
-                var incoming = files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];
-                if (!message.Attachments.SequenceEqual(incoming)) { message.Attachments.Clear(); foreach (var file in incoming) message.Attachments.Add(file); }
-            }
-        }
-        var keep = HistoryWindow.Last(messages, Chat.HistoryPageSize).Length;
-        while (messages.Count > keep) messages.RemoveAt(0);
-        var retained = messages.Select(m => m.Id).ToHashSet();
-        foreach (var id in messageRevisions.Keys.Where(id => !retained.Contains(id)).ToArray()) messageRevisions.Remove(id);
+        if (!presentationSleeping) RemoteTranscript.Apply(rows, messages, messageRevisions, messageProvider);
     }
     private async Task Connect()
     {

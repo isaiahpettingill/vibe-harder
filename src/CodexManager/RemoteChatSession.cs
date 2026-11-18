@@ -112,7 +112,7 @@ public sealed class RemoteChatSession : IChatSession
         chat.HasUnreadCompletion = summary["unread"]?.GetValue<bool>() == true;
         if (summary["archived"] is { } archived) chat.Archived = archived.GetValue<bool>();
         if (DateTimeOffset.TryParse(summary["updated"]?.GetValue<string>(), out var updated)) chat.Updated = updated;
-        chat.NeedsLogin = summary["session"]?["needsLogin"]?.GetValue<bool>() == true;
+        if ((summary["session"]?["needsLogin"] ?? summary["needsLogin"]) is { } needsLogin) chat.NeedsLogin = needsLogin.GetValue<bool>();
         // The host reports its cost and token labels so a paired device shows the same usage line.
         chat.CostLabel = summary["cost"]?.GetValue<string>() ?? "";
         chat.ContextLabel = summary["context"]?.GetValue<string>() ?? "";
@@ -153,50 +153,11 @@ public sealed class RemoteChatSession : IChatSession
                 Enumerable.Range(0, item["attachments"]?.GetValue<int>() ?? 0).Select(i => new Attachment("Attachment " + (i + 1), "application/octet-stream", "")).ToArray())
             { Id = item["id"]!.GetValue<string>() });
     }
-    private Message ReadMessage(JsonNode row)
-    {
-        var message = new Message
-        {
-            Timestamp = DateTimeOffset.TryParse(row["timestamp"]?.GetValue<string>(), out var timestamp) ? timestamp : null,
-            Provider = chat.Provider, Id = row["id"]!.GetValue<string>(), Role = row["role"]!.GetValue<string>(),
-            Sequence = row["sequence"]?.GetValue<int>() ?? 0, Text = row["text"]?.GetValue<string>() ?? ""
-        };
-        message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
-        message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
-        foreach (var file in row["attachments"]?.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? []) message.Attachments.Add(file);
-        return message;
-    }
+    private Message ReadMessage(JsonNode row) => RemoteTranscript.Read(row, chat.Provider);
     private void ApplyMessages(JsonArray rows)
     {
-        Dictionary<string, Message>? byId = null;
-        foreach (var row in rows)
-        {
-            var id = row!["id"]!.GetValue<string>();
-            if (row["revision"] is { } revision) revisions[id] = revision.GetValue<string>();
-            if (row["text"] is null) continue;
-            byId ??= chat.Messages.ToDictionary(m => m.Id);
-            if (!byId.TryGetValue(id, out var message))
-            {
-                message = ReadMessage(row);
-                var index = chat.Messages.Count;
-                while (index > 0 && chat.Messages[index - 1].Sequence > message.Sequence) index--;
-                chat.Messages.Insert(index, message); byId.Add(id, message);
-                continue;
-            }
-            message.Text = row["text"]!.GetValue<string>();
-            message.Subagent = row["subagent"]?.Deserialize(StoreJsonContext.Default.SubagentInfo);
-            message.AsyncTask = AsyncTaskInfo.FromJson(row["asyncTask"]);
-            if (row["attachments"] is { } files)
-            {
-                var incoming = files.Deserialize(StoreJsonContext.Default.AttachmentArray) ?? [];
-                if (!message.Attachments.SequenceEqual(incoming)) { message.Attachments.Clear(); foreach (var file in incoming) message.Attachments.Add(file); }
-            }
-        }
-        var keep = HistoryWindow.Last(chat.Messages, Chat.HistoryPageSize).Length;
-        while (chat.Messages.Count > keep) chat.Messages.RemoveAt(0);
-        var retained = chat.Messages.Select(m => m.Id).ToHashSet();
-        foreach (var id in revisions.Keys.Where(id => !retained.Contains(id)).ToArray()) revisions.Remove(id);
-        if (chat.Messages.Count > 0) chat.NextSequence = Math.Max(chat.NextSequence, chat.Messages[^1].Sequence + 1);
+        RemoteTranscript.Apply(rows, chat.Messages, revisions, chat.Provider);
+        chat.NextSequence = chat.Messages.Count == 0 ? 0 : chat.Messages[^1].Sequence + 1;
     }
     private void ApplyRequests(JsonNode result)
     {

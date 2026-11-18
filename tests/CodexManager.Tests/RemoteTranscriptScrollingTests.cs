@@ -17,7 +17,7 @@ public class RemoteTranscriptScrollingTests
         var directory = Directory.CreateTempSubdirectory("remote-scroll-").FullName;
         using var listener = new TcpListener(IPAddress.Loopback, 0); listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port; listener.Stop();
-        var shortContent = false; var polls = 0; var historyLoads = 0;
+        var shortContent = false; var rewound = false; var polls = 0; var historyLoads = 0;
         var longText = string.Join("\n\n", Enumerable.Repeat("A paragraph of **streaming output** with `code` and more text.", 30));
         await using var server = new RemoteServer(directory, "127.0.0.1", port, request =>
         {
@@ -36,7 +36,7 @@ public class RemoteTranscriptScrollingTests
                 ["config"] = new JsonArray(),
                 ["permissions"] = new JsonArray(),
                 ["queue"] = new JsonArray(),
-                ["messages"] = new JsonArray(
+                ["messages"] = rewound ? new JsonArray(new JsonObject { ["id"] = "one", ["revision"] = "unchanged" }) : new JsonArray(
                     new JsonObject { ["id"] = "one", ["role"] = "assistant", ["sequence"] = 100, ["text"] = shortContent ? "Short answer" : longText },
                     new JsonObject { ["id"] = "two", ["role"] = "assistant", ["sequence"] = 101, ["text"] = shortContent ? "Done" : longText })
             });
@@ -68,6 +68,10 @@ public class RemoteTranscriptScrollingTests
             count = polls; await Wait(() => polls >= count + 3); window.UpdateLayout();
             Assert.Equal(anchor, panel.CaptureAnchor()); Assert.False(panel.IsFollowingEnd);
             Assert.Equal(0, historyLoads);
+            var retained = Assert.IsType<Message>(list.Items[0]);
+            rewound = true;
+            await Wait(() => list.ItemCount == 1);
+            Assert.Same(retained, list.Items[0]); Assert.Equal(longText, retained.Text);
             var composer = view.GetVisualDescendants().OfType<ComposerEditor>().Single(x => x.Name == "RemoteComposer");
             composer.Text = "Queue this while working";
             await (Task)typeof(RemoteView).GetMethod("SendOrStop", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic)!.Invoke(view, ["send"])!;
