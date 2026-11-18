@@ -63,7 +63,7 @@ internal sealed class DurableTerminalConnection(string profile, string id, Termi
                 await Dispatcher.UIThread.InvokeAsync(() =>
                 {
                     if (disposed) return;
-                    if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
+                    if (result["reset"]?.GetValue<bool>() == true) output("\u001bc");
                     var text = result["text"]!.GetValue<string>();
                     if (text.Length > 0) output(text);
                 });

@@ -184,7 +184,7 @@ public static class TerminalBroker
         switch (method)
         {
             case "read":
-                var offset = request["offset"]!.GetValue<long>(); var end = active.Offset + active.Output.Length; var start = Math.Clamp(offset, active.Offset, end);
+                var offset = request["offset"]!.GetValue<long>(); var end = active.Offset + active.Output.Length; var start = offset < active.Offset || offset > end ? active.Offset : offset;
                 return new JsonObject { ["text"] = active.Output.ToString((int)(start - active.Offset), (int)(end - start)), ["offset"] = end, ["reset"] = offset < active.Offset || offset > end, ["exited"] = active.Exited };
             case "input": active.Session.Input(request["text"]!.GetValue<string>()); break;
             case "resize": active.Session.Resize(request["cols"]!.GetValue<int>(), request["rows"]!.GetValue<int>()); break;

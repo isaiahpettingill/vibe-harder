@@ -91,6 +91,20 @@ public class SharedTerminalTests
             var first = await Open([]);
             Assert.Equal([first], await List());
             Assert.Equal(first, await Open([]));
+            async Task<JsonNode> Read(long offset, string? stream = null) => (await service.Handle(new JsonObject
+            { ["method"] = "terminal/read", ["terminalId"] = first, ["offset"] = offset, ["streamId"] = stream }))!;
+            await service.Handle(new JsonObject { ["method"] = "terminal/input", ["terminalId"] = first, ["text"] = "echo REPLAY_MARKER\r" });
+            JsonNode initial;
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            do { await Task.Delay(50, timeout.Token); initial = await Read(0); } while (!initial["text"]!.GetValue<string>().Contains("REPLAY_MARKER"));
+            var stream = initial["streamId"]!.GetValue<string>();
+            var end = initial["offset"]!.GetValue<long>();
+            Assert.False((await Read(end, stream))["reset"]!.GetValue<bool>());
+            foreach (var replay in new[] { await Read(long.MaxValue), await Read(end, "old-stream") })
+            {
+                Assert.True(replay["reset"]!.GetValue<bool>());
+                Assert.Contains("REPLAY_MARKER", replay["text"]!.GetValue<string>());
+            }
             var second = await Open(new JsonObject { ["new"] = true });
             Assert.Equal([first, second], HostTerminals.Ids(store, "w"));
             Assert.Equal(second, await Open(new JsonObject { ["terminalId"] = second }));

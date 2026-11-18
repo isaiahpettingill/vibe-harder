@@ -24,6 +24,7 @@ public sealed class RemoteTerminals(Store store, IList<Workspace> workspaces) : 
     {
         public readonly TerminalSession Session = new();
         public readonly StringBuilder Buffer = new();
+        public readonly string StreamId = Guid.NewGuid().ToString("N");
         public long Start;
         public string WorkspaceId = "";
         public bool Exited;
@@ -106,8 +107,10 @@ public sealed class RemoteTerminals(Store store, IList<Workspace> workspaces) : 
             case "terminal/read":
                 var offset = request["offset"]?.GetValue<long>() ?? 0;
                 var end = active.Start + active.Buffer.Length;
-                var start = Math.Clamp(offset, active.Start, end);
-                return new JsonObject { ["text"] = active.Buffer.ToString((int)(start - active.Start), (int)(end - start)), ["offset"] = end, ["reset"] = offset < active.Start || offset > end, ["exited"] = active.Exited };
+                // A surviving shell may have a new host-side buffer after a reconnect.
+                var reset = offset < active.Start || offset > end || request["streamId"] is { } stream && stream.GetValue<string>() != active.StreamId;
+                var start = reset ? active.Start : offset;
+                return new JsonObject { ["text"] = active.Buffer.ToString((int)(start - active.Start), (int)(end - start)), ["offset"] = end, ["streamId"] = active.StreamId, ["reset"] = reset, ["exited"] = active.Exited };
             case "terminal/input":
                 var input = Text("text");
                 if (input.Length > 65536) throw new IOException("Terminal input is too large.");

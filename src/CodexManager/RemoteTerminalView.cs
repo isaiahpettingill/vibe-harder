@@ -32,6 +32,8 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     private bool ctrlHeld, altHeld;
     public bool InputReady { get; private set; }
     private long offset;
+    private string? streamId;
+    private int generation;
     private (int Cols, int Rows) size;
     private string caption = "Remote terminal";
     private string? workspaceId;
@@ -169,7 +171,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
         {
             this.caption = caption;
             var previous = TerminalId;
-            Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; model.Feed("\u001bc");
+            generation++; Ready(false); ReleaseKeyboard(); TerminalId = null; offset = 0; streamId = null; model.Feed("\u001bc");
             while (pendingInput.TryDequeue(out var pending)) pending.Completion.TrySetResult(false);
             var shared = await ListHostTerminals(workspaceId);
             var request = new JsonObject { ["method"] = "terminal/open", ["workspaceId"] = workspaceId };
@@ -230,12 +232,18 @@ public sealed class RemoteTerminalView : Grid, IDisposable
     {
         if (polling || sleeping || disposed || TerminalId is not { } id || !IsVisible) return;
         polling = true;
+        var reading = generation;
         try
         {
             var next = (model.Terminal.Cols, model.Terminal.Rows);
-            if (size != next) { if (await call(new() { ["method"] = "terminal/resize", ["terminalId"] = id, ["cols"] = next.Cols, ["rows"] = next.Rows }) is not null) size = next; }
-            var result = await call(new() { ["method"] = "terminal/read", ["terminalId"] = id, ["offset"] = offset });
-            if (disposed || id != TerminalId) return;
+            if (size != next)
+            {
+                var resized = await call(new() { ["method"] = "terminal/resize", ["terminalId"] = id, ["cols"] = next.Cols, ["rows"] = next.Rows });
+                if (disposed || reading != generation || id != TerminalId) return;
+                if (resized is not null) size = next;
+            }
+            var result = await call(new() { ["method"] = "terminal/read", ["terminalId"] = id, ["offset"] = offset, ["streamId"] = streamId });
+            if (disposed || reading != generation || id != TerminalId) return;
             if (result is null) { Ready(false); status.Text = "Reconnecting to the host terminal…"; return; }
             if (result["error"] is { } error)
             {
@@ -250,9 +258,11 @@ public sealed class RemoteTerminalView : Grid, IDisposable
                 return;
             }
             Ready(true); status.Text = Caption();
-            if (result["reset"]?.GetValue<bool>() == true) model.Feed("\u001bc");
+            if (result["reset"]?.GetValue<bool>() == true) { ClearPrediction(); model.Feed("\u001bc"); }
+            streamId = result["streamId"]?.GetValue<string>();
             var output = result["text"]!.GetValue<string>();
-            model.Feed(output); offset = result["offset"]!.GetValue<long>();
+            if (output.Length > 0) model.Feed(output);
+            offset = result["offset"]!.GetValue<long>();
             var buffer = model.Terminal.Buffer;
             prediction.Reconcile(buffer.X, buffer.YBase + buffer.Y, col => buffer.GetLine(buffer.YBase + buffer.Y)?[col].Content ?? "", PredictionEligible());
             RenderPrediction();
@@ -260,7 +270,7 @@ public sealed class RemoteTerminalView : Grid, IDisposable
             timer.Interval = TimeSpan.FromMilliseconds(DateTimeOffset.UtcNow < interactiveUntil ? 33 : 150);
             if (result["exited"]?.GetValue<bool>() == true) { Ready(false); TerminalId = null; ReleaseKeyboard(); status.Text = "Shell exited. Reopen the terminal to start a new shell."; timer.Stop(); }
         }
-        catch (Exception error) { if (!disposed) { Ready(false); status.Text = AppDiagnostics.Message("Terminal refresh failed", error); } }
+        catch (Exception error) { if (!disposed && reading == generation && id == TerminalId) { Ready(false); status.Text = AppDiagnostics.Message("Terminal refresh failed", error); } }
         finally { polling = false; }
     }
     public void Dispose() { disposed = true; timer.Stop(); ReleaseKeyboard(); Back = null; }
