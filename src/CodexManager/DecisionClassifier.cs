@@ -10,8 +10,11 @@ internal enum DecisionSource { Host, Remote, Acp }
 internal sealed record DecisionSettings(bool Enabled, DecisionSource Source, string Command, string Endpoint, AgentProvider Provider, string Model)
 {
     internal const string DefaultCriteria = "Did the agent stop with part of the user's request unfinished when it could still take a concrete authorized step without new information or approval? Answer no if the user asked to stop or the agent described a genuine blocker.";
+    internal const string DefaultResumePrompt = "Check the user's original request against the work you actually completed. If requested work remains and you can take an authorized step now, do it and verify the result before replying. Respect the user's latest instruction, permissions, and real blockers. If the work is complete or blocked, state the result briefly.";
+    internal const string ResumePromptKey = "decisionResumePrompt";
     internal const int DefaultTimeout = 25, DefaultAttempts = 3, DefaultRequestLimit = 2400, DefaultResponseLimit = 5200, DefaultConfidence = 75;
     internal string Criteria { get; init; } = DefaultCriteria;
+    internal string ResumePrompt { get; init; } = DefaultResumePrompt;
     internal int Timeout { get; init; } = DefaultTimeout;
     internal int Attempts { get; init; } = DefaultAttempts;
     internal int RequestLimit { get; init; } = DefaultRequestLimit;
@@ -27,6 +30,7 @@ internal sealed record DecisionSettings(bool Enabled, DecisionSource Source, str
         store.Setting("decisionModel") ?? "")
     {
         Criteria = store.Setting("decisionCriteria") is { } text && !string.IsNullOrWhiteSpace(text) ? text : DefaultCriteria,
+        ResumePrompt = store.Setting(ResumePromptKey) is { } prompt && !string.IsNullOrWhiteSpace(prompt) ? prompt : DefaultResumePrompt,
         Timeout = ReadNumber(store, "decisionTimeout", DefaultTimeout, 1, 300),
         Attempts = ReadNumber(store, "decisionAttempts", DefaultAttempts, 1, 10),
         RequestLimit = ReadNumber(store, "decisionRequestLimit", DefaultRequestLimit, 1, 50000),
@@ -59,6 +63,7 @@ internal sealed partial class DecisionClassifier : IAsyncDisposable
     internal string Log { get { lock (gate) return string.Join("\n", log); } }
     internal bool Enabled => settings.Enabled;
     internal int Attempts => settings.Attempts;
+    internal string ResumePrompt => settings.ResumePrompt;
 
     internal void Configure(DecisionSettings options, string adapterCommand = "")
     {

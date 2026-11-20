@@ -1211,11 +1211,7 @@ public partial class MainView : UserControl
         var allowAll = new CheckBox { Name = "AllowAllPermissions", Content = "Allow all permission prompts", IsChecked = store.Setting("allowAllPermissions") == "1" };
         allowAll.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("allowAllPermissions", allowAll.IsChecked == true ? "1" : "0"));
         panel.Children.Add(allowAll);
-        if (AgentRuleLinks.Desktop)
-        {
-            panel.Children.Add(CreateAgentRuleSetting(ApplyChange));
-            panel.Children.Add(CreateDecisionSettings(ApplyChange));
-        }
+        if (AgentRuleLinks.Desktop) panel.Children.Add(CreateAgentRuleSetting(ApplyChange));
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
         syntax.IsCheckedChanged += (_, _) => ApplyChange(() => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); });
         appearance.Children.Add(syntax);
@@ -1334,7 +1330,11 @@ public partial class MainView : UserControl
             finally { save.IsEnabled = true; }
         }
         save.Click += SaveAgentCommands;
-        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents, ["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces()), ["Costs"] = CostHistoryView.Create(store), ["Connections"] = connections };
+        var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents };
+        if (AgentRuleLinks.Desktop) pages["Classifier"] = CreateDecisionSettings(ApplyChange);
+        pages["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces());
+        pages["Costs"] = CostHistoryView.Create(store);
+        pages["Connections"] = connections;
         var navigation = new ListBox { Name = "SettingsCategories", Classes = { "settingsNavigation" }, ItemsSource = pages.Keys.ToArray(), Background = Brushes.Transparent, Margin = new Thickness(8, 16) };
         var content = new Grid { Margin = new Thickness(24, 20), RowDefinitions = new("Auto,*,Auto") };
         var heading = new TextBlock { FontSize = 20, FontWeight = FontWeight.SemiBold, Margin = new Thickness(0, 0, 0, 20) }; content.Children.Add(heading);

@@ -10,6 +10,48 @@ namespace CodexManager.Tests;
 public class SettingsUiTests
 {
     [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("Continue the checklist.", 600)]
+    [InlineData("Finish the remaining task.\nVerify the result.", 820)]
+    public async Task ClassifierPageSavesAndRestoresTheResumePrompt(string custom, int width)
+    {
+        var store = new Store(Directory.CreateTempSubdirectory("classifier-settings-").FullName);
+        store.Setting("remoteEnabled", "0");
+        var window = new MainWindow(store); window.Show();
+        var closed = new TaskCompletionSource(); window.Closed += (_, _) => closed.TrySetResult();
+        try
+        {
+            (Window Dialog, TextBox Prompt) Open()
+            {
+                window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var dialog = Assert.Single(window.OwnedWindows); dialog.Width = width;
+                var navigation = dialog.GetLogicalDescendants().OfType<ListBox>().Single(list => list.Name == "SettingsCategories");
+                navigation.SelectedItem = "Classifier";
+                var prompt = dialog.GetLogicalDescendants().OfType<TextBox>().Single(field => field.Name == "DecisionResumePrompt");
+                Assert.True(prompt.IsEffectivelyVisible);
+                return (dialog, prompt);
+            }
+            void Save(Window dialog) => dialog.GetLogicalDescendants().OfType<Button>().Single(button => button.Name == "SaveDecisionSettings")
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var (first, input) = Open();
+            var original = input.Text;
+            Assert.False(string.IsNullOrWhiteSpace(original));
+            input.Text = custom; Save(first); first.Close();
+            var (second, reopened) = Open();
+            Assert.Equal(custom, reopened.Text);
+            second.GetLogicalDescendants().OfType<Button>().Single(button => button.Name == "ResetDecisionDefaults").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.Equal(original, reopened.Text);
+            Save(second); second.Close();
+            Assert.Equal(original, DecisionSettings.Read(store).ResumePrompt);
+        }
+        finally
+        {
+            window.RequestExit();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task TrayQuitRequiresAcceptanceAndReusesPendingConfirmation()
     {

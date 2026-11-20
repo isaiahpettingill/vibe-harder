@@ -28,7 +28,7 @@ public sealed partial class ChatRuntime
             result = await prompt(new JsonArray(new JsonObject
             {
                 ["type"] = "text",
-                ["text"] = "Check the user's original request against the work you actually completed. If requested work remains and you can take an authorized step now, do it and verify the result before replying. Respect the user's latest instruction, permissions, and real blockers. If the work is complete or blocked, state the result briefly."
+                ["text"] = classifier.ResumePrompt
             }));
         }
         return result;

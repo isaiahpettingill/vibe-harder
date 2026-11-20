@@ -7,8 +7,10 @@ namespace CodexManager.Tests;
 public class StreamingTests
 {
     [Trait("Category", "Integration")]
-    [AvaloniaFact]
-    public async Task AnActionableSystemOneDecisionContinuesTheExistingTurn()
+    [AvaloniaTheory]
+    [InlineData("Check the second item and report the result.")]
+    [InlineData("Continue the open checklist.\nVerify the last item before responding.")]
+    public async Task AnActionableSystemOneDecisionContinuesTheExistingTurn(string resumePrompt)
     {
         using var store = new Store(Directory.CreateTempSubdirectory("decision-flow-").FullName);
         var owner = new Workspace("w", "Decision", store.DirectoryPath); store.Save(owner);
@@ -18,8 +20,11 @@ public class StreamingTests
         await using var classifier = new DecisionClassifier();
         using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
         listener.Start();
-        classifier.Configure(new(true, DecisionSource.Remote, "",
-            $"http://127.0.0.1:{((System.Net.IPEndPoint)listener.LocalEndpoint).Port}/v1/systemone", AgentProvider.Pi, ""));
+        store.Setting("decisionEnabled", "1");
+        store.Setting("decisionSource", "Remote");
+        store.Setting("decisionEndpoint", $"http://127.0.0.1:{((System.Net.IPEndPoint)listener.LocalEndpoint).Port}/v1/systemone");
+        store.Setting(DecisionSettings.ResumePromptKey, resumePrompt);
+        classifier.Configure(DecisionSettings.Read(store));
         runtime.Classifier = classifier;
         using var limit = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
         limit.CancelAfter(TimeSpan.FromSeconds(20));
@@ -51,7 +56,7 @@ public class StreamingTests
         await replies.WaitAsync(token);
         Assert.All(requests, request => Assert.Contains("Fix both requested items", request));
         Assert.Equal(1, completions);
-        Assert.Equal(2, chat.Messages.Count(message => message.Role == "assistant"));
+        Assert.Equal(new[] { "Fix both requested items", resumePrompt }, chat.Messages.Where(message => message.Role == "assistant").Select(message => message.Text));
     }
 
     [Trait("Category", "Integration")]

@@ -52,44 +52,56 @@ public partial class MainView
         Spacing = 4, Children = { new Label { Content = caption, Target = input }, input }
     };
 
+    private static TextBlock DecisionHeading(string text) => new() { Text = text, FontWeight = FontWeight.SemiBold };
+
+    private static TextBox DecisionText(string name, string value) => new()
+    {
+        Name = name, Text = value, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MinHeight = 76, MaxHeight = 180
+    };
+
     private Control CreateDecisionSettings(Action<Action> apply)
     {
         var options = DecisionSettings.Read(store);
-        var enabled = new CheckBox { Name = "DecisionEnabled", Content = "Enable the decision classifier", IsChecked = options.Enabled };
+        var enabled = new CheckBox { Name = "DecisionEnabled", Content = "Enable auto-resume", IsChecked = options.Enabled };
         var source = new ComboBox { Name = "DecisionSource", ItemsSource = new[] { "Host System One server", "Remote System One endpoint", "Use ACP (experimental)" }, SelectedIndex = (int)options.Source };
         var command = new TextBox { Name = "DecisionCommand", Text = options.Command, PlaceholderText = DecisionSettings.Example };
         var endpoint = new TextBox { Name = "DecisionEndpoint", Text = options.Endpoint, PlaceholderText = DecisionSettings.LocalAddress };
         var providers = AgentProviders.All;
         var provider = new ComboBox { Name = "DecisionProvider", ItemsSource = providers.Select(p => p.Name).ToArray(), SelectedIndex = Array.FindIndex(providers.ToArray(), p => p.Provider == options.Provider) };
         var model = new TextBox { Name = "DecisionModel", Text = options.Model, PlaceholderText = "Model ID from the ACP provider" };
-        var http = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "System One endpoint" }, endpoint,
-            new TextBlock { Text = "This expects a valid System One server.", Classes = { "muted" } } } };
+        var http = Field("System One endpoint", endpoint);
         var native = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "Command to run on this host" }, command,
             new SelectableTextBlock { Text = DecisionSettings.Example, TextWrapping = TextWrapping.Wrap, Classes = { "muted" } } } };
         var acp = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "ACP provider" }, provider, new TextBlock { Text = "Model ID" }, model } };
-        var criteria = new TextBox { Text = options.Criteria, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 160 };
+        var criteria = DecisionText("DecisionCriteria", options.Criteria);
+        var resumePrompt = DecisionText("DecisionResumePrompt", options.ResumePrompt);
         var timeout = Number(options.Timeout, 1, 300);
         var attempts = Number(options.Attempts, 1, 10);
         var requestLimit = Number(options.RequestLimit, 1, 50000);
         var responseLimit = Number(options.ResponseLimit, 1, 50000);
         var confidence = Number(options.Confidence, 0, 100);
         var score = Field("Minimum confidence (%)", confidence);
-        var reset = new Button { Content = "Restore decision defaults" };
+        var reset = new Button { Name = "ResetDecisionDefaults", Content = "Restore decision defaults" };
         reset.Click += (_, _) =>
         {
             criteria.Text = DecisionSettings.DefaultCriteria;
+            resumePrompt.Text = DecisionSettings.DefaultResumePrompt;
             timeout.Value = DecisionSettings.DefaultTimeout;
             attempts.Value = DecisionSettings.DefaultAttempts;
             requestLimit.Value = DecisionSettings.DefaultRequestLimit;
             responseLimit.Value = DecisionSettings.DefaultResponseLimit;
             confidence.Value = DecisionSettings.DefaultConfidence;
         };
-        var behavior = new Expander
+        var behavior = new StackPanel
         {
-            Header = "Decision criteria and limits",
-            Content = new StackPanel { Spacing = 8, Children = { Field("Continuation criteria", criteria), score,
-                Field("Timeout (seconds)", timeout), Field("Maximum continuations per turn", attempts),
-                Field("User request limit (characters)", requestLimit), Field("Agent response limit (characters)", responseLimit), reset } }
+            Spacing = 8,
+            Children = { DecisionHeading("Auto-resume"), Field("Continuation criteria", criteria), Field("Prompt sent to the agent when it resumes", resumePrompt) }
+        };
+        var limits = new StackPanel
+        {
+            Spacing = 8,
+            Children = { DecisionHeading("Limits"), score, Field("Timeout (seconds)", timeout), Field("Maximum continuations per turn", attempts),
+                Field("User request limit (characters)", requestLimit), Field("Agent response limit (characters)", responseLimit) }
         };
         void UpdateFields()
         {
@@ -99,7 +111,7 @@ public partial class MainView
         }
         source.SelectionChanged += (_, _) => UpdateFields();
         UpdateFields();
-        var save = new Button { Content = "Apply classifier settings" };
+        var save = new Button { Name = "SaveDecisionSettings", Content = "Apply classifier settings", Classes = { "accent" } };
         save.Click += (_, _) => apply(() =>
         {
             var settings = new DecisionSettings(enabled.IsChecked == true, (DecisionSource)source.SelectedIndex, command.Text?.Trim() ?? "",
@@ -115,16 +127,23 @@ public partial class MainView
                 ("decisionCommand", settings.Command), ("decisionEndpoint", settings.Endpoint), ("decisionProvider", settings.Provider.ToString()), ("decisionModel", settings.Model) })
                 store.Setting(key, value);
             store.Setting("decisionCriteria", criteria.Text?.Trim() ?? "");
+            store.Setting(DecisionSettings.ResumePromptKey, resumePrompt.Text?.Trim() ?? "");
             foreach (var (key, input, fallback) in new[] { ("decisionTimeout", timeout, DecisionSettings.DefaultTimeout),
                 ("decisionAttempts", attempts, DecisionSettings.DefaultAttempts), ("decisionRequestLimit", requestLimit, DecisionSettings.DefaultRequestLimit),
                 ("decisionResponseLimit", responseLimit, DecisionSettings.DefaultResponseLimit), ("decisionConfidence", confidence, DecisionSettings.DefaultConfidence) })
                 store.Setting(key, ((int)(input.Value ?? fallback)).ToString(System.Globalization.CultureInfo.InvariantCulture));
             ApplyDecisionClassifier();
         });
-        return new Expander
+        return new StackPanel
         {
-            Header = "Decision classifier",
-            Content = new StackPanel { Spacing = 8, Children = { enabled, source, native, http, acp, behavior, save } }
+            Name = "ClassifierSettings", Spacing = 12,
+            Children =
+            {
+                new TextBlock { Text = "Automatically resumes an agent that stops without meeting your completion criteria.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } },
+                enabled, behavior, new Separator(),
+                new StackPanel { Spacing = 8, Children = { DecisionHeading("Classifier source"), Field("Source", source), native, http, acp } },
+                new Separator(), limits, new WrapPanel { ItemSpacing = 8, Children = { save, reset } }
+            }
         };
     }
 }
