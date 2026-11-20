@@ -77,6 +77,9 @@ public sealed class Chat : Observable
     public string ProviderIcon => AgentProviders.Get(Provider).Icon;
     public string ProviderLabel => AgentProviders.Get(Provider).Label;
     public bool Archived { get; set; }
+    private bool pinned;
+    public bool Pinned { get => pinned; set => Set(ref pinned, value); }
+    public bool CanArchive => !Pinned;
     private string title = "New chat";
     public string Title { get => title; set => Set(ref title, value); }
     private string status = "Ready";

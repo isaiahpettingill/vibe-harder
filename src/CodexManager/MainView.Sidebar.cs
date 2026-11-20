@@ -17,7 +17,7 @@ public partial class MainView
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> chatAction, string? scope = null, string? colorId = null, RemoteView? remote = null, Action<string, string, bool>? move = null)
     {
-        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
+        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
         row.Tapped += (_, e) =>
         {
             if (!SidebarTouchSwipe && !chat.Archived && e.Source is Visual source && source is not Button && !source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) CollapseSidebar();
@@ -53,8 +53,27 @@ public partial class MainView
         var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 2); row.Children.Add(rename);
         var archive = new IconButton { Name = "Archive_" + chat.Id, ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
-        void UpdateAction() { archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
-        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status)) UpdateAction(); if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
+        var pin = new IconButton { Name = "Pin_" + chat.Id, Icon = "pin", ClickAllowed = () => !SidebarTouchSwipe, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" }, IsVisible = !chat.Archived };
+        pin.Click += async (_, e) =>
+        {
+            e.Handled = true;
+            if (chat.Archived) return;
+            var pinned = !chat.Pinned;
+            if (chat.Remote is { } host)
+            {
+                if (await RemoteAction(host, new() { ["method"] = "pin", ["chatId"] = chat.RemoteId ?? chat.Id, ["pinned"] = pinned }, "Could not update the pin.") is null) return;
+            }
+            else
+            {
+                store.Setting("pinned:" + chat.Id, pinned ? "1" : "0");
+                await store.FlushAsync();
+            }
+            chat.Pinned = pinned;
+            RefreshChats(); RefreshRemoteSidebar(); UpdateControls();
+        };
+        Grid.SetColumn(pin, 4); row.Children.Add(pin);
+        void UpdateAction() { pin.Label = chat.Pinned ? "Unpin chat" : "Pin chat"; pin.Classes.Set("accent", chat.Pinned); archive.IsEnabled = chat.CanArchive || ChatCanStop(chat); archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
+        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status) or nameof(Chat.Pinned)) UpdateAction(); if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
         UpdateAction();
         row.AttachedToVisualTree += (_, _) => chat.PropertyChanged += ChatChanged;
         row.DetachedFromVisualTree += (_, _) => chat.PropertyChanged -= ChatChanged;
@@ -87,7 +106,7 @@ public partial class MainView
                     if (!remoteActivity.TryGetValue(activityKey, out var chat)) remoteActivity[activityKey] = chat = new Chat { Id = id, WorkspaceId = ownerId, Provider = Enum.Parse<AgentProvider>(record["provider"]!.GetValue<string>()), Remote = host };
                     if (DateTimeOffset.TryParse(record["updated"]?.GetValue<string>(), out var updated)) chat.Updated = updated;
                     chat.SessionId = record["sessionId"]?.GetValue<string>();
-                    chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
+                    chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.Pinned = record["pinned"]?.GetValue<bool>() == true; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
                     chat.CostLabel = record["cost"]?.GetValue<string>() ?? "";
                     chat.ContextLabel = record["context"]?.GetValue<string>() ?? "";

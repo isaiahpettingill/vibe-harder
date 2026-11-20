@@ -83,6 +83,7 @@ public static class AppIcons
             "edit" => PackIconCodiconsKind.Edit,
             "code" => PackIconCodiconsKind.Code,
             "preview" => PackIconCodiconsKind.Preview,
+            "pin" => PackIconCodiconsKind.Pin,
             "archive" => PackIconCodiconsKind.Archive,
             "delete" => PackIconCodiconsKind.Trash,
             "drag" => PackIconCodiconsKind.Gripper,

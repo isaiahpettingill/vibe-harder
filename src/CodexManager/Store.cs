@@ -91,6 +91,7 @@ public sealed class Store : IDisposable
         foreach (var c in result) foreach (var a in LoadAttachments(c.Id)) c.Attachments.Add(a);
         foreach (var chat in result)
         {
+            chat.Pinned = !chat.Archived && Setting("pinned:" + chat.Id) == "1";
             var cachedStatus = Setting("status:" + chat.Id);
             chat.Status = Setting("busy:" + chat.Id) == "1" ? "Interrupted" : cachedStatus is null or "Needs permission" ? "Ready" : cachedStatus;
             chat.HasUnreadCompletion = Setting("unread:" + chat.Id) == "1";
@@ -336,6 +337,7 @@ public sealed class Store : IDisposable
     }
     public void Delete(Chat chat)
     {
+        Setting("pinned:" + chat.Id, "");
         const string sql = "DELETE FROM attachments WHERE owner_id=$id OR owner_id IN (SELECT id FROM messages WHERE chat_id=$id); DELETE FROM messages WHERE chat_id=$id; DELETE FROM chats WHERE id=$id";
         if (writer is not null) Execute(sql, ("$id", chat.Id));
         else { using var transaction = db.BeginTransaction(); Execute(sql, ("$id", chat.Id)); transaction.Commit(); }

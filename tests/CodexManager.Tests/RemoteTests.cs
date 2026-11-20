@@ -10,6 +10,29 @@ namespace CodexManager.Tests;
 public class RemoteTests
 {
     [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("second")]
+    [InlineData("third")]
+    public async Task PinnedChatsLeadTheirStackAndRejectArchive(string id)
+    {
+        var directory = Directory.CreateTempSubdirectory("pinned-chats-").FullName;
+        using var store = new Store(directory);
+        var workspace = new Workspace("w", "Workspace", directory);
+        store.Save(workspace);
+        var chats = new[] { "first", "second", "third" }.Select(key => new Chat { Id = key, WorkspaceId = workspace.Id }).ToList();
+        foreach (var chat in chats) store.Save(chat);
+        using var service = new SessionService(store, [workspace], chats, (_, _) => throw new InvalidOperationException());
+        await service.Handle(new JsonObject { ["method"] = "pin", ["chatId"] = id });
+        var list = await service.Handle(new JsonObject { ["method"] = "list" });
+        Assert.Equal(id, list!["chats"]![0]!["id"]!.GetValue<string>());
+        Assert.True(store.Chats().Single(chat => chat.Id == id).Pinned);
+        await Assert.ThrowsAsync<IOException>(() => service.Handle(new JsonObject { ["method"] = "archive", ["chatId"] = id }));
+        Assert.False(chats.Single(chat => chat.Id == id).Archived);
+        await service.Handle(new JsonObject { ["method"] = "pin", ["chatId"] = id, ["pinned"] = false });
+        Assert.False(store.Chats().Single(chat => chat.Id == id).Pinned);
+    }
+
+    [Trait("Category", "CI")]
     [Fact]
     public async Task RemoteQuestionIsListedAndAnswersAreValidatedAgainstItsSchema()
     {

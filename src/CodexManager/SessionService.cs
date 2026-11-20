@@ -69,7 +69,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
     {
         var method = request["method"]?.GetValue<string>() ?? "";
         var result = await HandleCore(request);
-        if (method is not ("archive" or "rename") && result is JsonObject summary && summary["id"] is JsonValue id && chats.FirstOrDefault(c => c.Id == id.GetValue<string>()) is { Archived: false } chat)
+        if (method is not ("archive" or "rename" or "pin") && result is JsonObject summary && summary["id"] is JsonValue id && chats.FirstOrDefault(c => c.Id == id.GetValue<string>()) is { Archived: false } chat)
             summary["preparing"] = runtime(chat, workspaces.Single(w => w.Id == chat.WorkspaceId)).IsPreparing;
         // A successful mutation reply must survive an immediate host restart.
         if (method is not ("list" or "chat") && !method.StartsWith("terminal/", StringComparison.Ordinal)) await store.FlushAsync();
@@ -96,7 +96,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         {
             var orderedWorkspaces = SidebarOrder.Apply(store, "workspaces", workspaces.Where(w => store.Setting("closed:" + w.Id) != "1"), w => w.Id);
             var orderedChats = orderedWorkspaces.SelectMany(w =>
-                SidebarOrder.Apply(store, "chats:" + w.Id, chats.Where(c => c.WorkspaceId == w.Id), c => c.Id).Where(c => !c.Archived)
+                SidebarOrder.Apply(store, "chats:" + w.Id, chats.Where(c => c.WorkspaceId == w.Id), c => c.Id).Where(c => !c.Archived).OrderByDescending(c => c.Pinned)
                     .Concat(chats.Where(c => c.WorkspaceId == w.Id && c.Archived).OrderByDescending(c => c.Updated).ThenBy(c => c.Id))).ToArray();
             // Paired devices show the same cost and token labels as this computer, including after a restart.
             foreach (var known in orderedChats) ChatUsage.Load(store, known);
@@ -203,9 +203,20 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
             Changed?.Invoke();
             return new JsonObject { ["deleted"] = true, ["warning"] = warning };
         }
+        if (method == "pin")
+        {
+            if (chat.Archived) throw new IOException("Restore this chat before pinning it.");
+            var pinned = request["pinned"]?.GetValue<bool>() ?? true;
+            store.Setting("pinned:" + chat.Id, pinned ? "1" : "0");
+            chat.Pinned = pinned;
+            await store.FlushAsync();
+            Changed?.Invoke(); return Summary(chat);
+        }
         if (method == "archive")
         {
-            chat.Archived = request["archived"]?.GetValue<bool>() ?? true;
+            var archive = request["archived"]?.GetValue<bool>() ?? true;
+            if (archive && !chat.CanArchive) throw new IOException("Unpin this chat before archiving it.");
+            chat.Archived = archive;
             store.Save(chat);
             if (chat.Archived) await runtime(chat, workspaceOwner).Stop();
             Changed?.Invoke(); return Summary(chat);
@@ -331,5 +342,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
+    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["pinned"] = c.Pinned, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
 }

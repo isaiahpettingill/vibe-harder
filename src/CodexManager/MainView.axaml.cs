@@ -545,7 +545,7 @@ public partial class MainView : UserControl
             var selected = list.SelectedItem ?? (remoteView is null && current?.WorkspaceId == id ? current : null);
             IEnumerable<Chat> ordered = remoteWorkspaces.ContainsKey(id) ? ChatsFor(id)
                 : showArchived ? chats.Where(c => c.WorkspaceId == id).OrderByDescending(c => c.Updated).ThenBy(c => c.Id) : SidebarOrder.Apply(store, "chats:" + id, chats.Where(c => c.WorkspaceId == id), c => c.Id);
-            var rows = ordered.Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).ToArray();
+            var rows = ordered.Where(c => c.Archived == showArchived && (c.Title.Contains(query, StringComparison.OrdinalIgnoreCase) || searchMatches.Contains(c.Id))).OrderByDescending(c => c.Pinned).ToArray();
             if (list.ItemsSource is not IEnumerable<Chat> previous || !previous.SequenceEqual(rows)) list.ItemsSource = rows;
             if (selected is not null && list.Items.Contains(selected)) list.SelectedItem = selected;
         }
@@ -792,7 +792,7 @@ public partial class MainView : UserControl
         UpdateComposerAction();
         ReconnectChatButton.IsEnabled = current is not null && runtimes.GetValueOrDefault(current.Id) is not { IsReconnecting: true } and not { IsLoadingHistory: true };
         ResumeChatButton.IsVisible = current?.InterruptedInput is not null && current.Busy == false && runtimes.GetValueOrDefault(current.Id) is not { IsRecovering: true };
-        ArchiveChatButton.IsEnabled = current is not null;
+        ArchiveChatButton.IsEnabled = current is { } archiveChat && (archiveChat.CanArchive || ChatCanStop(archiveChat));
         ArchiveChatButton.Icon = current is { } actionChat && ChatCanStop(actionChat) ? "stop" : "archive";
         ArchiveChatButton.Label = current is { } labeledChat && ChatCanStop(labeledChat) ? "Stop chat" : current?.Archived == true ? "Restore chat" : "Archive chat";
         DeleteChatButton.IsEnabled = current is { Busy: false };
@@ -1691,6 +1691,7 @@ public partial class MainView : UserControl
     }
     private async Task ArchiveChat(Chat chat)
     {
+        if (!chat.CanArchive) return;
         if (chat.IsRemote) { await RemoteArchiveChat(chat); return; }
         if (ReferenceEquals(current, chat)) pageLoad?.Cancel();
         chat.Archived = !chat.Archived; store.Save(chat);
