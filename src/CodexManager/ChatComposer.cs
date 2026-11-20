@@ -26,6 +26,7 @@ public sealed class ChatComposer : Border
     public IconButton SpeakButton { get; }
     private CancellationTokenSource? listening;
     public IconButton SendButton { get; }
+    public IconButton ScheduleButton { get; }
     public event Action<Attachment>? OpenAttachment;
     public event Action<Attachment>? RemoveAttachment;
 
@@ -71,7 +72,8 @@ public sealed class ChatComposer : Border
         AttachedToVisualTree += (_, _) => { SpeechInput.Changed += SpeechChanged; SpeechChanged(); };
         DetachedFromVisualTree += (_, _) => SpeechInput.Changed -= SpeechChanged;
         SendButton = new IconButton { Name = remote ? "RemoteSend" : "SendButton", Icon = "send", Label = "Send", Classes = { "accent" } };
-        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom, Spacing = 2, Children = { SpeakButton, AttachButton, SendButton } };
+        ScheduleButton = new IconButton { Name = "ScheduleSend", Icon = "schedule", Label = "Schedule send", IsVisible = !remote && !OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser() };
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Bottom, Spacing = 2, Children = { SpeakButton, AttachButton, ScheduleButton, SendButton } };
         Grid.SetColumn(actions, 1);
         Child = new StackPanel
         {
@@ -124,5 +126,5 @@ public sealed class ChatComposer : Border
         return chip;
     }
     // XAML name scopes are sealed after loading, so hosts resolve the parts' names here.
-    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, AttachmentList, Editor, ConfigOptions, OptionsSummary, SpeakButton, AttachButton, SendButton }.FirstOrDefault(c => c.Name == name);
+    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, AttachmentList, Editor, ConfigOptions, OptionsSummary, SpeakButton, AttachButton, ScheduleButton, SendButton }.FirstOrDefault(c => c.Name == name);
 }

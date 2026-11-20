@@ -76,6 +76,7 @@ public static class AppIcons
             "keyboard" => PackIconCodiconsKind.KeyboardTab,
             "collapse" => PackIconCodiconsKind.FoldUp,
             "send" => PackIconCodiconsKind.ArrowUp,
+            "schedule" => PackIconCodiconsKind.History,
             "stop" => PackIconCodiconsKind.DebugStop,
             "add" => PackIconCodiconsKind.Add,
             "remove" => PackIconCodiconsKind.Close,

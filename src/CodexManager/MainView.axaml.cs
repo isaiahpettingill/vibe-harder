@@ -187,6 +187,7 @@ public partial class MainView : UserControl
         SlashCommands.PointerReleased += SlashCommandClicked;
         chatComposer.AttachButton.Click += AttachFiles;
         SendButton.Click += SendClick;
+        chatComposer.ScheduleButton.Click += (_, _) => OpenSchedule();
         chatComposer.OpenAttachment += OpenAttachment;
         chatComposer.RemoveAttachment += RemoveAttachment;
         historyNavigation = new TranscriptNavigation(MessageList, HistoryNavigation, () => viewingHistory, BrowseHistory);
@@ -208,6 +209,7 @@ public partial class MainView : UserControl
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
+        if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser()) remoteSessions.Schedules.Start();
         remoteSessions.Changed += BuildWorkspaceTree;
         HostTerminals.Changed += HostTerminalsChanged;
         // Paired phones that registered for UnifiedPush get the same notifications.
@@ -806,6 +808,7 @@ public partial class MainView : UserControl
     {
         TranscriptPanel.SetShowProgress(MessageList, !viewingHistory && current is { Busy: true, NeedsPermission: false, NeedsLogin: false } && !ComposerLoading);
         var stop = ComposerShowsStop;
+        chatComposer.ScheduleButton.IsEnabled = current is { IsRemote: false, Archived: false };
         SendButton.Icon = ComposerLoading ? "connecting" : stop ? "stop" : "send";
         SendButton.Label = ComposerLoading ? "Queue message (Enter)" : stop ? "Stop" : current?.Busy == true ? "Queue message (Enter)" : "Send (Enter)";
         var runtime = current is null ? null : runtimes.GetValueOrDefault(current.Id);
@@ -1931,7 +1934,7 @@ public partial class MainView : UserControl
         if (closing) { e.Cancel = !shutdownComplete; return; }
         AppDiagnostics.RecoveryRequested -= RecoverAfterError;
         if (restartingForUpdate) store.Setting("updateResume", string.Join('\n', chats.Where(c => c.Busy).Select(c => c.Id)));
-        e.Cancel = true; closing = true; HostTerminals.Changed -= HostTerminalsChanged; AppTheme.Changed -= UpdateBreakIllustration; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop(); healthTimer.Stop();
+        e.Cancel = true; closing = true; remoteSessions.Schedules.Dispose(); HostTerminals.Changed -= HostTerminalsChanged; AppTheme.Changed -= UpdateBreakIllustration; DisposePresentationSleep(); discoveryLifetime.Cancel(); saveTimer.Stop(); healthTimer.Stop();
         settingsWindow?.Close();
         var errors = new List<Exception>();
         async Task Cleanup(Func<Task> action)
