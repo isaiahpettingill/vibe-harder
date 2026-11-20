@@ -15,6 +15,8 @@ public sealed class ChatComposer : Border
     public ListBox SlashCommands { get; }
     public Expander QueuePanel { get; }
     public StackPanel QueueItems { get; } = new();
+    public Expander ScheduledPanel { get; }
+    public StackPanel ScheduledItems { get; } = new() { Name = "ScheduledItems", Spacing = 4 };
     public TextBlock AttachmentError { get; } = new() { TextWrapping = TextWrapping.Wrap, FontSize = 11, IsVisible = false };
     public ItemsControl AttachmentList { get; }
     public ComposerEditor Editor { get; }
@@ -42,6 +44,11 @@ public sealed class ChatComposer : Border
         {
             Name = remote ? "RemoteQueuePanel" : "QueuePanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch,
             Content = new ScrollViewer { Content = QueueItems, MaxHeight = 150, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
+        };
+        ScheduledPanel = new Expander
+        {
+            Name = "ScheduledPanel", IsVisible = false, IsExpanded = true, HorizontalAlignment = HorizontalAlignment.Stretch,
+            Content = new ScrollViewer { Content = ScheduledItems, MaxHeight = 150, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }
         };
         QueueItems.Name = remote ? "RemoteQueueItems" : "QueueItems";
         AttachmentError.Bind(TextBlock.ForegroundProperty, this.GetResourceObservable("AppMuted"));
@@ -80,7 +87,7 @@ public sealed class ChatComposer : Border
             Spacing = 6,
             Children =
             {
-                new SlashCommandOverlay(Editor, SlashCommands), QueuePanel, AttachmentError, AttachmentList, Editor,
+                new SlashCommandOverlay(Editor, SlashCommands), QueuePanel, ScheduledPanel, AttachmentError, AttachmentList, Editor,
                 new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 6, Children = { ConfigOptions, OptionsSummary, actions } }
             }
         };
@@ -126,5 +133,5 @@ public sealed class ChatComposer : Border
         return chip;
     }
     // XAML name scopes are sealed after loading, so hosts resolve the parts' names here.
-    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, AttachmentList, Editor, ConfigOptions, OptionsSummary, SpeakButton, AttachButton, ScheduleButton, SendButton }.FirstOrDefault(c => c.Name == name);
+    public Control? Part(string name) => new Control[] { this, SlashCommands, QueuePanel, QueueItems, ScheduledPanel, ScheduledItems, AttachmentList, Editor, ConfigOptions, OptionsSummary, SpeakButton, AttachButton, ScheduleButton, SendButton }.FirstOrDefault(c => c.Name == name);
 }

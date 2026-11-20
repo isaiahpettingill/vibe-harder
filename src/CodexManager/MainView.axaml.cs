@@ -187,7 +187,6 @@ public partial class MainView : UserControl
         SlashCommands.PointerReleased += SlashCommandClicked;
         chatComposer.AttachButton.Click += AttachFiles;
         SendButton.Click += SendClick;
-        chatComposer.ScheduleButton.Click += (_, _) => OpenSchedule();
         chatComposer.OpenAttachment += OpenAttachment;
         chatComposer.RemoveAttachment += RemoveAttachment;
         historyNavigation = new TranscriptNavigation(MessageList, HistoryNavigation, () => viewingHistory, BrowseHistory);
@@ -209,7 +208,7 @@ public partial class MainView : UserControl
         foreach (var savedChat in chats) savedChat.RetainHistory = false;
         InitializePresentationSleep();
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
-        if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser()) remoteSessions.Schedules.Start();
+        if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser()) InitializeSchedule();
         remoteSessions.Changed += BuildWorkspaceTree;
         HostTerminals.Changed += HostTerminalsChanged;
         // Paired phones that registered for UnifiedPush get the same notifications.
@@ -733,6 +732,7 @@ public partial class MainView : UserControl
         UpdateTray();
         UpdateSlashCommands();
         UpdateQueue();
+        UpdateScheduledSends();
         ConfigOptionsPanel.IsEnabled = current is not null && runtimes.GetValueOrDefault(current.Id) is { IsConnected: true, IsConfiguring: false, IsReconnecting: false, IsLoadingHistory: false };
         if (!ReferenceEquals(configChat, current) || configVersion != (current?.ConfigVersion ?? -1))
         {

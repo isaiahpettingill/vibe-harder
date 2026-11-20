@@ -21,6 +21,28 @@ public class ScheduledSendTests
     }
 
     [Theory]
+    [InlineData(1, 62, 2, true)]
+    [InlineData(2, 10, 6, false)]
+    public void DraftSurvivesReloadWithoutBecomingAScheduledSend(int repeat, int days, int hours, bool limitDaily)
+    {
+        var path = Directory.CreateTempSubdirectory("scheduled-send-draft-").FullName;
+        try
+        {
+            var draft = new ScheduledSendDraft(new DateTime(2026, 10, 5), TimeSpan.FromHours(14), (SendRepeat)repeat, days, hours, limitDaily, null);
+            using (var store = new Store(path))
+            using (var scheduler = new ScheduledSends(store, [], [], (_, _) => throw new InvalidOperationException()))
+                scheduler.SaveDraft("chat-a", draft);
+
+            using var reopened = new Store(path);
+            using var reloaded = new ScheduledSends(reopened, [], [], (_, _) => throw new InvalidOperationException());
+            Assert.Equal(draft, reloaded.DraftFor("chat-a"));
+            Assert.Null(reloaded.DraftFor("chat-b"));
+            Assert.Empty(reloaded.ForChat("chat-a"));
+        }
+        finally { RemoveTestDirectory(path); }
+    }
+
+    [Theory]
     [InlineData("chat-a", "chat-b", "Prepare the weekly report")]
     [InlineData("chat-b", "chat-a", "Review the next release")]
     public void ReloadKeepsInputBoundToItsChatAndCancellationPersists(string target, string other, string text)
@@ -46,11 +68,13 @@ public class ScheduledSendTests
             using var reloaded = new ScheduledSends(reopened, [], [], (_, _) => throw new InvalidOperationException());
             Assert.Empty(reloaded.ForChat(target));
         }
-        finally
-        {
-            using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(path, "sessions.db") }.ToString());
-            SqliteConnection.ClearPool(connection);
-            Directory.Delete(path, recursive: true);
-        }
+        finally { RemoveTestDirectory(path); }
+    }
+
+    private static void RemoveTestDirectory(string path)
+    {
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = Path.Combine(path, "sessions.db") }.ToString());
+        SqliteConnection.ClearPool(connection);
+        Directory.Delete(path, recursive: true);
     }
 }

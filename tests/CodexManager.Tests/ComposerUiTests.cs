@@ -11,6 +11,74 @@ public class ComposerUiTests
 {
     [Trait("Category", "Integration")]
     [AvaloniaTheory]
+    [InlineData(1, 4, 1100)]
+    [InlineData(2, 6, 640)]
+    public async Task ScheduleSetupSurvivesEditingAndSavedSendIsVisibleInChat(int repeat, int interval, int width)
+    {
+        var directory = Directory.CreateTempSubdirectory("vibe-schedule-ui-").FullName;
+        var previous = Environment.GetEnvironmentVariable("CODEX_MANAGER_DATA");
+        Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", directory);
+        using (var store = new Store(directory))
+        {
+            store.Save(new Workspace("w", "Workspace", directory));
+            store.Save(new Chat { Id = "chat", WorkspaceId = "w" });
+            store.Setting(AgentProviders.CommandKey(AgentProvider.Codex, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\"");
+        }
+        var window = new MainWindow { Width = width }; window.Show();
+        try
+        {
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
+            var clock = UiTests.Named<Button>(window, "ScheduleSend");
+            var panel = UiTests.Named<Expander>(window, "ScheduledPanel");
+            var flyout = Assert.IsType<Flyout>(clock.Flyout);
+            var start = DateTime.Today.AddDays(2);
+            var end = start.AddDays(7);
+            var time = TimeSpan.FromHours(10);
+            composer.Text = "Before editing";
+            flyout.ShowAt(clock);
+            var fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(flyout.Content).Content);
+            Assert.True(flyout.IsOpen);
+            fields.Children.OfType<ComboBox>().Single().SelectedIndex = repeat;
+            fields.Children.OfType<NumericUpDown>().Single().Value = interval;
+            fields.Children.OfType<CalendarDatePicker>().First().SelectedDate = start;
+            fields.Children.OfType<CalendarDatePicker>().Last().SelectedDate = end;
+            fields.Children.OfType<TimePicker>().Single().SelectedTime = time;
+            fields.Children.OfType<CheckBox>().Single().IsChecked = true;
+            fields.Children.OfType<WrapPanel>().Single().Children.OfType<CheckBox>().First().IsChecked = false;
+            flyout.Hide();
+
+            composer.Text = "After editing";
+            flyout.ShowAt(clock);
+            fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(flyout.Content).Content);
+            Assert.Equal(repeat, fields.Children.OfType<ComboBox>().Single().SelectedIndex);
+            Assert.Equal(interval, fields.Children.OfType<NumericUpDown>().Single().Value);
+            Assert.Equal(start, fields.Children.OfType<CalendarDatePicker>().First().SelectedDate);
+            Assert.Equal(end, fields.Children.OfType<CalendarDatePicker>().Last().SelectedDate);
+            Assert.Equal(time, fields.Children.OfType<TimePicker>().Single().SelectedTime);
+            Assert.True(fields.Children.OfType<CalendarDatePicker>().Last().IsVisible);
+            Assert.False(fields.Children.OfType<WrapPanel>().Single().Children.OfType<CheckBox>().First().IsChecked);
+            fields.Children.OfType<Button>().Single(b => b.Name == "ConfirmScheduleSend").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+
+            Assert.False(flyout.IsOpen);
+            Assert.True(panel.IsVisible);
+            var row = Assert.IsType<Grid>(Assert.Single(UiTests.Named<StackPanel>(window, "ScheduledItems").Children));
+            Assert.Contains(row.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>(), item => item.Text == "After editing");
+            flyout.ShowAt(clock);
+            fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(flyout.Content).Content);
+            Assert.Equal(0, fields.Children.OfType<ComboBox>().Single().SelectedIndex);
+            flyout.Hide();
+            row.Children.OfType<IconButton>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.False(panel.IsVisible);
+        }
+        finally
+        {
+            window.Close(); await Task.Delay(200);
+            Environment.SetEnvironmentVariable("CODEX_MANAGER_DATA", previous);
+        }
+    }
+
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task RunningChatActionStopsWithoutArchiving(bool header)

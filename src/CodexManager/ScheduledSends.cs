@@ -32,6 +32,7 @@ internal sealed record SendSchedule(DateTime Start, SendRepeat Repeat, int Days,
 internal sealed record ScheduledSend(string Id, string ChatId, PendingInput Input, SendSchedule Schedule, DateTimeOffset Due);
 
 [JsonSerializable(typeof(ScheduledSend[]))]
+[JsonSerializable(typeof(ScheduledSendDraft))]
 internal partial class ScheduledSendJson : JsonSerializerContext;
 
 internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, IList<Chat> chats, Func<Chat, Workspace, ChatRuntime> runtime) : IDisposable
@@ -41,6 +42,8 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
     private ScheduledSend[]? entries;
     private ScheduledSend[] Entries => entries ??= JsonSerializer.Deserialize(store.Setting(Key) ?? "[]", ScheduledSendJson.Default.ScheduledSendArray) ?? [];
 
+    public event Action? Changed;
+
     public void Start()
     {
         timer.Tick += (_, _) => Dispatch();
@@ -48,6 +51,14 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
     }
 
     public IEnumerable<ScheduledSend> ForChat(string id) => Entries.Where(send => send.ChatId == id).OrderBy(send => send.Due);
+
+    public ScheduledSendDraft? DraftFor(string chatId) => store.Setting(DraftKey(chatId)) is { Length: > 0 } value
+        ? JsonSerializer.Deserialize(value, ScheduledSendJson.Default.ScheduledSendDraft) : null;
+
+    public void SaveDraft(string chatId, ScheduledSendDraft? draft) => store.Setting(DraftKey(chatId), draft is null
+        ? "" : JsonSerializer.Serialize(draft, ScheduledSendJson.Default.ScheduledSendDraft));
+
+    private static string DraftKey(string chatId) => "scheduledSendDraft:" + chatId;
 
     public bool Add(string chatId, PendingInput input, SendSchedule schedule)
     {
@@ -62,6 +73,7 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
     {
         store.Setting(Key, JsonSerializer.Serialize(updated, ScheduledSendJson.Default.ScheduledSendArray));
         entries = updated;
+        Changed?.Invoke();
     }
 
     private void Dispatch()

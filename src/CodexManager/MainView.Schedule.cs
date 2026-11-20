@@ -5,24 +5,92 @@ namespace CodexManager;
 
 public partial class MainView
 {
-    private void OpenSchedule()
+    private Chat? scheduledChat;
+    private bool scheduledSendsChanged;
+
+    private void UpdateScheduledSends()
     {
-        if (current is not { IsRemote: false, Archived: false } chat) return;
+        if (!scheduledSendsChanged && ReferenceEquals(scheduledChat, current)) return;
+        scheduledSendsChanged = false;
+        scheduledChat = current;
+        var panel = chatComposer.ScheduledPanel;
+        var rows = chatComposer.ScheduledItems;
+        rows.Children.Clear();
         var schedules = remoteSessions.Schedules;
-        var initial = DateTimeOffset.Now.AddHours(1);
+        var pending = current is { IsRemote: false } chat && chatComposer.ScheduleButton.IsVisible ? schedules.ForChat(chat.Id).ToArray() : [];
+        panel.IsVisible = pending.Length > 0;
+        panel.Header = $"Scheduled sends ({pending.Length})";
+        if (pending.Length == 0) return;
+        var dayOrder = ScheduleDayOrder();
+        foreach (var send in pending)
+        {
+            var preview = send.Input.Text.Split('\n')[0];
+            if (preview.Length == 0) preview = send.Input.Attachments.FirstOrDefault()?.Name ?? "";
+            var frequency = send.Schedule.Repeat switch
+            {
+                SendRepeat.Daily => $"Daily at {send.Schedule.Start:t}",
+                SendRepeat.Hourly => $"Every {send.Schedule.Hours} hours",
+                _ => "One-time send"
+            };
+            if (send.Schedule.Repeat != SendRepeat.Once)
+                frequency += " · " + string.Join(", ", dayOrder.Where(day => (send.Schedule.Days & (1 << (int)day)) != 0).Select(day => day.ToString()[..3]));
+            if (send.Schedule.End is { } last) frequency += $" · Ends {last:d}";
+            var details = new StackPanel
+            {
+                Children = { new TextBlock { Text = preview, TextTrimming = TextTrimming.CharacterEllipsis },
+                    new TextBlock { Text = $"{send.Due.ToLocalTime():g} · {frequency}", TextWrapping = TextWrapping.Wrap, FontSize = 11, Classes = { "muted" } } }
+            };
+            var cancel = new IconButton { Name = "CancelScheduledSend", Icon = "remove", Label = "Cancel scheduled send" };
+            cancel.Click += (_, _) =>
+            {
+                try { schedules.Remove(send.Id); }
+                catch (Exception ex) { StatusText.Text = ex.Message; }
+            };
+            Grid.SetColumn(cancel, 1);
+            rows.Children.Add(new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 4, Children = { details, cancel } });
+        }
+    }
+
+    private void InitializeSchedule()
+    {
+        remoteSessions.Schedules.Changed += () =>
+        {
+            scheduledSendsChanged = true;
+            if (!closing && !uiSleeping) UpdateScheduledSends();
+        };
+        remoteSessions.Schedules.Start();
+        var flyout = new Flyout();
+        Action? saveDraft = null;
+        flyout.Opening += (_, _) =>
+        {
+            if (current is { IsRemote: false, Archived: false } chat)
+                (flyout.Content, saveDraft) = CreateScheduleEditor(chat, flyout.Hide);
+        };
+        flyout.Closed += (_, _) =>
+        {
+            saveDraft?.Invoke();
+            saveDraft = null;
+            flyout.Content = null;
+        };
+        chatComposer.ScheduleButton.Flyout = flyout;
+    }
+
+    private (Control Content, Action SaveDraft) CreateScheduleEditor(Chat chat, Action close)
+    {
+        var schedules = remoteSessions.Schedules;
+        var initial = schedules.DraftFor(chat.Id) ?? ScheduledSendDraft.New(DateTime.Now);
         var date = new CalendarDatePicker { SelectedDate = initial.Date };
-        var time = new TimePicker { SelectedTime = new TimeSpan(initial.Hour, initial.Minute, 0) };
+        var time = new TimePicker { SelectedTime = initial.Time };
         var zone = TimeZoneInfo.Local;
-        var repeat = new ComboBox { ItemsSource = new[] { "Once", "Daily on selected days", "Every X hours on selected days" }, SelectedIndex = 0 };
-        var hours = new NumericUpDown { Minimum = 1, Maximum = int.MaxValue, Value = 2, FormatString = "0", Increment = 1 };
-        var end = new CalendarDatePicker();
-        var limitDaily = new CheckBox { Content = "End on a date" };
+        var repeat = new ComboBox { ItemsSource = new[] { "Once", "Daily on selected days", "Every X hours on selected days" }, SelectedIndex = (int)initial.Repeat };
+        var hours = new NumericUpDown { Minimum = 1, Maximum = int.MaxValue, Value = initial.Hours, FormatString = "0", Increment = 1 };
+        var end = new CalendarDatePicker { SelectedDate = initial.End };
+        var limitDaily = new CheckBox { Content = "End on a date", IsChecked = initial.LimitDaily };
         var endLabel = new TextBlock { Text = "Last day (inclusive)" };
-        var firstDay = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
-        var dayOrder = Enumerable.Range(0, 7).Select(i => (DayOfWeek)(((int)firstDay + i) % 7)).ToArray();
+        var dayOrder = ScheduleDayOrder();
         var days = dayOrder.Select(day =>
         {
-            var check = new CheckBox { Content = day.ToString()[..3], IsChecked = true };
+            var check = new CheckBox { Content = day.ToString()[..3], IsChecked = (initial.Days & (1 << (int)day)) != 0 };
             Avalonia.Automation.AutomationProperties.SetName(check, day.ToString());
             return check;
         }).ToArray();
@@ -43,53 +111,28 @@ public partial class MainView
         UpdateMode();
         var error = new TextBlock { TextWrapping = TextWrapping.Wrap };
         Avalonia.Automation.AutomationProperties.SetLiveSetting(error, Avalonia.Automation.AutomationLiveSetting.Polite);
-        var saved = new StackPanel { Spacing = 8 };
-        var scheduled = new Expander { Content = saved };
-        void Refresh()
+        int SelectedDays() => Enumerable.Range(0, days.Length).Where(i => days[i].IsChecked == true).Sum(i => 1 << (int)dayOrder[i]);
+        var submitted = false;
+        void SaveDraft()
         {
-            saved.Children.Clear();
-            var pending = schedules.ForChat(chat.Id).ToArray();
-            scheduled.Header = $"Scheduled sends ({pending.Length})";
-            scheduled.IsVisible = pending.Length > 0;
-            foreach (var send in pending)
-            {
-                var preview = send.Input.Text.Split('\n')[0];
-                if (preview.Length == 0) preview = send.Input.Attachments.FirstOrDefault()?.Name ?? "";
-                var row = new StackPanel { Spacing = 2 };
-                row.Children.Add(new TextBlock { Text = preview, TextTrimming = TextTrimming.CharacterEllipsis });
-                var frequency = send.Schedule.Repeat switch
-                {
-                    SendRepeat.Daily => $"Daily at {send.Schedule.Start:t}",
-                    SendRepeat.Hourly => $"Every {send.Schedule.Hours} hours",
-                    _ => "One-time send"
-                };
-                if (send.Schedule.Repeat != SendRepeat.Once)
-                    frequency += " · " + string.Join(", ", dayOrder.Where(day => (send.Schedule.Days & (1 << (int)day)) != 0).Select(day => day.ToString()[..3]));
-                if (send.Schedule.End is { } last) frequency += $" · Ends {last:d}";
-                row.Children.Add(new TextBlock { Text = frequency, TextWrapping = TextWrapping.Wrap });
-                row.Children.Add(new TextBlock { Text = $"Next send: {send.Due.ToLocalTime():g}" });
-                var cancel = new Button { Content = "Cancel scheduled send" };
-                cancel.Click += (_, _) =>
-                {
-                    try { schedules.Remove(send.Id); Refresh(); }
-                    catch (Exception ex) { error.Text = ex.Message; }
-                };
-                row.Children.Add(cancel);
-                saved.Children.Add(row);
-            }
+            if (submitted) return;
+            var draft = new ScheduledSendDraft(date.SelectedDate, time.SelectedTime, (SendRepeat)repeat.SelectedIndex,
+                SelectedDays(), hours.Value, limitDaily.IsChecked == true, end.SelectedDate);
+            if (draft == initial) return;
+            try { schedules.SaveDraft(chat.Id, draft); }
+            catch (Exception ex) { StatusText.Text = ex.Message; }
         }
-        var add = new Button { Content = "Schedule send", Classes = { "accent" } };
+        var add = new Button { Name = "ConfirmScheduleSend", Content = "Schedule send", Classes = { "accent" } };
         var fields = new StackPanel
         {
             Width = 280, Spacing = 6,
-            Children = { new TextBlock { Text = "Schedule message", FontWeight = FontWeight.SemiBold }, scheduled, repeat,
+            Children = { new TextBlock { Text = "Schedule message", FontWeight = FontWeight.SemiBold }, repeat,
                 new TextBlock { Text = $"Start date and time ({zone.Id})", TextWrapping = TextWrapping.Wrap }, date, time,
                 dayLabel, dayPanel, hourLabel, hours, limitDaily, endLabel, end, error, add }
         };
-        var flyout = new Flyout { Content = new ScrollViewer { MaxHeight = 440, Content = fields } };
         add.Click += (_, _) =>
         {
-            if (!ReferenceEquals(current, chat)) { flyout.Hide(); return; }
+            if (!ReferenceEquals(current, chat)) { close(); return; }
             error.Text = null;
             try
             {
@@ -98,7 +141,7 @@ public partial class MainView
                 if (text.Length == 0 && attachments.Length == 0) { error.Text = "Enter a message or add an attachment first."; return; }
                 if (date.SelectedDate is not { } start || time.SelectedTime is not { } at || repeat.SelectedIndex < 0)
                 { error.Text = "Select a start date, time, and repeat option."; return; }
-                var mask = Enumerable.Range(0, days.Length).Where(i => days[i].IsChecked == true).Sum(i => 1 << (int)dayOrder[i]);
+                var mask = SelectedDays();
                 var mode = (SendRepeat)repeat.SelectedIndex;
                 if (mode != SendRepeat.Once && mask == 0) { error.Text = "Select at least one day."; return; }
                 var until = end.IsVisible && end.SelectedDate is { } last ? DateOnly.FromDateTime(last) : (DateOnly?)null;
@@ -110,13 +153,19 @@ public partial class MainView
                 { error.Text = "Enter a whole number of hours and select an end date."; return; }
                 var schedule = new SendSchedule(start.Date + at, mode, mask, (int)(hours.Value ?? 0), until, zone.Id);
                 if (!schedules.Add(chat.Id, new(text, attachments), schedule)) { error.Text = "Choose settings with at least one future send."; return; }
+                submitted = true;
+                schedules.SaveDraft(chat.Id, null);
                 Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
-                flyout.Hide();
+                close();
             }
             catch (Exception ex) { error.Text = ex.Message; }
         };
-        try { Refresh(); }
-        catch (Exception ex) { error.Text = ex.Message; }
-        flyout.ShowAt(chatComposer.ScheduleButton);
+        return (new ScrollViewer { MaxHeight = 440, Content = fields }, SaveDraft);
+    }
+
+    private static DayOfWeek[] ScheduleDayOrder()
+    {
+        var first = (int)System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
+        return Enumerable.Range(0, 7).Select(i => (DayOfWeek)((first + i) % 7)).ToArray();
     }
 }
