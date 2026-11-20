@@ -40,6 +40,21 @@ public partial class MainView
         // Status, usage, and pull requests share one line so a chat row stays two lines tall.
         var meta = new WrapPanel { Orientation = Orientation.Horizontal };
         meta.Children.Add(state); meta.Children.Add(cost);
+        var scheduled = new StackPanel { Name = "ScheduledBadge_" + chat.Id, Orientation = Orientation.Horizontal, Spacing = 3,
+            Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var countLabel = new TextBlock { FontSize = 11, Classes = { "muted" } };
+        scheduled.Children.Add(AppIcons.Create("schedule", 11)); scheduled.Children.Add(countLabel);
+        void UpdateScheduleBadge()
+        {
+            var count = chat.IsRemote ? chat.RemoteScheduledSendCount : remoteSessions.Schedules.CountFor(chat.Id);
+            scheduled.IsVisible = count > 0;
+            countLabel.Text = count.ToString();
+            var label = count == 1 ? "1 scheduled send" : $"{count} scheduled sends";
+            ToolTip.SetTip(scheduled, label);
+            Avalonia.Automation.AutomationProperties.SetName(scheduled, label);
+        }
+        void ScheduleChanged(string chatId) { if (chatId == chat.Id) UpdateScheduleBadge(); }
+        UpdateScheduleBadge(); meta.Children.Add(scheduled);
         var pullRequests = new StackPanel { Orientation = Orientation.Horizontal, Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
         void UpdatePullRequests()
         {
@@ -74,10 +89,25 @@ public partial class MainView
         Grid.SetColumn(pin, 1); row.Children.Add(pin);
         row.Children.Add(rename);
         void UpdateAction() { pin.Label = chat.Pinned ? "Unpin chat" : "Pin chat"; pin.Classes.Set("accent", chat.Pinned); archive.IsEnabled = chat.CanArchive || ChatCanStop(chat); archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
-        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e) { if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status) or nameof(Chat.Pinned)) UpdateAction(); if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage(); if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests(); }
+        void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status) or nameof(Chat.Pinned)) UpdateAction();
+            if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage();
+            if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests();
+            if (e.PropertyName == nameof(Chat.RemoteScheduledSendCount)) UpdateScheduleBadge();
+        }
         UpdateAction();
-        row.AttachedToVisualTree += (_, _) => chat.PropertyChanged += ChatChanged;
-        row.DetachedFromVisualTree += (_, _) => chat.PropertyChanged -= ChatChanged;
+        row.AttachedToVisualTree += (_, _) =>
+        {
+            chat.PropertyChanged += ChatChanged;
+            if (!chat.IsRemote) remoteSessions.Schedules.Changed += ScheduleChanged;
+            UpdateScheduleBadge();
+        };
+        row.DetachedFromVisualTree += (_, _) =>
+        {
+            chat.PropertyChanged -= ChatChanged;
+            if (!chat.IsRemote) remoteSessions.Schedules.Changed -= ScheduleChanged;
+        };
         archive.Click += async (_, e) => { e.Handled = true; await chatAction(); }; Grid.SetColumn(archive, 4); row.Children.Add(archive);
         ToolTip.SetTip(row, chat.ProviderLabel); return chat.Archived ? ArchiveSelectableRow(row, chat, colorId ?? chat.Id, remote) : row;
     }
@@ -109,6 +139,7 @@ public partial class MainView
                     chat.SessionId = record["sessionId"]?.GetValue<string>();
                     chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.Pinned = record["pinned"]?.GetValue<bool>() == true; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
+                    chat.RemoteScheduledSendCount = record["scheduled"]?.GetValue<int>() ?? 0;
                     chat.CostLabel = record["cost"]?.GetValue<string>() ?? "";
                     chat.ContextLabel = record["context"]?.GetValue<string>() ?? "";
                     if (chat.Title.Contains(SearchBox.Text ?? "", StringComparison.OrdinalIgnoreCase)) rows.Add(chat);

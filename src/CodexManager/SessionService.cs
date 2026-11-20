@@ -342,5 +342,5 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private static JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["pinned"] = c.Pinned, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
+    private JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["pinned"] = c.Pinned, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["scheduled"] = Schedules.CountFor(c.Id), ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
 }

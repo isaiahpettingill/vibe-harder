@@ -80,6 +80,8 @@ public sealed class Chat : Observable
     private bool pinned;
     public bool Pinned { get => pinned; set => Set(ref pinned, value); }
     public bool CanArchive => !Pinned;
+    private int remoteScheduledSendCount;
+    internal int RemoteScheduledSendCount { get => remoteScheduledSendCount; set => Set(ref remoteScheduledSendCount, value); }
     private string title = "New chat";
     public string Title { get => title; set => Set(ref title, value); }
     private string status = "Ready";

@@ -42,7 +42,10 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
     private ScheduledSend[]? entries;
     private ScheduledSend[] Entries => entries ??= JsonSerializer.Deserialize(store.Setting(Key) ?? "[]", ScheduledSendJson.Default.ScheduledSendArray) ?? [];
 
-    public event Action? Changed;
+    private ILookup<string, ScheduledSend>? byChat;
+    private ILookup<string, ScheduledSend> ByChat => byChat ??= Entries.ToLookup(send => send.ChatId);
+
+    public event Action<string>? Changed;
 
     public void Start()
     {
@@ -50,7 +53,8 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
         timer.Start();
     }
 
-    public IEnumerable<ScheduledSend> ForChat(string id) => Entries.Where(send => send.ChatId == id).OrderBy(send => send.Due);
+    public IEnumerable<ScheduledSend> ForChat(string id) => ByChat[id].OrderBy(send => send.Due);
+    public int CountFor(string id) => ByChat[id].Count();
 
     public ScheduledSendDraft? DraftFor(string chatId) => store.Setting(DraftKey(chatId)) is { Length: > 0 } value
         ? JsonSerializer.Deserialize(value, ScheduledSendJson.Default.ScheduledSendDraft) : null;
@@ -63,7 +67,7 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
     public bool Add(string chatId, PendingInput input, SendSchedule schedule)
     {
         if (schedule.Next(DateTimeOffset.UtcNow) is not { } due) return false;
-        Save([.. Entries, new(Guid.NewGuid().ToString("N"), chatId, input, schedule, due)]);
+        Save(chatId, [.. Entries, new(Guid.NewGuid().ToString("N"), chatId, input, schedule, due)]);
         return true;
     }
 
@@ -74,17 +78,22 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
         var due = schedule == entry.Schedule ? entry.Due : schedule.Next(DateTimeOffset.UtcNow);
         if (due is null) return false;
         var updated = entry with { Input = entry.Input with { Text = text }, Schedule = schedule, Due = due.Value };
-        Save(Entries.Select(send => send.Id == id ? updated : send).ToArray());
+        Save(entry.ChatId, Entries.Select(send => send.Id == id ? updated : send).ToArray());
         return true;
     }
 
-    public void Remove(string id) => Save(Entries.Where(send => send.Id != id).ToArray());
+    public void Remove(string id)
+    {
+        if (Entries.FirstOrDefault(send => send.Id == id) is { } send)
+            Save(send.ChatId, Entries.Where(entry => entry.Id != id).ToArray());
+    }
 
-    private void Save(ScheduledSend[] updated)
+    private void Save(string chatId, ScheduledSend[] updated)
     {
         store.Setting(Key, JsonSerializer.Serialize(updated, ScheduledSendJson.Default.ScheduledSendArray));
         entries = updated;
-        Changed?.Invoke();
+        byChat = null;
+        Changed?.Invoke(chatId);
     }
 
     private void Dispatch()
@@ -105,7 +114,7 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
                 if (active.IsRecovering || active.IsReconnecting || active.IsConfiguring || active.IsChangingHistory) continue;
                 // Advance before handing off so a host restart cannot replay the same send.
                 var next = send.Schedule.Repeat == SendRepeat.Once ? null : send.Schedule.Next(now);
-                Save(Entries.SelectMany(entry => entry.Id != send.Id ? new[] { entry } : next is { } due ? [entry with { Due = due }] : []).ToArray());
+                Save(send.ChatId, Entries.SelectMany(entry => entry.Id != send.Id ? new[] { entry } : next is { } due ? [entry with { Due = due }] : []).ToArray());
                 _ = Deliver(active, send.Input);
             }
             catch (Exception error) { System.Diagnostics.Trace.TraceError("Scheduled send failed: {0}", error.Message); }

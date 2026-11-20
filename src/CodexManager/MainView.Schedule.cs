@@ -65,8 +65,9 @@ public partial class MainView
 
     private void InitializeSchedule()
     {
-        remoteSessions.Schedules.Changed += () =>
+        remoteSessions.Schedules.Changed += chatId =>
         {
+            if (current is not { IsRemote: false } chat || chat.Id != chatId) return;
             scheduledSendsChanged = true;
             if (!closing && !uiSleeping) UpdateScheduledSends();
         };

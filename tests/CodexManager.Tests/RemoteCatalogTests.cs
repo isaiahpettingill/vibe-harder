@@ -6,6 +6,33 @@ public class RemoteCatalogTests
 {
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData(1)]
+    [InlineData(3)]
+    public async Task PairedChatGetsItsOwnScheduleCountAndUpdatesAfterCancellation(int count)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("catalog-scheduled-").FullName);
+        var owner = new Workspace("workspace", "Project", store.DirectoryPath);
+        var chat = new Chat { Id = "chat", WorkspaceId = owner.Id };
+        var other = new Chat { Id = "other", WorkspaceId = owner.Id };
+        using var service = new SessionService(store, [owner], [chat, other], (_, _) => throw new InvalidOperationException());
+        var schedule = new SendSchedule(DateTime.UtcNow.Date.AddDays(2), SendRepeat.Once, 0, 0, null, "UTC");
+        for (var i = 0; i < count; i++) Assert.True(service.Schedules.Add(chat.Id, new($"Message {i}", []), schedule));
+        Assert.True(service.Schedules.Add(other.Id, new("Other message", []), schedule));
+        var paired = new Chat { Id = "paired", WorkspaceId = owner.Id };
+        async Task Refresh()
+        {
+            var list = (await service.Handle(new() { ["method"] = "list" }))!["chats"]!.AsArray();
+            RemoteChatSession.ApplySummary(paired, list.Single(record => record!["id"]!.GetValue<string>() == chat.Id)!);
+        }
+        await Refresh();
+        Assert.Equal(count, paired.RemoteScheduledSendCount);
+        service.Schedules.Remove(service.Schedules.ForChat(chat.Id).First().Id);
+        await Refresh();
+        Assert.Equal(count - 1, paired.RemoteScheduledSendCount);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(null)]
     [InlineData("provider-session-123")]
     public async Task CatalogIncludesProviderSessionIdForFailedAndArchivedChats(string? sessionId)

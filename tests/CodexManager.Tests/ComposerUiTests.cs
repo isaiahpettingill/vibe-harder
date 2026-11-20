@@ -30,6 +30,9 @@ public class ComposerUiTests
             var composer = window.FindControl<ComposerEditor>("Composer")!;
             var clock = UiTests.Named<Button>(window, "ScheduleSend");
             var panel = UiTests.Named<Expander>(window, "ScheduledPanel");
+            window.UpdateLayout();
+            var badge = window.GetVisualDescendants().OfType<StackPanel>().Single(item => item.Name == "ScheduledBadge_chat");
+            Assert.False(badge.IsVisible);
             var flyout = Assert.IsType<Flyout>(clock.Flyout);
             var start = DateTime.Today.AddDays(2);
             var end = start.AddDays(7);
@@ -61,6 +64,7 @@ public class ComposerUiTests
 
             Assert.False(flyout.IsOpen);
             Assert.True(panel.IsVisible);
+            Assert.True(badge.IsVisible);
             var row = Assert.IsType<Grid>(Assert.Single(UiTests.Named<StackPanel>(window, "ScheduledItems").Children));
             Assert.Contains(row.Children.OfType<StackPanel>().Single().Children.OfType<TextBlock>(), item => item.Text == "After editing");
             flyout.ShowAt(clock);
@@ -92,6 +96,7 @@ public class ComposerUiTests
             editFlyout.Hide();
             row.Children.OfType<IconButton>().Single(b => b.Name == "CancelScheduledSend").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.False(panel.IsVisible);
+            Assert.False(badge.IsVisible);
         }
         finally
         {
