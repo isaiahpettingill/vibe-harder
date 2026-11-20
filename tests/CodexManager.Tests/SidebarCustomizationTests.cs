@@ -118,21 +118,26 @@ public class SidebarCustomizationTests
         try
         {
             window.UpdateLayout();
-            Control Row(string id) => view.GetVisualDescendants().OfType<ChatActivityIndicator>().Single(c => c.Name == "Activity_" + id).GetVisualAncestors().OfType<Grid>().First(c => c.Classes.Contains("chatRow"));
+            Grid Row(string id) => view.GetVisualDescendants().OfType<ChatActivityIndicator>().Single(c => c.Name == "Activity_" + id).GetVisualAncestors().OfType<Grid>().First(c => c.Classes.Contains("chatRow"));
+            Point RowPoint(Grid row, double y)
+            {
+                var details = row.Children.OfType<StackPanel>().Single();
+                return row.TranslatePoint(new Point(details.Bounds.Center.X, y), window)!.Value;
+            }
             var first = Row("chat0");
-            var start = first.TranslatePoint(new Point(40, 10), window)!.Value;
+            var start = RowPoint(first, 10);
             window.MouseDown(start, MouseButton.Left); window.MouseUp(start, MouseButton.Left);
             await Task.Delay(600, TestContext.Current.CancellationToken);
             Assert.DoesNotContain("dragging", first.Classes);
             first = Row("chat0"); var second = Row("chat1");
-            start = first.TranslatePoint(new Point(40, 10), window)!.Value;
-            var end = second.TranslatePoint(new Point(40, second.Bounds.Height - 2), window)!.Value;
+            start = RowPoint(first, 10);
+            var end = RowPoint(second, second.Bounds.Height - 2);
             window.MouseDown(start, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton); window.MouseUp(end, MouseButton.Left);
             Assert.Equal(new[] { "chat1", "chat0", "chat2" }, SidebarOrder.Apply(store, "chats:w", chats, c => c.Id).Select(c => c.Id));
             window.UpdateLayout();
             first = Row("chat0"); second = Row("chat1");
-            start = first.TranslatePoint(new Point(40, 10), window)!.Value;
-            end = second.TranslatePoint(new Point(40, 2), window)!.Value;
+            start = RowPoint(first, 10);
+            end = RowPoint(second, 2);
             window.MouseDown(start, MouseButton.Left); window.MouseMove(end, RawInputModifiers.LeftMouseButton);
             window.KeyPress(Key.Escape, RawInputModifiers.None, PhysicalKey.Escape, null); window.MouseUp(end, MouseButton.Left);
             Assert.Equal(new[] { "chat1", "chat0", "chat2" }, SidebarOrder.Apply(store, "chats:w", chats, c => c.Id).Select(c => c.Id));
