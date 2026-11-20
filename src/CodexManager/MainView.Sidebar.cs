@@ -17,7 +17,7 @@ public partial class MainView
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> chatAction, string? scope = null, string? colorId = null, RemoteView? remote = null, Action<string, string, bool>? move = null)
     {
-        var row = new Grid { ColumnDefinitions = new("20,Auto,*,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
+        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
         row.Tapped += (_, e) =>
         {
             if (!SidebarTouchSwipe && !chat.Archived && e.Source is Visual source && source is not Button && !source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) CollapseSidebar();
@@ -64,7 +64,7 @@ public partial class MainView
             pullRequests.IsVisible = requests.Length > 0;
         }
         UpdatePullRequests(); meta.Children.Add(pullRequests);
-        details.Children.Add(title); details.Children.Add(meta); Grid.SetColumn(details, 2); row.Children.Add(details);
+        details.Children.Add(title); details.Children.Add(meta); Grid.SetColumn(details, 1); row.Children.Add(details);
         var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 3);
         var archive = new IconButton { Name = "Archive_" + chat.Id, ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
@@ -86,7 +86,7 @@ public partial class MainView
             chat.Pinned = pinned;
             RefreshChats(); RefreshRemoteSidebar(); UpdateControls();
         };
-        Grid.SetColumn(pin, 1); row.Children.Add(pin);
+        Grid.SetColumn(pin, 2); row.Children.Add(pin);
         row.Children.Add(rename);
         void UpdateAction() { pin.Label = chat.Pinned ? "Unpin chat" : "Pin chat"; pin.Classes.Set("accent", chat.Pinned); archive.IsEnabled = chat.CanArchive || ChatCanStop(chat); archive.Icon = ChatCanStop(chat) ? "stop" : "archive"; archive.Label = ChatCanStop(chat) ? "Stop chat" : chat.Archived ? "Restore chat" : "Archive chat"; }
         void ChatChanged(object? _, System.ComponentModel.PropertyChangedEventArgs e)
