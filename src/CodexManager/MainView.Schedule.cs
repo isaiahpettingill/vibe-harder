@@ -18,7 +18,6 @@ public partial class MainView
         var end = new CalendarDatePicker();
         var limitDaily = new CheckBox { Content = "End on a date" };
         var endLabel = new TextBlock { Text = "Last day (inclusive)" };
-        var cadence = new TextBlock { TextWrapping = TextWrapping.Wrap };
         var firstDay = System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat.FirstDayOfWeek;
         var dayOrder = Enumerable.Range(0, 7).Select(i => (DayOfWeek)(((int)firstDay + i) % 7)).ToArray();
         var days = dayOrder.Select(day =>
@@ -38,8 +37,6 @@ public partial class MainView
             limitDaily.IsVisible = repeat.SelectedIndex == 1;
             end.IsVisible = endLabel.IsVisible = hours.IsVisible || limitDaily.IsVisible && limitDaily.IsChecked == true;
             endLabel.Text = hours.IsVisible ? "Last day (required, inclusive)" : "Last day (inclusive)";
-            cadence.IsVisible = hours.IsVisible;
-            cadence.Text = "The interval starts at the chosen time. Sends that fall on unchecked days are skipped.";
         }
         repeat.SelectionChanged += (_, _) => UpdateMode();
         limitDaily.IsCheckedChanged += (_, _) => UpdateMode();
@@ -87,9 +84,7 @@ public partial class MainView
             Width = 280, Spacing = 6,
             Children = { new TextBlock { Text = "Schedule message", FontWeight = FontWeight.SemiBold }, scheduled, repeat,
                 new TextBlock { Text = $"Start date and time ({zone.Id})", TextWrapping = TextWrapping.Wrap }, date, time,
-                dayLabel, dayPanel, hourLabel, hours, cadence, limitDaily, endLabel, end,
-                new TextBlock { Text = "Sends when the host is running and the chat is available. Repeating schedules do not replay every missed send.", TextWrapping = TextWrapping.Wrap },
-                error, add }
+                dayLabel, dayPanel, hourLabel, hours, limitDaily, endLabel, end, error, add }
         };
         var flyout = new Flyout { Content = new ScrollViewer { MaxHeight = 440, Content = fields } };
         add.Click += (_, _) =>
