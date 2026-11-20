@@ -7,6 +7,54 @@ namespace CodexManager.Tests;
 public class StreamingTests
 {
     [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task AnActionableSystemOneDecisionContinuesTheExistingTurn()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("decision-flow-").FullName);
+        var owner = new Workspace("w", "Decision", store.DirectoryPath); store.Save(owner);
+        var chat = new Chat { WorkspaceId = owner.Id, Provider = AgentProvider.Claude }; store.Save(chat);
+        var fixture = Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs");
+        await using var runtime = new ChatRuntime(chat, owner, store, "node \"" + fixture + "\" --commands");
+        await using var classifier = new DecisionClassifier();
+        using var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        classifier.Configure(new(true, DecisionSource.Remote, "",
+            $"http://127.0.0.1:{((System.Net.IPEndPoint)listener.LocalEndpoint).Port}/v1/systemone", AgentProvider.Pi, ""));
+        runtime.Classifier = classifier;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        limit.CancelAfter(TimeSpan.FromSeconds(20));
+        var token = limit.Token;
+        var requests = new List<string>();
+        var replies = Task.Run(async () =>
+        {
+            foreach (var score in new[] { "0.98", "0.02" })
+            {
+                using var connection = await listener.AcceptTcpClientAsync(token);
+                await using var stream = connection.GetStream();
+                using var input = new StreamReader(stream, leaveOpen: true);
+                var request = await input.ReadLineAsync(token);
+                Assert.StartsWith("POST /v1/systemone ", request);
+                var length = 0;
+                while (await input.ReadLineAsync(token) is { Length: > 0 } line)
+                    if (line.StartsWith("Content-Length:", StringComparison.OrdinalIgnoreCase)) length = int.Parse(line["Content-Length:".Length..]);
+                var body = new char[length];
+                Assert.Equal(length, await input.ReadBlockAsync(body, token));
+                requests.Add(new string(body));
+                var json = "{\"answers\":{\"continue\":{\"noul\":" + score + "}}}";
+                var response = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {json.Length}\r\nConnection: close\r\n\r\n{json}";
+                await stream.WriteAsync(System.Text.Encoding.ASCII.GetBytes(response), token);
+            }
+        }, token);
+        var completions = 0;
+        runtime.TurnCompleted += () => completions++;
+        await runtime.Send("Fix both requested items", []).WaitAsync(token);
+        await replies.WaitAsync(token);
+        Assert.All(requests, request => Assert.Contains("Fix both requested items", request));
+        Assert.Equal(1, completions);
+        Assert.Equal(2, chat.Messages.Count(message => message.Role == "assistant"));
+    }
+
+    [Trait("Category", "Integration")]
     [AvaloniaTheory]
     [InlineData("usage-report")]
     [InlineData("usage-report-late")]

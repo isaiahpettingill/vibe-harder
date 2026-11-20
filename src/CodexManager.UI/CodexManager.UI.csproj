@@ -1,1 +1,1 @@
-<Project Sdk="Microsoft.NET.Sdk"><Import Project="SharedUI.props" /></Project>
+<Project Sdk="Microsoft.NET.Sdk"><Import Project="SharedUI.props" /><ItemGroup><InternalsVisibleTo Include="CodexManager.Tests" /><InternalsVisibleTo Include="VibeHarder" /></ItemGroup></Project>

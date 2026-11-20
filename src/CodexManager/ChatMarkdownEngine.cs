@@ -39,6 +39,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
     public IContainerBlockHandler? ContainerBlockHandler { get; set; }
     public MdAvPlugins Plugins { get; set; } = new();
     public bool UseResource { get; set; }
+    internal bool LinkAgentRules { get; set; } = true;
     public CascadeDictionary CascadeResources { get; } = new();
     public IResourceDictionary Resources { get; set; } = new ResourceDictionary();
 
@@ -126,7 +127,7 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
         }
         return new TableBlockElement(headers.ToArray(), rows.ToArray(), [], true);
     }
-    private CInline[] Inlines(ContainerInline? container, List<(string Url, string Alt)>? images = null)
+    private CInline[] Inlines(ContainerInline? container, List<(string Url, string Alt)>? images = null, bool insideLink = false)
     {
         if (container is null) return [];
         var result = new List<CInline>();
@@ -135,16 +136,20 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
             switch (inline)
             {
                 case LiteralInline literal:
-                    result.Add(new CRun { Text = literal.Content.ToString() });
+                    var text = literal.Content.ToString();
+                    if (insideLink || !LinkAgentRules) result.Add(new CRun { Text = text });
+                    else AddRuleCitations(result, text);
                     break;
                 case CodeInline code:
-                    result.Add(new CCode([new CRun { Text = code.Content }]));
+                    var formatted = new CCode([new CRun { Text = code.Content }]);
+                    var rule = insideLink || !LinkAgentRules ? null : AgentRuleLinks.Parse(AgentRuleLinks.Prefix + code.Content);
+                    result.Add(rule is null ? formatted : Link([formatted], AgentRuleLinks.Prefix + rule));
                     break;
                 case LineBreakInline line:
                     result.Add(line.IsHard ? new CLineBreak() : new CRun { Text = " " });
                     break;
                 case EmphasisInline emphasis:
-                    var children = Inlines(emphasis, images);
+                    var children = Inlines(emphasis, images, insideLink);
                     result.Add(emphasis.DelimiterChar == '~' ? new CStrikethrough(children)
                         : emphasis.DelimiterCount == 2 ? new CBold(children) : new CItalic(children));
                     break;
@@ -159,12 +164,16 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     else
                     {
                         if (ChatImages.IsImageLink(url)) images?.Add((url, ""));
-                        result.Add(Link(Inlines(link), url));
+                        var label = Inlines(link, insideLink: true);
+                        if (!LinkAgentRules && AgentRuleLinks.Parse(url) is not null) result.AddRange(label);
+                        else result.Add(Link(label, url));
                     }
                     break;
                 case AutolinkInline link:
                     if (!link.IsEmail && ChatImages.IsImageLink(link.Url)) images?.Add((link.Url, ""));
-                    result.Add(Link([new CRun { Text = link.Url }], link.IsEmail ? "mailto:" + link.Url : link.Url));
+                    var target = link.IsEmail ? "mailto:" + link.Url : link.Url;
+                    var display = new CRun { Text = link.Url };
+                    result.Add(!LinkAgentRules && AgentRuleLinks.Parse(target) is not null ? display : Link([display], target));
                     break;
                 case HtmlEntityInline entity:
                     result.Add(new CRun { Text = entity.Transcoded.ToString() });
@@ -173,11 +182,26 @@ public sealed class ChatMarkdownEngine : IMarkdownEngine2
                     result.Add(new CRun { Text = task.Checked ? "☑" : "☐" });
                     break;
                 case ContainerInline nested:
-                    result.AddRange(Inlines(nested, images));
+                    result.AddRange(Inlines(nested, images, insideLink));
                     break;
             }
         }
         return result.ToArray();
+    }
+    private void AddRuleCitations(List<CInline> inlines, string text)
+    {
+        var start = 0;
+        if (text.Contains("AW-", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (System.Text.RegularExpressions.Match match in AgentRuleLinks.Citations().Matches(text))
+            {
+                if (AgentRuleLinks.Parse(AgentRuleLinks.Prefix + match.Value) is not { } id) continue;
+                if (match.Index > start) inlines.Add(new CRun { Text = text[start..match.Index] });
+                inlines.Add(Link([new CRun { Text = match.Value }], AgentRuleLinks.Prefix + id));
+                start = match.Index + match.Length;
+            }
+        }
+        if (start < text.Length) inlines.Add(new CRun { Text = text[start..] });
     }
     private CHyperlink Link(CInline[] children, string url) => new(children)
     {

@@ -1,0 +1,36 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace CodexManager;
+
+public sealed partial class ChatRuntime
+{
+    internal DecisionClassifier? Classifier { get; set; }
+
+    private async Task<JsonElement> ReviewCompletion(string request, long sequence, JsonElement result,
+        Func<JsonArray?, Task<JsonElement>> prompt, CancellationToken token)
+    {
+        if (Classifier is not { Enabled: true } classifier || string.IsNullOrWhiteSpace(request)) return result;
+        string? previousResponse = null;
+        for (var i = 0; i < 3 && !token.IsCancellationRequested && turnFailure is null && !HasBackgroundWork &&
+            chat.QueuedInputs.Count == 0 && !IsSteering && !detachedTurn &&
+            result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "end_turn"; i++)
+        {
+            var response = string.Join("\n", chat.Messages.Where(message => message.Sequence > sequence && message.Role == "assistant").Select(message => message.Text));
+            if (response == previousResponse || string.IsNullOrWhiteSpace(response)) break;
+            chat.Status = "Checking the response…"; Changed?.Invoke();
+            if (!await classifier.NeedsContinuation(request, response, token) || chat.QueuedInputs.Count > 0 || IsSteering || detachedTurn) break;
+            token.ThrowIfCancellationRequested();
+            previousResponse = response;
+            sequence = chat.Messages.LastOrDefault()?.Sequence ?? sequence;
+            Add("system", "The classifier found unfinished work. The agent will check and continue where authorized.");
+            chat.Status = "Working…"; Changed?.Invoke();
+            result = await prompt(new JsonArray(new JsonObject
+            {
+                ["type"] = "text",
+                ["text"] = "Check the user's original request against the work you actually completed. If requested work remains and you can take an authorized step now, do it and verify the result before replying. Respect the user's latest instruction, permissions, and real blockers. If the work is complete or blocked, state the result briefly."
+            }));
+        }
+        return result;
+    }
+}

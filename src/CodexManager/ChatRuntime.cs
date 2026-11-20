@@ -574,10 +574,10 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             foreach (var block in await PromptContent(continuation ? "" : text, attachments)) content.Add((JsonNode)block);
             store.Setting("unmaterialized:" + chat.Id, "");
             following = FollowAsyncQuestions(turn.Token);
-            async Task<JsonElement> Prompt()
+            async Task<JsonElement> Prompt(JsonArray? next = null)
             {
                 turnFailure = null;
-                var response = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", content.DeepClone())), lifetime.Token);
+                var response = await client!.Request("session/prompt", RpcJson.Object(("sessionId", chat.SessionId), ("prompt", (next ?? content).DeepClone())), lifetime.Token);
                 if (response.TryGetProperty("usage", out var usage) && usage.ValueKind == JsonValueKind.Object && ChatUsage.Apply(store, chat, usage, false, DateTimeOffset.UtcNow)) usagePending = true;
                 // A turn-ending failure arrives on the prompt response.
                 if (Air.Of(response) is { } air && air.TryGetProperty("sessionFailure", out var failure)) ShowFailure(failure);
@@ -600,6 +600,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
                 !chat.Messages.Any(m => m.Sequence > user.Sequence && m.Role is "assistant" or "tool" && !string.IsNullOrWhiteSpace(m.Text)))
                 throw new IOException(await PiDiagnostics.ReadError(workspace, chat.SessionId!, user.Timestamp ?? DateTimeOffset.UtcNow)
                     ?? "Pi ended the turn without a response. The pi-acp adapter can suppress Pi errors. Check Pi's model and authentication in this workspace's environment; your message has been kept for retry.");
+            result = await ReviewCompletion(text, user.Sequence, result, Prompt, turn.Token);
             restoreDiracContext = false;
             if (restoreContext) store.Setting("restoreContext:" + chat.Id, "");
             chat.Status = result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "cancelled" ? "Interrupted" : "Ready";
