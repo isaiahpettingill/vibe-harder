@@ -45,6 +45,13 @@ public partial class MainView
         DecisionToggleButton.Content = options.Enabled ? "Classifier on" : "Classifier off";
     }
 
+    private static NumericUpDown Number(int value, int min, int max) => new() { Value = value, Minimum = min, Maximum = max, FormatString = "0" };
+
+    private static StackPanel Field(string caption, Control input) => new()
+    {
+        Spacing = 4, Children = { new Label { Content = caption, Target = input }, input }
+    };
+
     private Control CreateDecisionSettings(Action<Action> apply)
     {
         var options = DecisionSettings.Read(store);
@@ -60,11 +67,35 @@ public partial class MainView
         var native = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "Command to run on this host" }, command,
             new SelectableTextBlock { Text = DecisionSettings.Example, TextWrapping = TextWrapping.Wrap, Classes = { "muted" } } } };
         var acp = new StackPanel { Spacing = 6, Children = { new TextBlock { Text = "ACP provider" }, provider, new TextBlock { Text = "Model ID" }, model } };
+        var criteria = new TextBox { Text = options.Criteria, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 160 };
+        var timeout = Number(options.Timeout, 1, 300);
+        var attempts = Number(options.Attempts, 1, 10);
+        var requestLimit = Number(options.RequestLimit, 1, 50000);
+        var responseLimit = Number(options.ResponseLimit, 1, 50000);
+        var confidence = Number(options.Confidence, 0, 100);
+        var score = Field("Minimum confidence (%)", confidence);
+        var reset = new Button { Content = "Restore decision defaults" };
+        reset.Click += (_, _) =>
+        {
+            criteria.Text = DecisionSettings.DefaultCriteria;
+            timeout.Value = DecisionSettings.DefaultTimeout;
+            attempts.Value = DecisionSettings.DefaultAttempts;
+            requestLimit.Value = DecisionSettings.DefaultRequestLimit;
+            responseLimit.Value = DecisionSettings.DefaultResponseLimit;
+            confidence.Value = DecisionSettings.DefaultConfidence;
+        };
+        var behavior = new Expander
+        {
+            Header = "Decision criteria and limits",
+            Content = new StackPanel { Spacing = 8, Children = { Field("Continuation criteria", criteria), score,
+                Field("Timeout (seconds)", timeout), Field("Maximum continuations per turn", attempts),
+                Field("User request limit (characters)", requestLimit), Field("Agent response limit (characters)", responseLimit), reset } }
+        };
         void UpdateFields()
         {
             native.IsVisible = source.SelectedIndex == (int)DecisionSource.Host;
             acp.IsVisible = source.SelectedIndex == (int)DecisionSource.Acp;
-            http.IsVisible = !acp.IsVisible;
+            http.IsVisible = score.IsVisible = !acp.IsVisible;
         }
         source.SelectionChanged += (_, _) => UpdateFields();
         UpdateFields();
@@ -83,12 +114,17 @@ public partial class MainView
             foreach (var (key, value) in new[] { ("decisionEnabled", settings.Enabled ? "1" : "0"), ("decisionSource", settings.Source.ToString()),
                 ("decisionCommand", settings.Command), ("decisionEndpoint", settings.Endpoint), ("decisionProvider", settings.Provider.ToString()), ("decisionModel", settings.Model) })
                 store.Setting(key, value);
+            store.Setting("decisionCriteria", criteria.Text?.Trim() ?? "");
+            foreach (var (key, input, fallback) in new[] { ("decisionTimeout", timeout, DecisionSettings.DefaultTimeout),
+                ("decisionAttempts", attempts, DecisionSettings.DefaultAttempts), ("decisionRequestLimit", requestLimit, DecisionSettings.DefaultRequestLimit),
+                ("decisionResponseLimit", responseLimit, DecisionSettings.DefaultResponseLimit), ("decisionConfidence", confidence, DecisionSettings.DefaultConfidence) })
+                store.Setting(key, ((int)(input.Value ?? fallback)).ToString(System.Globalization.CultureInfo.InvariantCulture));
             ApplyDecisionClassifier();
         });
         return new Expander
         {
             Header = "Decision classifier",
-            Content = new StackPanel { Spacing = 8, Children = { enabled, source, native, http, acp, save } }
+            Content = new StackPanel { Spacing = 8, Children = { enabled, source, native, http, acp, behavior, save } }
         };
     }
 }

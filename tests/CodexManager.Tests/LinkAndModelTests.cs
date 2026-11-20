@@ -27,15 +27,17 @@ public class LinkAndModelTests
 
     [Trait("Category", "CI")]
     [Theory]
-    [InlineData(0.75, true)]
-    [InlineData(0.51, false)]
-    public void SystemOneRequiresConfidenceForAutomaticContinuation(double probability, bool expected)
+    [InlineData(0.75, null, true)]
+    [InlineData(0.51, null, false)]
+    [InlineData(0.51, 50, true)]
+    [InlineData(0.89, 90, false)]
+    public void SystemOneRequiresConfidenceForAutomaticContinuation(double probability, int? confidence, bool expected)
     {
         var response = System.Text.Json.JsonSerializer.SerializeToElement(new JsonObject
         {
             ["answers"] = new JsonObject { ["continue"] = new JsonObject { ["type"] = "noul", ["noul"] = probability } }
         });
-        Assert.Equal(expected, DecisionClassifier.ReadSystemOneDecision(response));
+        Assert.Equal(expected, confidence is { } threshold ? DecisionClassifier.ReadSystemOneDecision(response, threshold) : DecisionClassifier.ReadSystemOneDecision(response));
     }
 
     [Trait("Category", "Integration")]

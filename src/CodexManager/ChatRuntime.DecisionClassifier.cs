@@ -12,7 +12,7 @@ public sealed partial class ChatRuntime
     {
         if (Classifier is not { Enabled: true } classifier || string.IsNullOrWhiteSpace(request)) return result;
         string? previousResponse = null;
-        for (var i = 0; i < 3 && !token.IsCancellationRequested && turnFailure is null && !HasBackgroundWork &&
+        for (var i = 0; i < classifier.Attempts && !token.IsCancellationRequested && turnFailure is null && !HasBackgroundWork &&
             chat.QueuedInputs.Count == 0 && !IsSteering && !detachedTurn &&
             result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "end_turn"; i++)
         {

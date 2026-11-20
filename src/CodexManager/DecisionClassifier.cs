@@ -9,13 +9,33 @@ internal enum DecisionSource { Host, Remote, Acp }
 
 internal sealed record DecisionSettings(bool Enabled, DecisionSource Source, string Command, string Endpoint, AgentProvider Provider, string Model)
 {
+    internal const string DefaultCriteria = "Did the agent stop with part of the user's request unfinished when it could still take a concrete authorized step without new information or approval? Answer no if the user asked to stop or the agent described a genuine blocker.";
+    internal const int DefaultTimeout = 25, DefaultAttempts = 3, DefaultRequestLimit = 2400, DefaultResponseLimit = 5200, DefaultConfidence = 75;
+    internal string Criteria { get; init; } = DefaultCriteria;
+    internal int Timeout { get; init; } = DefaultTimeout;
+    internal int Attempts { get; init; } = DefaultAttempts;
+    internal int RequestLimit { get; init; } = DefaultRequestLimit;
+    internal int ResponseLimit { get; init; } = DefaultResponseLimit;
+    internal int Confidence { get; init; } = DefaultConfidence;
+
     internal const string Example = "llama-server -hf LiquidAI/d1-omni-600M-GGUF:Q8_0 --no-mmproj -ngl 99 -b 4096 -ub 4096";
     internal const string LocalAddress = "http://127.0.0.1:8080/v1/systemone";
     internal static DecisionSettings Read(Store store) => new(store.Setting("decisionEnabled") == "1",
         Enum.TryParse<DecisionSource>(store.Setting("decisionSource"), out var source) ? source : DecisionSource.Host,
         store.Setting("decisionCommand") ?? "", store.Setting("decisionEndpoint") ?? "",
         Enum.TryParse<AgentProvider>(store.Setting("decisionProvider"), out var provider) && Enum.IsDefined(provider) ? provider : AgentProvider.Pi,
-        store.Setting("decisionModel") ?? "");
+        store.Setting("decisionModel") ?? "")
+    {
+        Criteria = store.Setting("decisionCriteria") is { } text && !string.IsNullOrWhiteSpace(text) ? text : DefaultCriteria,
+        Timeout = ReadNumber(store, "decisionTimeout", DefaultTimeout, 1, 300),
+        Attempts = ReadNumber(store, "decisionAttempts", DefaultAttempts, 1, 10),
+        RequestLimit = ReadNumber(store, "decisionRequestLimit", DefaultRequestLimit, 1, 50000),
+        ResponseLimit = ReadNumber(store, "decisionResponseLimit", DefaultResponseLimit, 1, 50000),
+        Confidence = ReadNumber(store, "decisionConfidence", DefaultConfidence, 0, 100)
+    };
+
+    private static int ReadNumber(Store store, string key, int fallback, int min, int max) =>
+        int.TryParse(store.Setting(key), out var value) && value >= min && value <= max ? value : fallback;
 
     internal Uri Address()
     {
@@ -38,12 +58,16 @@ internal sealed partial class DecisionClassifier : IAsyncDisposable
     private string acpCommand = "";
     internal string Log { get { lock (gate) return string.Join("\n", log); } }
     internal bool Enabled => settings.Enabled;
+    internal int Attempts => settings.Attempts;
 
     internal void Configure(DecisionSettings options, string adapterCommand = "")
     {
-        if (options == settings && adapterCommand == acpCommand) return;
+        var restart = LocalCommand(options) != LocalCommand(settings);
         settings = options;
         acpCommand = adapterCommand;
+        if (!restart) return;
+
+        static string? LocalCommand(DecisionSettings value) => value is { Enabled: true, Source: DecisionSource.Host, Command.Length: > 0 } ? value.Command : null;
         var previous = server;
         var previousLifetime = serverLifetime;
         previousLifetime?.Cancel();
