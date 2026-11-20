@@ -34,6 +34,7 @@ public static class HeadlessHost
             return runtime;
         }
         service = new(store, workspaces, chats, Runtime);
+        service.Schedules.Start();
         ChatNotifications.Push = (chat, title) => UnifiedPushHost.Notify(RemoteServer.DirectoryPath, title, chat.Title, chat.Id);
         if (args.Contains("--pair")) RemoteTrust.OpenPairing(RemoteServer.DirectoryPath);
         Task PairDevice(string device, string code, CancellationToken token, Action cancel)
@@ -67,6 +68,7 @@ public static class HeadlessHost
         async void Stop()
         {
             if (stopping) return; stopping = true;
+            service.Schedules.Dispose();
             try
             {
                 webLifetime.Cancel(); await webStartup; await backendUpdates; await classifier.DisposeAsync();

@@ -24,7 +24,13 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         row["attachments"] = JsonSerializer.SerializeToNode(message.Attachments.ToArray(), StoreJsonContext.Default.AttachmentArray);
         return row;
     }
-    public void Dispose() => terminals.Dispose();
+    internal ScheduledSends Schedules { get; } = new(store, workspaces, chats, runtime);
+
+    public void Dispose()
+    {
+        Schedules.Dispose();
+        terminals.Dispose();
+    }
     public event Action? Changed;
     public Func<Chat, Workspace, Task<string?>>? DeleteChat { get; set; }
     public Func<Workspace, Task>? CloseWorkspace { get; set; }
