@@ -10,6 +10,96 @@ namespace CodexManager.Tests;
 
 public class LinkAndModelTests
 {
+    [Theory]
+    [InlineData("new first\nsecond\nthird\n", "first\nsecond\nnew third\n", false)]
+    [InlineData("new first\nsecond\nthird\n", "different first\nsecond\nthird\n", true)]
+    public async Task WranglerMergesNonOverlappingEditsAndMarksConflictingEdits(string mine, string current, bool conflict)
+    {
+        var result = await AgentRuleLinks.Merge(mine, "first\nsecond\nthird\n", current, TestContext.Current.CancellationToken);
+        Assert.Equal(conflict, result.HasConflicts);
+        if (conflict)
+        {
+            Assert.Contains("<<<<<<< Your edit\nnew first", result.Text);
+            Assert.Contains("different first\n>>>>>>> Agent Wrangler", result.Text);
+        }
+        else Assert.Equal("new first\nsecond\nnew third\n", result.Text);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData(0.75, true)]
+    [InlineData(0.51, false)]
+    public void SystemOneRequiresConfidenceForAutomaticContinuation(double probability, bool expected)
+    {
+        var response = System.Text.Json.JsonSerializer.SerializeToElement(new JsonObject
+        {
+            ["answers"] = new JsonObject { ["continue"] = new JsonObject { ["type"] = "noul", ["noul"] = probability } }
+        });
+        Assert.Equal(expected, DecisionClassifier.ReadSystemOneDecision(response));
+    }
+
+    [Trait("Category", "Integration")]
+    [Fact]
+    public async Task NativeClassifierRestartsAnExitedChildAndStopsOnDisable()
+    {
+        await using var classifier = new DecisionClassifier();
+        var options = new DecisionSettings(true, DecisionSource.Host, "node -e \"console.log('native-child-start')\"", "", AgentProvider.Pi, "");
+        classifier.Configure(options);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        timeout.CancelAfter(TimeSpan.FromSeconds(12));
+        while (classifier.Log.Split("native-child-start").Length < 3) await Task.Delay(50, timeout.Token);
+        classifier.Configure(options with { Enabled = false });
+        await classifier.DisposeAsync();
+        Assert.Contains("Host server stopped", classifier.Log);
+    }
+
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("See AW-0007.", "agent-wrangler:AW-0007")]
+    [InlineData("See `AW-0007`.", "agent-wrangler:AW-0007")]
+    [InlineData("[AW-0007](https://example.com)", "https://example.com")]
+    [InlineData("AW-0007-suffix and AW-0000", null)]
+    public void WranglerRuleCitationsUseTheRuleLinkWithoutReplacingExistingLinks(string markdown, string? target)
+    {
+        var links = new ChatMarkdownEngine().ParseGamutInline(markdown).OfType<CHyperlink>().ToArray();
+        if (target is null) Assert.Empty(links);
+        else Assert.Equal(target, Assert.Single(links).CommandParameter);
+    }
+
+    [Fact]
+    public async Task WranglerRuleSaveUsesLastStoredBodyAfterAnEditorReplacesTheFile()
+    {
+        var directory = Directory.CreateTempSubdirectory("rule-test-");
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(TestContext.Current.CancellationToken);
+        deadline.CancelAfter(TimeSpan.FromSeconds(10));
+        var token = deadline.Token;
+        var path = Path.Combine(directory.FullName, "AW-0001.txt");
+        var saved = System.Threading.Channels.Channel.CreateUnbounded<(string Body, string Previous)>();
+        await File.WriteAllTextAsync(path, "Original", token);
+        var stored = "Original";
+        var watching = AgentRuleLinks.Watch(path, stored, _ => Task.FromResult(stored), (body, previous, _) =>
+        {
+            saved.Writer.TryWrite((body, previous));
+            return Task.FromResult(stored = body);
+        }, (conflict, error) => { Assert.False(conflict); Assert.Null(error); }, token);
+        try
+        {
+            var temporary = path + ".save";
+            await File.WriteAllTextAsync(temporary, "First", token);
+            File.Move(temporary, path, overwrite: true);
+            Assert.Equal(("First", "Original"), await saved.Reader.ReadAsync(token));
+            await File.WriteAllTextAsync(path, "Second", token);
+            Assert.Equal(("Second", "First"), await saved.Reader.ReadAsync(token));
+        }
+        finally
+        {
+            deadline.Cancel();
+            try { await watching; } catch (OperationCanceledException) { }
+            directory.Delete(true);
+        }
+    }
+
+
     [Trait("Category", "CI")]
     [Theory]
     [InlineData("/home/me/project", "/mnt/c/Users/me/Downloads/full-report.html", @"C:\Users\me\Downloads\full-report.html")]

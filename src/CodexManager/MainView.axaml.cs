@@ -174,7 +174,9 @@ public partial class MainView : UserControl
     public MainView(Store store, List<Workspace>? loadedWorkspaces = null, List<Chat>? loadedChats = null, bool remoteOnly = false)
     {
         this.store = store; this.remoteOnly = remoteOnly;
+        InitializeAgentRuleEditing();
         InitializeComponent();
+        InitializeDecisionClassifier();
         ConfigurePullRequests();
         InitializeDownloads();
         InitializeChatSearch();
@@ -877,6 +879,7 @@ public partial class MainView : UserControl
             runtime = new(chat, owner, store, AgentProviders.LaunchCommand(store, owner, chat.Provider));
             if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
                 runtime.BackendMaintenance = BackendMaintenance;
+            runtime.Classifier = decisionClassifier;
             runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, owner, chat.Provider);
             runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;
@@ -1205,6 +1208,11 @@ public partial class MainView : UserControl
         var allowAll = new CheckBox { Name = "AllowAllPermissions", Content = "Allow all permission prompts", IsChecked = store.Setting("allowAllPermissions") == "1" };
         allowAll.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("allowAllPermissions", allowAll.IsChecked == true ? "1" : "0"));
         panel.Children.Add(allowAll);
+        if (AgentRuleLinks.Desktop)
+        {
+            panel.Children.Add(CreateAgentRuleSetting(ApplyChange));
+            panel.Children.Add(CreateDecisionSettings(ApplyChange));
+        }
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
         syntax.IsCheckedChanged += (_, _) => ApplyChange(() => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); });
         appearance.Children.Add(syntax);
@@ -1934,6 +1942,7 @@ public partial class MainView : UserControl
         {
             await Cleanup(SaveAllAsync);
             await Cleanup(() => backendUpdates);
+            await Cleanup(() => decisionClassifier.DisposeAsync().AsTask());
             CloseRemoteView();
             DisposeRemoteHosts();
             remoteSessions.Dispose();

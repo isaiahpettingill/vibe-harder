@@ -67,7 +67,15 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         renderTimer.Stop();
         if (!attached || !pending) return;
+        if (Engine is ChatMarkdownEngine engine)
+            engine.LinkAgentRules = !this.GetVisualAncestors().OfType<RemoteView>().Any() &&
+                this.GetVisualAncestors().OfType<MainView>().FirstOrDefault()?.AgentRuleEditingEnabled == true;
         pending = false; touchSelection.Clear(); Markdown = Text; ScheduleDecoration();
+    }
+    internal void RefreshRuleLinks()
+    {
+        Markdown = "";
+        Refresh();
     }
     private void ScheduleDecoration()
     {
@@ -340,6 +348,14 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
     {
         try
         {
+            if (AgentRuleLinks.Parse(target) is { } rule)
+            {
+                if (this.GetVisualAncestors().OfType<RemoteView>().Any() ||
+                    this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is not { } desktop)
+                    throw new IOException("Open the rule in Vibe Harder on the desktop that runs Agent Wrangler.");
+                await desktop.OpenAgentRule(rule);
+                return;
+            }
             if (Uri.TryCreate(target, UriKind.Absolute, out var uri) && uri.Scheme is "http" or "https" or "mailto")
             { if (TopLevel.GetTopLevel(this) is { } top) await top.Launcher.LaunchUriAsync(uri); return; }
             if (Uri.TryCreate(target, UriKind.Absolute, out uri) && !uri.IsFile) throw new IOException("Unsupported link type.");

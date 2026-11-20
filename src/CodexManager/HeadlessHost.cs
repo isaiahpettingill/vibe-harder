@@ -11,6 +11,10 @@ public static class HeadlessHost
         AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
         using var store = new Store(backgroundWrites: true); var workspaces = store.Workspaces(); var chats = store.Chats();
         foreach (var chat in chats) chat.RetainHistory = false;
+        var classifier = new DecisionClassifier();
+        var options = DecisionSettings.Read(store);
+        var host = new Workspace("", "", Environment.GetFolderPath(Environment.SpecialFolder.UserProfile));
+        classifier.Configure(options, options.Source == DecisionSource.Acp ? AgentProviders.Command(store, host, options.Provider) : "");
         var runtimes = new Dictionary<string, ChatRuntime>(); SessionService service = null!;
         var backendMaintenance = new BackendUpdates(store, () => workspaces.ToArray(), (owner, provider) =>
             chats.Any(c => c.Provider == provider && runtimes.TryGetValue(c.Id, out var runtime) && runtime.HasBackendProcess && workspaces.Any(w => w.Id == c.WorkspaceId && w.Distro == owner.Distro)));
@@ -20,6 +24,7 @@ public static class HeadlessHost
             {
                 runtime = new(chat, workspace, store, AgentProviders.LaunchCommand(store, workspace, chat.Provider));
                 runtime.BackendMaintenance = backendMaintenance;
+                runtime.Classifier = classifier;
                 runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
                 runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);
@@ -64,7 +69,7 @@ public static class HeadlessHost
             if (stopping) return; stopping = true;
             try
             {
-                webLifetime.Cancel(); await webStartup; await backendUpdates;
+                webLifetime.Cancel(); await webStartup; await backendUpdates; await classifier.DisposeAsync();
                 if (webServer is not null) await webServer.DisposeAsync();
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
                 await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);
