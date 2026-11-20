@@ -7,6 +7,7 @@ public partial class MainView
 {
     private Chat? scheduledChat;
     private bool scheduledSendsChanged;
+    private ScheduledSend[] displayedScheduledSends = [];
 
     private void UpdateScheduledSends()
     {
@@ -15,9 +16,11 @@ public partial class MainView
         scheduledChat = current;
         var panel = chatComposer.ScheduledPanel;
         var rows = chatComposer.ScheduledItems;
-        rows.Children.Clear();
         var schedules = remoteSessions.Schedules;
         var pending = current is { IsRemote: false } chat && chatComposer.ScheduleButton.IsVisible ? schedules.ForChat(chat.Id).ToArray() : [];
+        if (displayedScheduledSends.SequenceEqual(pending)) return;
+        displayedScheduledSends = pending;
+        rows.Children.Clear();
         panel.IsVisible = pending.Length > 0;
         panel.Header = $"Scheduled sends ({pending.Length})";
         if (pending.Length == 0) return;
@@ -46,8 +49,17 @@ public partial class MainView
                 try { schedules.Remove(send.Id); }
                 catch (Exception ex) { StatusText.Text = ex.Message; }
             };
-            Grid.SetColumn(cancel, 1);
-            rows.Children.Add(new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 4, Children = { details, cancel } });
+            var edit = new IconButton { Name = "EditScheduledSend", Icon = "edit", Label = "Edit scheduled send" };
+            var flyout = new Flyout();
+            flyout.Opening += (_, _) =>
+            {
+                if (current is { } active && active.Id == send.ChatId)
+                    flyout.Content = CreateScheduleEditor(active, flyout.Hide, send).Content;
+            };
+            edit.Flyout = flyout;
+            Grid.SetColumn(edit, 1);
+            Grid.SetColumn(cancel, 2);
+            rows.Children.Add(new Grid { ColumnDefinitions = new("*,Auto,Auto"), ColumnSpacing = 4, Children = { details, edit, cancel } });
         }
     }
 
@@ -75,13 +87,17 @@ public partial class MainView
         chatComposer.ScheduleButton.Flyout = flyout;
     }
 
-    private (Control Content, Action SaveDraft) CreateScheduleEditor(Chat chat, Action close)
+    private (Control Content, Action SaveDraft) CreateScheduleEditor(Chat chat, Action close, ScheduledSend? existing = null)
     {
         var schedules = remoteSessions.Schedules;
-        var initial = schedules.DraftFor(chat.Id) ?? ScheduledSendDraft.New(DateTime.Now);
+        var initial = existing is { Schedule: var saved }
+            ? new ScheduledSendDraft(saved.Start.Date, saved.Start.TimeOfDay, saved.Repeat,
+                saved.Repeat == SendRepeat.Once ? 0b1111111 : saved.Days, saved.Hours > 0 ? saved.Hours : 2,
+                saved.Repeat == SendRepeat.Daily && saved.End is not null, saved.End?.ToDateTime(TimeOnly.MinValue))
+            : schedules.DraftFor(chat.Id) ?? ScheduledSendDraft.New(DateTime.Now);
         var date = new CalendarDatePicker { SelectedDate = initial.Date };
         var time = new TimePicker { SelectedTime = initial.Time };
-        var zone = TimeZoneInfo.Local;
+        var zone = existing?.Schedule.Zone ?? TimeZoneInfo.Local.Id;
         var repeat = new ComboBox { ItemsSource = new[] { "Once", "Daily on selected days", "Every X hours on selected days" }, SelectedIndex = (int)initial.Repeat };
         var hours = new NumericUpDown { Minimum = 1, Maximum = int.MaxValue, Value = initial.Hours, FormatString = "0", Increment = 1 };
         var end = new CalendarDatePicker { SelectedDate = initial.End };
@@ -115,29 +131,33 @@ public partial class MainView
         var submitted = false;
         void SaveDraft()
         {
-            if (submitted) return;
+            if (submitted || existing is not null) return;
             var draft = new ScheduledSendDraft(date.SelectedDate, time.SelectedTime, (SendRepeat)repeat.SelectedIndex,
                 SelectedDays(), hours.Value, limitDaily.IsChecked == true, end.SelectedDate);
             if (draft == initial) return;
             try { schedules.SaveDraft(chat.Id, draft); }
             catch (Exception ex) { StatusText.Text = ex.Message; }
         }
-        var add = new Button { Name = "ConfirmScheduleSend", Content = "Schedule send", Classes = { "accent" } };
-        var fields = new StackPanel
+        var add = new Button { Name = "ConfirmScheduleSend", Content = existing is null ? "Schedule send" : "Save", Classes = { "accent" } };
+        var fields = new StackPanel { Width = 280, Spacing = 6 };
+        fields.Children.Add(new TextBlock { Text = existing is null ? "Schedule message" : "Edit scheduled send", FontWeight = FontWeight.SemiBold });
+        TextBox? message = null;
+        if (existing is not null)
         {
-            Width = 280, Spacing = 6,
-            Children = { new TextBlock { Text = "Schedule message", FontWeight = FontWeight.SemiBold }, repeat,
-                new TextBlock { Text = $"Start date and time ({zone.Id})", TextWrapping = TextWrapping.Wrap }, date, time,
-                dayLabel, dayPanel, hourLabel, hours, limitDaily, endLabel, end, error, add }
-        };
+            message = new TextBox { Text = existing.Input.Text, AcceptsReturn = true, TextWrapping = TextWrapping.Wrap, MaxHeight = 120 };
+            fields.Children.Add(new Label { Content = "Message", Target = message });
+            fields.Children.Add(message);
+        }
+        foreach (var field in new Control[] { repeat, new TextBlock { Text = $"Start date and time ({zone})", TextWrapping = TextWrapping.Wrap }, date, time,
+            dayLabel, dayPanel, hourLabel, hours, limitDaily, endLabel, end, error, add }) fields.Children.Add(field);
         add.Click += (_, _) =>
         {
             if (!ReferenceEquals(current, chat)) { close(); return; }
             error.Text = null;
             try
             {
-                var text = Composer.Text?.Trim() ?? "";
-                var attachments = OutgoingAttachments(chat);
+                var text = (message is null ? Composer.Text : message.Text)?.Trim() ?? "";
+                var attachments = existing?.Input.Attachments ?? OutgoingAttachments(chat);
                 if (text.Length == 0 && attachments.Length == 0) { error.Text = "Enter a message or add an attachment first."; return; }
                 if (date.SelectedDate is not { } start || time.SelectedTime is not { } at || repeat.SelectedIndex < 0)
                 { error.Text = "Select a start date, time, and repeat option."; return; }
@@ -151,11 +171,16 @@ public partial class MainView
                 { error.Text = "The last day cannot be before the start date."; return; }
                 if (mode == SendRepeat.Hourly && (until is null || hours.Value is not { } interval || interval != decimal.Truncate(interval)))
                 { error.Text = "Enter a whole number of hours and select an end date."; return; }
-                var schedule = new SendSchedule(start.Date + at, mode, mask, (int)(hours.Value ?? 0), until, zone.Id);
-                if (!schedules.Add(chat.Id, new(text, attachments), schedule)) { error.Text = "Choose settings with at least one future send."; return; }
+                var schedule = new SendSchedule(start.Date + at, mode, mode == SendRepeat.Once ? existing?.Schedule.Days ?? mask : mask,
+                    mode == SendRepeat.Hourly ? (int)hours.Value!.Value : existing?.Schedule.Hours ?? 2, until, zone);
+                var accepted = existing is null ? schedules.Add(chat.Id, new(text, attachments), schedule) : schedules.Edit(existing.Id, text, schedule);
+                if (!accepted) { error.Text = "Choose settings with at least one future send."; return; }
                 submitted = true;
-                schedules.SaveDraft(chat.Id, null);
-                Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
+                if (existing is null)
+                {
+                    schedules.SaveDraft(chat.Id, null);
+                    Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
+                }
                 close();
             }
             catch (Exception ex) { error.Text = ex.Message; }

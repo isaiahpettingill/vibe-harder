@@ -43,6 +43,41 @@ public class ScheduledSendTests
     }
 
     [Theory]
+    [InlineData(0)]
+    [InlineData(3)]
+    public void EditPreservesAttachmentsAndUpdatesTheExistingSend(int changeByHours)
+    {
+        var path = Directory.CreateTempSubdirectory("scheduled-send-edit-").FullName;
+        try
+        {
+            var original = new SendSchedule(DateTime.UtcNow.Date.AddDays(2), SendRepeat.Once, 0, 0, null, "UTC");
+            var updated = original with { Start = original.Start.AddHours(changeByHours) };
+            var attachment = new Attachment("agenda.txt", "text/plain", "agenda");
+            string id;
+            using (var store = new Store(path))
+            using (var scheduler = new ScheduledSends(store, [], [], (_, _) => throw new InvalidOperationException()))
+            {
+                Assert.True(scheduler.Add("chat", new("Original", [attachment]), original));
+                id = Assert.Single(scheduler.ForChat("chat")).Id;
+                Assert.True(scheduler.Edit(id, "Revised", updated));
+                Assert.False(scheduler.Edit(id, "Not saved", updated with { Start = updated.Start.AddDays(-7) }));
+            }
+
+            using var reopened = new Store(path);
+            using var reloaded = new ScheduledSends(reopened, [], [], (_, _) => throw new InvalidOperationException());
+            var saved = Assert.Single(reloaded.ForChat("chat"));
+            Assert.Equal(id, saved.Id);
+            Assert.Equal(new DateTimeOffset(updated.Start), saved.Due);
+            Assert.Equal("Revised", saved.Input.Text);
+            Assert.Equal(attachment, Assert.Single(saved.Input.Attachments));
+            reloaded.Remove(id);
+            Assert.Throws<IOException>(() => reloaded.Edit(id, "Stale edit", updated));
+            Assert.Empty(reloaded.ForChat("chat"));
+        }
+        finally { RemoveTestDirectory(path); }
+    }
+
+    [Theory]
     [InlineData("chat-a", "chat-b", "Prepare the weekly report")]
     [InlineData("chat-b", "chat-a", "Review the next release")]
     public void ReloadKeepsInputBoundToItsChatAndCancellationPersists(string target, string other, string text)

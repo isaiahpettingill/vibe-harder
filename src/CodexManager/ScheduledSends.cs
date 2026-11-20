@@ -67,6 +67,17 @@ internal sealed class ScheduledSends(Store store, IList<Workspace> workspaces, I
         return true;
     }
 
+    public bool Edit(string id, string text, SendSchedule schedule)
+    {
+        var entry = Entries.FirstOrDefault(send => send.Id == id) ?? throw new IOException("This send is no longer scheduled.");
+        if (string.IsNullOrWhiteSpace(text) && entry.Input.Attachments.Length == 0) return false;
+        var due = schedule == entry.Schedule ? entry.Due : schedule.Next(DateTimeOffset.UtcNow);
+        if (due is null) return false;
+        var updated = entry with { Input = entry.Input with { Text = text }, Schedule = schedule, Due = due.Value };
+        Save(Entries.Select(send => send.Id == id ? updated : send).ToArray());
+        return true;
+    }
+
     public void Remove(string id) => Save(Entries.Where(send => send.Id != id).ToArray());
 
     private void Save(ScheduledSend[] updated)

@@ -67,7 +67,30 @@ public class ComposerUiTests
             fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(flyout.Content).Content);
             Assert.Equal(0, fields.Children.OfType<ComboBox>().Single().SelectedIndex);
             flyout.Hide();
-            row.Children.OfType<IconButton>().Single().RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            composer.Text = "Separate composer draft";
+            var edit = row.Children.OfType<IconButton>().Single(b => b.Name == "EditScheduledSend");
+            var editFlyout = Assert.IsType<Flyout>(edit.Flyout);
+            editFlyout.ShowAt(edit);
+            fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(editFlyout.Content).Content);
+            Assert.Equal("After editing", fields.Children.OfType<TextBox>().Single().Text);
+            Assert.Equal(repeat, fields.Children.OfType<ComboBox>().Single().SelectedIndex);
+            Assert.Equal(end, fields.Children.OfType<CalendarDatePicker>().Last().SelectedDate);
+            var updatedTime = time.Add(TimeSpan.FromHours(2));
+            fields.Children.OfType<TimePicker>().Single().SelectedTime = updatedTime;
+            fields.Children.OfType<TextBox>().Single().Text = "Updated scheduled message";
+            fields.Children.OfType<Button>().Single(b => b.Name == "ConfirmScheduleSend").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.False(editFlyout.IsOpen);
+            Assert.Equal("Separate composer draft", composer.Text);
+
+            row = Assert.IsType<Grid>(Assert.Single(UiTests.Named<StackPanel>(window, "ScheduledItems").Children));
+            edit = row.Children.OfType<IconButton>().Single(b => b.Name == "EditScheduledSend");
+            editFlyout = Assert.IsType<Flyout>(edit.Flyout);
+            editFlyout.ShowAt(edit);
+            fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(editFlyout.Content).Content);
+            Assert.Equal("Updated scheduled message", fields.Children.OfType<TextBox>().Single().Text);
+            Assert.Equal(updatedTime, fields.Children.OfType<TimePicker>().Single().SelectedTime);
+            editFlyout.Hide();
+            row.Children.OfType<IconButton>().Single(b => b.Name == "CancelScheduledSend").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.False(panel.IsVisible);
         }
         finally
