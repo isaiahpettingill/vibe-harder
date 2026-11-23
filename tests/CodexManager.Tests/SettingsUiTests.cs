@@ -1,9 +1,11 @@
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Input;
 using Avalonia.Interactivity;
 using Avalonia.LogicalTree;
 using Avalonia.Media;
+using Avalonia.VisualTree;
 
 namespace CodexManager.Tests;
 
@@ -11,9 +13,9 @@ public class SettingsUiTests
 {
     [Trait("Category", "CI")]
     [AvaloniaTheory]
-    [InlineData("Continue the checklist.", 600)]
-    [InlineData("Finish the remaining task.\nVerify the result.", 820)]
-    public async Task ClassifierPageSavesAndRestoresTheResumePrompt(string custom, int width)
+    [InlineData("Continue the checklist.", 1700, 600)]
+    [InlineData("Finish the remaining task.\nVerify the result.", 7200, 820)]
+    public async Task ClassifierPageAutosavesAndRestoresDecisionDefaults(string custom, int limit, int width)
     {
         var store = new Store(Directory.CreateTempSubdirectory("classifier-settings-").FullName);
         store.Setting("remoteEnabled", "0");
@@ -31,24 +33,57 @@ public class SettingsUiTests
                 Assert.True(prompt.IsEffectivelyVisible);
                 return (dialog, prompt);
             }
-            void Save(Window dialog) => dialog.GetLogicalDescendants().OfType<Button>().Single(button => button.Name == "SaveDecisionSettings")
-                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            NumericUpDown ResponseLimit(Window dialog) => dialog.GetLogicalDescendants().OfType<NumericUpDown>()
+                .Single(field => field.Name == "DecisionResponseLimit");
             var (first, input) = Open();
             var original = input.Text;
             Assert.False(string.IsNullOrWhiteSpace(original));
-            input.Text = custom; Save(first); first.Close();
+            var originalLimit = ResponseLimit(first).Value;
+            input.Text = custom;
+            ResponseLimit(first).Value = limit;
+            first.Close();
             var (second, reopened) = Open();
             Assert.Equal(custom, reopened.Text);
+            Assert.Equal((decimal)limit, ResponseLimit(second).Value);
             second.GetLogicalDescendants().OfType<Button>().Single(button => button.Name == "ResetDecisionDefaults").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Assert.Equal(original, reopened.Text);
-            Save(second); second.Close();
+            second.Close();
             Assert.Equal(original, DecisionSettings.Read(store).ResumePrompt);
+            Assert.Equal((int)originalLimit!.Value, DecisionSettings.Read(store).ResponseLimit);
         }
         finally
         {
             window.RequestExit();
             await closed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         }
+    }
+
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("RemotePort", "remotePort", 5440)]
+    [InlineData("WebPort", "webPort", 5441)]
+    public async Task ConnectionPortChangesSaveAndReconfigure(string name, string key, int port)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("connection-settings-").FullName, backgroundWrites: true);
+        var configured = new TaskCompletionSource<string?>();
+        Task Reconfigure() { configured.TrySetResult(store.Setting(key)); return Task.CompletedTask; }
+        using var settings = new ConnectionSettingsView(store, false, Reconfigure, Reconfigure);
+        var window = new Window { Content = settings };
+        window.Show();
+        try
+        {
+            foreach (var expander in settings.GetLogicalDescendants().OfType<Expander>().ToArray()) expander.IsExpanded = true;
+            window.UpdateLayout();
+            var numeric = settings.GetLogicalDescendants().OfType<NumericUpDown>().Single(field => field.Name == name);
+            var input = numeric.GetVisualDescendants().OfType<TextBox>().Single();
+            Assert.True(input.Focus());
+            input.Text = "54";
+            Assert.False(configured.Task.IsCompleted);
+            input.Text = port.ToString();
+            settings.GetVisualDescendants().OfType<Button>().First(button => button.IsEffectivelyVisible).Focus();
+            Assert.Equal(port.ToString(), await configured.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        }
+        finally { window.Close(); }
     }
 
     [Trait("Category", "CI")]
@@ -121,7 +156,6 @@ public class SettingsUiTests
                 Assert.False(codexAutoReview.IsChecked);
                 codexAutoReview.IsChecked = true; Assert.Equal("1", store.Setting(AgentProviders.AutoReviewKey));
                 codexAutoReview.IsChecked = false; Assert.Equal("0", store.Setting(AgentProviders.AutoReviewKey));
-                dialog.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Assert.True(dialog.IsVisible); dialog.Close();
                 await Wait(() => !dialog.IsVisible);
                 Assert.Same(original, field.GetValue(window.View));
@@ -134,7 +168,6 @@ public class SettingsUiTests
             Assert.Same(original, field.GetValue(window.View)); Assert.False(original.IsVisible);
             toggle.IsChecked = true;
             var replacement = Assert.IsType<TrayIcon>(field.GetValue(window.View)); Assert.Same(original, replacement); Assert.True(replacement.IsVisible);
-            settings.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             settings.Close();
             await Wait(() => !settings.IsVisible); Assert.Same(replacement, field.GetValue(window.View));
         }
@@ -199,9 +232,10 @@ public class SettingsUiTests
         var window = new FontSettings(store); window.Show(); await Task.Delay(100);
         try
         {
-            window.GetLogicalDescendants().OfType<AutoCompleteBox>().Single(f => f.Name == kind + "FontPicker").Text = family;
+            var font = window.GetLogicalDescendants().OfType<AutoCompleteBox>().Single(f => f.Name == kind + "FontPicker");
+            font.Text = family;
+            font.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
             window.GetLogicalDescendants().OfType<NumericUpDown>().Single(f => f.Name == "TerminalFontSize").Value = 17;
-            window.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveFonts").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             foreach (var other in new[] { "UI", "Chat", "Code", "Terminal" })
             {
                 var applied = Assert.IsType<FontFamily>(Application.Current!.Resources[other + "Font"]).Name;
@@ -226,8 +260,9 @@ public class SettingsUiTests
         var picker = window.GetLogicalDescendants().OfType<ComboBox>().Single(c => c.Name == "TerminalShell");
         Assert.All(picker.Items.OfType<ShellChoice>().Where(s => s.Id != "custom"), s => Assert.True(File.Exists(s.Executable)));
         picker.SelectedItem = picker.Items.OfType<ShellChoice>().Single(s => s.Id == "custom");
-        window.GetLogicalDescendants().OfType<TextBox>().Single(c => c.Name == "TerminalCommand").Text = "pwsh -NoLogo";
-        window.GetLogicalDescendants().OfType<Button>().Single(b => b.Name == "SaveTerminalSettings").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        var command = window.GetLogicalDescendants().OfType<TextBox>().Single(c => c.Name == "TerminalCommand");
+        command.Text = "pwsh -NoLogo";
+        command.RaiseEvent(new FocusChangedEventArgs(InputElement.LostFocusEvent));
         Assert.Equal("custom", store.Setting("terminalShell:windows")); Assert.Equal("pwsh -NoLogo", store.Setting("terminalCommand:windows"));
     }
 }

@@ -79,19 +79,11 @@ public partial class MainView
         var attempts = Number(options.Attempts, 1, 10);
         var requestLimit = Number(options.RequestLimit, 1, 50000);
         var responseLimit = Number(options.ResponseLimit, 1, 50000);
+        responseLimit.Name = "DecisionResponseLimit";
         var confidence = Number(options.Confidence, 0, 100);
         var score = Field("Minimum confidence (%)", confidence);
         var reset = new Button { Name = "ResetDecisionDefaults", Content = "Restore decision defaults" };
-        reset.Click += (_, _) =>
-        {
-            criteria.Text = DecisionSettings.DefaultCriteria;
-            resumePrompt.Text = DecisionSettings.DefaultResumePrompt;
-            timeout.Value = DecisionSettings.DefaultTimeout;
-            attempts.Value = DecisionSettings.DefaultAttempts;
-            requestLimit.Value = DecisionSettings.DefaultRequestLimit;
-            responseLimit.Value = DecisionSettings.DefaultResponseLimit;
-            confidence.Value = DecisionSettings.DefaultConfidence;
-        };
+
         var behavior = new StackPanel
         {
             Spacing = 8,
@@ -111,8 +103,7 @@ public partial class MainView
         }
         source.SelectionChanged += (_, _) => UpdateFields();
         UpdateFields();
-        var save = new Button { Name = "SaveDecisionSettings", Content = "Apply classifier settings", Classes = { "accent" } };
-        save.Click += (_, _) => apply(() =>
+        void SaveConnection() => apply(() =>
         {
             var settings = new DecisionSettings(enabled.IsChecked == true, (DecisionSource)source.SelectedIndex, command.Text?.Trim() ?? "",
                 endpoint.Text?.Trim() ?? "", providers[Math.Max(0, provider.SelectedIndex)].Provider, model.Text?.Trim() ?? "");
@@ -126,12 +117,41 @@ public partial class MainView
             foreach (var (key, value) in new[] { ("decisionEnabled", settings.Enabled ? "1" : "0"), ("decisionSource", settings.Source.ToString()),
                 ("decisionCommand", settings.Command), ("decisionEndpoint", settings.Endpoint), ("decisionProvider", settings.Provider.ToString()), ("decisionModel", settings.Model) })
                 store.Setting(key, value);
-            store.Setting("decisionCriteria", criteria.Text?.Trim() ?? "");
-            store.Setting(DecisionSettings.ResumePromptKey, resumePrompt.Text?.Trim() ?? "");
-            foreach (var (key, input, fallback) in new[] { ("decisionTimeout", timeout, DecisionSettings.DefaultTimeout),
-                ("decisionAttempts", attempts, DecisionSettings.DefaultAttempts), ("decisionRequestLimit", requestLimit, DecisionSettings.DefaultRequestLimit),
-                ("decisionResponseLimit", responseLimit, DecisionSettings.DefaultResponseLimit), ("decisionConfidence", confidence, DecisionSettings.DefaultConfidence) })
-                store.Setting(key, ((int)(input.Value ?? fallback)).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            ApplyDecisionClassifier();
+        });
+        enabled.IsCheckedChanged += (_, _) => SaveConnection();
+        source.SelectionChanged += (_, _) => SaveConnection();
+        provider.SelectionChanged += (_, _) => SaveConnection();
+        foreach (var field in new[] { command, endpoint, model }) SettingsEdit.OnCommit(field, SaveConnection);
+
+        var resetting = false;
+        void SaveDecision(string key, string value)
+        {
+            if (resetting) { store.Setting(key, value); return; }
+            apply(() => { store.Setting(key, value); ApplyDecisionClassifier(); });
+        }
+        criteria.TextChanging += (_, _) => SaveDecision("decisionCriteria", criteria.Text?.Trim() ?? "");
+        resumePrompt.TextChanging += (_, _) => SaveDecision(DecisionSettings.ResumePromptKey, resumePrompt.Text?.Trim() ?? "");
+        foreach (var (key, input) in new[] { ("decisionTimeout", timeout), ("decisionAttempts", attempts),
+            ("decisionRequestLimit", requestLimit), ("decisionResponseLimit", responseLimit), ("decisionConfidence", confidence) })
+            input.ValueChanged += (_, _) =>
+            {
+                if (input.Value is { } value) SaveDecision(key, ((int)value).ToString(System.Globalization.CultureInfo.InvariantCulture));
+            };
+        reset.Click += (_, _) => apply(() =>
+        {
+            resetting = true;
+            try
+            {
+                criteria.Text = DecisionSettings.DefaultCriteria;
+                resumePrompt.Text = DecisionSettings.DefaultResumePrompt;
+                timeout.Value = DecisionSettings.DefaultTimeout;
+                attempts.Value = DecisionSettings.DefaultAttempts;
+                requestLimit.Value = DecisionSettings.DefaultRequestLimit;
+                responseLimit.Value = DecisionSettings.DefaultResponseLimit;
+                confidence.Value = DecisionSettings.DefaultConfidence;
+            }
+            finally { resetting = false; }
             ApplyDecisionClassifier();
         });
         return new StackPanel
@@ -142,7 +162,7 @@ public partial class MainView
                 new TextBlock { Text = "Automatically resumes an agent that stops without meeting your completion criteria.", TextWrapping = TextWrapping.Wrap, Classes = { "muted" } },
                 enabled, behavior, new Separator(),
                 new StackPanel { Spacing = 8, Children = { DecisionHeading("Classifier source"), Field("Source", source), native, http, acp } },
-                new Separator(), limits, new WrapPanel { ItemSpacing = 8, Children = { save, reset } }
+                new Separator(), limits, new StackPanel { Orientation = Avalonia.Layout.Orientation.Horizontal, Children = { reset } }
             }
         };
     }

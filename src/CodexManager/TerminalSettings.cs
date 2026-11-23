@@ -9,9 +9,9 @@ public sealed class TerminalSettings : Window
     public TerminalSettings(Store store, IEnumerable<Workspace> workspaces)
     {
         Title = "Terminal settings"; Width = 530; Height = 340; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Content = CreateContent(store, workspaces, Close);
+        Content = CreateContent(store, workspaces);
     }
-    public static Control CreateContent(Store store, IEnumerable<Workspace> workspaces, Action? saved = null)
+    public static Control CreateContent(Store store, IEnumerable<Workspace> workspaces)
     {
         var platforms = new[] { OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux" }
             .Concat(workspaces.Where(w => w.IsWsl).Select(TerminalPreferences.Platform)).Distinct().ToArray();
@@ -20,12 +20,14 @@ public sealed class TerminalSettings : Window
         var command = new TextBox { Name = "TerminalCommand", PlaceholderText = "Leave blank to use the system shell" };
         var hint = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
         var error = new TextBlock { TextWrapping = Avalonia.Media.TextWrapping.Wrap };
-        var save = new Button { Name = "SaveTerminalSettings", Content = "Save", HorizontalAlignment = HorizontalAlignment.Right };
-        var panel = new StackPanel { Spacing = 10, Children = { platform, shells, command, hint, error, save } };
+        var panel = new StackPanel { Spacing = 10, Children = { platform, shells, command, hint, error } };
+        var updating = false;
         void ShowCommand() => command.IsVisible = (string?)platform.SelectedItem != "windows" || (shells.SelectedItem as ShellChoice)?.Id == "custom";
         platform.SelectionChanged += (_, _) =>
         {
-            var key = (string)platform.SelectedItem!;
+            if (platform.SelectedItem is not string key) return;
+            updating = true;
+            error.Text = "";
             shells.IsVisible = key == "windows";
             if (shells.IsVisible)
             {
@@ -38,23 +40,25 @@ public sealed class TerminalSettings : Window
             command.Text = store.Setting("terminalCommand:" + key) ?? "";
             hint.Text = key == "windows" ? "Only installed shells are listed. Custom commands run through cmd.exe /d /s /c. Changes apply to new terminal tabs." : "Leave the command blank to use this environment’s default shell. Custom commands run through sh -lc. Changes apply to new terminal tabs.";
             ShowCommand();
+            updating = false;
         };
-        shells.SelectionChanged += (_, _) => ShowCommand();
-        save.Click += (_, _) =>
+        void Save()
         {
+            if (updating || platform.SelectedItem is not string key) return;
             try
             {
-                var key = (string)platform.SelectedItem!;
                 if (key == "windows")
                 {
-                    var selected = (ShellChoice)shells.SelectedItem!;
+                    if (shells.SelectedItem is not ShellChoice selected) return;
                     if (selected.Id == "custom" && string.IsNullOrWhiteSpace(command.Text)) { error.Text = "Enter a command to start your shell."; return; }
                     store.Setting("terminalShell:windows", selected.Id);
                 }
-                store.Setting("terminalCommand:" + key, command.Text ?? ""); error.Text = "Saved."; saved?.Invoke();
+                store.Setting("terminalCommand:" + key, command.Text ?? ""); error.Text = "";
             }
             catch (Exception failure) { error.Text = AppDiagnostics.Message("Could not save terminal settings", failure); }
-        };
+        }
+        shells.SelectionChanged += (_, _) => { ShowCommand(); Save(); };
+        SettingsEdit.OnCommit(command, Save);
         platform.SelectedIndex = 0;
         return panel;
     }

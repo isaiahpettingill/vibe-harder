@@ -164,19 +164,23 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
         {
             var enabled = new CheckBox { Name = "AllowRemoteConnections", Content = "Allow my other devices to connect", IsChecked = store.Setting("remoteEnabled") != "0" };
             var port = new NumericUpDown { Name = "RemotePort", Minimum = 1, Maximum = 65535, Value = int.TryParse(store.Setting("remotePort"), out var n) ? n : 2222 };
-            var apply = new Button { Content = "Apply port" };
+            var savedPort = port.Value;
             async Task ApplyServer()
             {
-                try { store.Setting("remoteEnabled", enabled.IsChecked == true ? "1" : "0"); store.Setting("remotePort", ((int)port.Value!).ToString()); await store.FlushAsync(); await configureServer(); status.Text = enabled.IsChecked == true ? "Ready for connections." : "Incoming connections disabled."; }
+                if (port.Value is not { } value) return;
+                enabled.IsEnabled = port.IsEnabled = false;
+                try { store.Setting("remoteEnabled", enabled.IsChecked == true ? "1" : "0"); store.Setting("remotePort", ((int)value).ToString()); savedPort = value; await store.FlushAsync(); await configureServer(); status.Text = enabled.IsChecked == true ? "Ready for connections." : "Incoming connections disabled."; }
                 catch (Exception error) { status.Text = error.Message; }
+                finally { enabled.IsEnabled = port.IsEnabled = true; }
             }
-            enabled.IsCheckedChanged += async (_, _) => await ApplyServer(); apply.Click += async (_, _) => await ApplyServer();
+            enabled.IsCheckedChanged += async (_, _) => await ApplyServer();
+            SettingsEdit.OnCommit(port, async () => { if (port.Value != savedPort) await ApplyServer(); });
             panel.Children.Add(new Separator()); panel.Children.Add(enabled);
             var allowPairing = new Button { Name = "AllowNewPairing", Content = "Pair a new device" };
             allowPairing.Click += (_, _) => { RemoteTrust.OpenPairing(RemoteServer.DirectoryPath); status.Text = "New device pairing is enabled for two minutes. Connect from your other device now."; };
             panel.Children.Add(allowPairing);
             panel.Children.Add(new TextBlock { Text = "Connect using this computer's name, LAN address, or Tailscale MagicDNS name.", TextWrapping = TextWrapping.Wrap });
-            panel.Children.Add(new Expander { Header = "Advanced", Content = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Listening port" }, port, apply } } });
+            panel.Children.Add(new Expander { Header = "Advanced", Content = new StackPanel { Spacing = 8, Children = { new TextBlock { Text = "Listening port" }, port } } });
             var devices = new StackPanel { Spacing = 6 };
             void RefreshDevices()
             {
@@ -191,7 +195,8 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             pairedDevices.Expanding += (_, _) => RefreshDevices(); panel.Children.Add(pairedDevices);
             var webEnabled = new CheckBox { Name = "EnableWebAccess", Content = "Enable web access", IsChecked = store.Setting("webEnabled") == "1" };
             var webPort = new NumericUpDown { Name = "WebPort", Minimum = 1, Maximum = 65535, Value = int.TryParse(store.Setting("webPort"), out var wp) ? wp : 2223 };
-            var webApply = new Button { Content = "Apply / Retry" };
+            var savedWebPort = webPort.Value;
+            var webRetry = new Button { Content = "Retry web access" };
             var webStatus = new TextBlock { Name = "WebAccessStatus", Text = WebAccessStatus.Text, TextWrapping = TextWrapping.Wrap };
             webStatusChanged = () => webStatus.Text = WebAccessStatus.Text;
             WebAccessStatus.Changed += webStatusChanged;
@@ -202,17 +207,21 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             openWeb.Click += async (_, _) => { try { if (TopLevel.GetTopLevel(this) is { } top) await top.Launcher.LaunchUriAsync(new Uri(webUrl.Text!)); } catch (Exception error) { status.Text = error.Message; } };
             async Task ApplyWeb()
             {
-                webEnabled.IsEnabled = webApply.IsEnabled = webPort.IsEnabled = false;
+                if (webPort.Value is not { } value) return;
+                webEnabled.IsEnabled = webRetry.IsEnabled = webPort.IsEnabled = false;
                 try
                 {
                     store.Setting("webEnabled", webEnabled.IsChecked == true ? "1" : "0");
-                    store.Setting("webPort", ((int)webPort.Value!).ToString());
+                    store.Setting("webPort", ((int)value).ToString());
+                    savedWebPort = value;
                     await store.FlushAsync(); webAddresses.ItemsSource = WebAccessStatus.Addresses(store); webAddresses.SelectedIndex = 0; await (configureWeb ?? configureServer)();
                 }
                 catch (Exception error) { status.Text = error.Message; }
-                finally { webEnabled.IsEnabled = webApply.IsEnabled = webPort.IsEnabled = true; }
+                finally { webEnabled.IsEnabled = webRetry.IsEnabled = webPort.IsEnabled = true; }
             }
-            webEnabled.IsCheckedChanged += async (_, _) => await ApplyWeb(); webApply.Click += async (_, _) => await ApplyWeb();
+            webEnabled.IsCheckedChanged += async (_, _) => await ApplyWeb();
+            SettingsEdit.OnCommit(webPort, async () => { if (webPort.Value != savedWebPort) await ApplyWeb(); });
+            webRetry.Click += async (_, _) => await ApplyWeb();
             panel.Children.Add(new Separator()); panel.Children.Add(webEnabled);
             panel.Children.Add(new TextBlock { Text = "Downloads the matching web UI from GitHub once, then serves it from this computer. Open the address on your phone over your LAN or Tailscale and accept the certificate warning before pairing.", TextWrapping = TextWrapping.Wrap });
             panel.Children.Add(webStatus); panel.Children.Add(webAddresses); panel.Children.Add(webUrl); panel.Children.Add(openWeb);
@@ -229,7 +238,7 @@ public sealed class ConnectionSettingsView : UserControl, IDisposable
             }
             webUrl.TextChanged += (_, _) => RefreshQr(); RefreshQr(); panel.Children.Add(qr);
 #endif
-            panel.Children.Add(new Expander { Header = "Web port", Content = new StackPanel { Spacing = 8, Children = { webPort, webApply } } });
+            panel.Children.Add(new Expander { Header = "Web port", Content = new StackPanel { Spacing = 8, Children = { webPort, webRetry } } });
         }
         Content = new ScrollViewer { Content = panel, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
     }
