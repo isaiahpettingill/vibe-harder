@@ -1204,7 +1204,7 @@ public partial class MainView : UserControl
         var agents = new StackPanel { Spacing = 8 };
         var panel = general;
         var saveError = new TextBlock { Name = "SettingsSaveError", TextWrapping = TextWrapping.Wrap };
-        void ApplyChange(Action change) { try { change(); saveError.Text = ""; } catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not apply settings", error); } }
+        void ApplyChange(Action change) { try { change(); saveError.Text = ""; } catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not save settings", error); } }
         var sleep = new CheckBox { Name = "PresentationSleep", Content = "Sleep UI when hidden or inactive (after 2 seconds)", IsChecked = store.Setting("presentationSleep") == "1" };
         sleep.IsCheckedChanged += (_, _) => ApplyChange(() => { store.Setting("presentationSleep", sleep.IsChecked == true ? "1" : "0"); SchedulePresentationSleep(); });
         panel.Children.Add(sleep);
@@ -1260,7 +1260,11 @@ public partial class MainView : UserControl
         ToolTip.SetTip(codexAutoReview, "Use Guardian to review approval requests. This uses additional tokens. Off by default. Full access always disables Guardian. Changes apply when a session starts or reconnects.");
         codexAutoReview.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(AgentProviders.AutoReviewKey, codexAutoReview.IsChecked == true ? "1" : "0"));
         agents.Children.Add(codexAutoReview);
-        var fields = new Dictionary<string, TextBox>();
+        void SaveCommand(string key, TextBox field) => SettingsEdit.OnCommit(field, () => ApplyChange(() =>
+        {
+            if (string.IsNullOrWhiteSpace(field.Text)) throw new IOException("Enter a command.");
+            store.Setting(key, field.Text);
+        }));
         foreach (var provider in AgentProviders.All)
         {
             panel = new StackPanel { Spacing = 8, Margin = new Thickness(0, 8, 0, 8) };
@@ -1295,13 +1299,13 @@ public partial class MainView : UserControl
                 }
                 var key = AgentProviders.CommandKey(provider.Provider, isWsl);
                 var field = new TextBox { Text = AgentProviders.Command(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };
-                fields[key] = field;
+                SaveCommand(key, field);
                 foreach (var updateHost in isWsl ? workspaces.Where(w => w.IsWsl).Select(w => w.Distro!).Distinct() : ["local"])
                     if (store.Setting("backendUpdate:" + updateHost + ":" + provider.Provider) is { } updateStatus)
                         panel.Children.Add(new TextBlock { Text = updateHost + ": " + updateStatus, TextWrapping = TextWrapping.Wrap, Classes = { "muted" } });
                 var loginKey = $"{provider.Provider}:{(isWsl ? "wsl" : "local")}LoginCommand";
                 var loginField = new TextBox { Text = AgentProviders.LoginCommand(store, new Workspace("settings", "", "/", isWsl ? "WSL" : null), provider.Provider), TextWrapping = TextWrapping.Wrap };
-                fields[loginKey] = loginField;
+                SaveCommand(loginKey, loginField);
                 panel.Children.Add(new TextBlock { Text = isWsl ? "WSL command" : "Local command", Classes = { "muted" } }); panel.Children.Add(field);
                 panel.Children.Add(new TextBlock { Text = "Account setup command", Classes = { "muted" } }); panel.Children.Add(loginField);
             }
@@ -1309,27 +1313,9 @@ public partial class MainView : UserControl
                 foreach (var key in new[] { "localCodexCommand", "wslCodexCommand" })
                 {
                     panel.Children.Add(new TextBlock { Text = key.StartsWith("wsl") ? "WSL Codex deletion command" : "Local Codex deletion command", Classes = { "muted" } });
-                    var field = new TextBox { Text = store.Setting(key) ?? ChatHistory.DefaultCodexCommand, TextWrapping = TextWrapping.Wrap }; fields[key] = field; panel.Children.Add(field);
+                    var field = new TextBox { Text = store.Setting(key) ?? ChatHistory.DefaultCodexCommand, TextWrapping = TextWrapping.Wrap }; SaveCommand(key, field); panel.Children.Add(field);
                 }
         }
-        panel = agents;
-        var save = new Button { Name = "SaveSettings", Content = "Apply agent commands", Classes = { "accent" }, HorizontalAlignment = HorizontalAlignment.Left }; panel.Children.Add(save);
-        async void SaveAgentCommands(object? sender, RoutedEventArgs args)
-        {
-            if (fields.Values.Any(f => string.IsNullOrWhiteSpace(f.Text))) { saveError.Text = "Fill in all agent commands before saving."; return; }
-            save.IsEnabled = false; saveError.Text = "";
-            try
-            {
-                if ((startAtLogin.IsChecked == true) != (store.Setting("startAtLogin") == "1")) StartupRegistration.SetEnabled(startAtLogin.IsChecked == true);
-                foreach (var (key, field) in fields) store.Setting(key, field.Text!);
-                store.Setting("autoResume", autoResume.IsChecked == true ? "1" : "0"); store.Setting("startAtLogin", startAtLogin.IsChecked == true ? "1" : "0");
-                store.Setting("runInTray", traySetting.IsChecked == true ? "1" : "0"); ConfigureTray();
-                await store.FlushAsync(); saveError.Text = "Agent commands saved.";
-            }
-            catch (Exception error) { saveError.Text = AppDiagnostics.Message("Could not save settings", error); }
-            finally { save.IsEnabled = true; }
-        }
-        save.Click += SaveAgentCommands;
         var pages = new Dictionary<string, Control> { ["General"] = general, ["Appearance"] = appearance, ["Agents"] = agents };
         if (AgentRuleLinks.Desktop) pages["Classifier"] = CreateDecisionSettings(ApplyChange);
         pages["Terminal"] = TerminalSettings.CreateContent(store, store.Workspaces());

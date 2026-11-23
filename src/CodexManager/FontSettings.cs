@@ -32,29 +32,41 @@ public sealed class FontSettings : Window
     public FontSettings(Store store)
     {
         Title = "Fonts"; Width = 460; Height = 590; WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Content = CreateContent(store, Close);
+        Content = CreateContent(store);
     }
-    public static Control CreateContent(Store store, Action? saved = null)
+    public static Control CreateContent(Store store)
     {
         var panel = new StackPanel { Spacing = 8 };
         var fonts = new[] { DefaultName, "Noto Sans" }.Concat(FontManager.Current.SystemFonts.Select(f => f.Name)).Distinct().Order().ToArray();
+        var errorText = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        void Save(Action change)
+        {
+            try { change(); Apply(store); errorText.Text = ""; }
+            catch (Exception error) { errorText.Text = AppDiagnostics.Message("Could not save fonts", error); }
+        }
         var fields = new Dictionary<string, AutoCompleteBox>();
         var sizes = new Dictionary<string, NumericUpDown>();
         foreach (var kind in new[] { "UI", "Chat", "Code", "Terminal" })
         {
             var field = new AutoCompleteBox { Name = kind + "FontPicker", ItemsSource = fonts, Text = Saved(store, kind) ?? Default(kind), FilterMode = AutoCompleteFilterMode.Contains };
             fields[kind] = field; panel.Children.Add(new TextBlock { Text = kind + " font" }); panel.Children.Add(field);
+            void SaveFont() => Save(() => store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()));
+            field.LostFocus += (_, _) => SaveFont();
+            field.SelectionChanged += (_, _) => { if (field.SelectedItem is string selected) Save(() => store.Setting("font:" + kind, selected)); };
             var size = new NumericUpDown { Name = kind + "FontSize", Minimum = 8, Maximum = 36, Increment = 1, Value = (decimal)Size(store, kind), FormatString = "0" }; sizes[kind] = size; panel.Children.Add(size);
+            size.ValueChanged += (_, _) => { if (size.Value is { } value) Save(() => store.Setting("fontSize:" + kind, value.ToString(System.Globalization.CultureInfo.InvariantCulture))); };
         }
         var reset = new Button { Content = "Reset fonts and sizes" };
-        reset.Click += (_, _) => { foreach (var (kind, field) in fields) field.Text = Default(kind); foreach (var size in sizes.Values) size.Value = 13; };
-        var save = new Button { Name = "SaveFonts", Content = "Save" };
-        var errorText = new TextBlock { TextWrapping = TextWrapping.Wrap };
-        save.Click += (_, _) =>
+        reset.Click += (_, _) => Save(() =>
         {
-            try { foreach (var (kind, field) in fields) { store.Setting("font:" + kind, string.IsNullOrWhiteSpace(field.Text) ? Default(kind) : field.Text.Trim()); store.Setting("fontSize:" + kind, (sizes[kind].Value ?? 13).ToString(System.Globalization.CultureInfo.InvariantCulture)); } Apply(store); errorText.Text = "Saved."; saved?.Invoke(); }
-            catch (Exception error) { errorText.Text = AppDiagnostics.Message("Could not save fonts", error); }
-        };
-        panel.Children.Add(reset); panel.Children.Add(errorText); panel.Children.Add(save); return panel;
+            foreach (var (kind, field) in fields)
+            {
+                store.Setting("font:" + kind, Default(kind));
+                store.Setting("fontSize:" + kind, "13");
+                field.Text = Default(kind);
+                sizes[kind].Value = 13;
+            }
+        });
+        panel.Children.Add(reset); panel.Children.Add(errorText); return panel;
     }
 }

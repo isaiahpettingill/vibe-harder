@@ -221,10 +221,18 @@ public static class SidebarColors
             var button = new Button { Background = Avalonia.Media.Brush.Parse(value), Width = 28, Height = 28, Margin = new Thickness(2) };
             ToolTip.SetTip(button, value); button.Click += (_, _) => Save(value); swatches.Children.Add(button);
         }
-        var apply = new Button { Content = "Apply", Classes = { "accent" } };
-        apply.Click += (_, _) => { if (Color.TryParse(input.Text, out var color)) Save(color.ToString()); else error.Text = "Enter a color such as #89B4FA."; };
-        var reset = new Button { Content = "Use theme color" }; reset.Click += (_, _) => Save("");
-        popup.Content = new StackPanel { Width = 250, Spacing = 8, Children = { new TextBlock { Text = label }, swatches, input, error, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Children = { apply, reset } } } };
+        var original = input.Text;
+        SettingsEdit.OnCommit(input, () =>
+        {
+            if (input.Text == original) return;
+            if (!Color.TryParse(input.Text, out var color)) { error.Text = "Enter a color such as #89B4FA."; return; }
+            store.Setting(key, color.ToString());
+            original = input.Text;
+            error.Text = "";
+            refresh();
+        });
+        var reset = new Button { Content = "Use theme color", HorizontalAlignment = HorizontalAlignment.Left }; reset.Click += (_, _) => Save("");
+        popup.Content = new StackPanel { Width = 250, Spacing = 8, Children = { new TextBlock { Text = label }, swatches, input, error, reset } };
         popup.ShowAt(anchor);
     }
 }
