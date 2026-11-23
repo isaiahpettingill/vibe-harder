@@ -136,6 +136,19 @@ Enable “Automatically resume interrupted chats when the app starts” to skip 
 
 Icon buttons use smaller glyphs and padding; sidebar rename/archive actions appear on hover or keyboard focus. Expand/collapse controls stay inline with each output, rather than in the composer.
 
+## Wait for GitHub checks without keeping the agent running
+
+From a Vibe Harder agent chat, run `vibe-harder wait-for-pr OWNER/REPO PR_NUMBER`, then end the turn. This registers the wait and exits. The desktop or headless host checks GitHub in the background using the workspace's authenticated `gh` CLI. It sends one follow-up to the same idle chat after the PR's reported checks finish, whether or not they pass. It does not merge the PR. No checks reported yet is not a completed result; a closed or merged PR clears the wait without prompting. Waits survive a host restart. Pass `--cancel` to remove a wait from the same chat.
+
+If a Windows-hosted WSL workspace does not have the `vibe-harder` launcher in its Linux `PATH`, use the Windows CLI via interop:
+
+```sh
+WSLENV="${WSLENV:+$WSLENV:}VIBE_HARDER_CHAT_ID/w:CODEX_MANAGER_DATA/w" \
+  "$(wslpath "$VIBE_HARDER_HOST_CLI")" wait-for-pr OWNER/REPO PR_NUMBER
+```
+
+## Agent commands
+
 Type `/` in the composer for commands advertised by the connected ACP session. Up/Down selects; Enter or Tab inserts without sending; Escape dismisses. Commands are sent unchanged through `session/prompt`. `/goal` appears only when advertised; CLI-only commands are not added. The list refreshes on `available_commands_update` and clears on reconnect.
 
 Model and thinking options use compact bottom-toolbar menus. Copy and collapse actions use icons with tooltips. Fenced code wraps within the chat width; inline code has a light foreground and normal font weight.

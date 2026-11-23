@@ -29,6 +29,8 @@ public static class Program
                                        --wait checks until the turn ends, then prints the reply.
                                        --now interrupts the running turn.
           stop CHAT                    Stop the running turn
+          wait-for-pr OWNER/REPO PR [--cancel]
+                                       From an agent chat, resume it when GitHub checks finish
           approve CHAT [OPTION]        Answer a permission request (lists options when omitted)
           answer CHAT [VALUE | FIELD=VALUE...] [--decline]
                                        Answer an agent's question
@@ -49,7 +51,7 @@ public static class Program
         Console.OutputEncoding = Encoding.UTF8;
         try { return await Run(new Arguments(args)); }
         catch (UsageException error) { Console.Error.WriteLine(error.Message); Console.Error.WriteLine("Run vh help for usage."); return 2; }
-        catch (Exception error) when (error is IOException or RemoteOperationException or FormatException or TimeoutException or System.Net.Sockets.SocketException or System.Security.Authentication.AuthenticationException or UnauthorizedAccessException)
+        catch (Exception error) when (error is IOException or RemoteOperationException or FormatException or TimeoutException or System.Net.Sockets.SocketException or System.Security.Authentication.AuthenticationException or UnauthorizedAccessException or OperationCanceledException)
         { Console.Error.WriteLine(error.Message); return 1; }
     }
 
@@ -62,6 +64,24 @@ public static class Program
         if (command == "hosts") return Hosts(json);
         if (command == "pair") { var deviceName = args.Option("--name"); return await Pair(args.Required("ADDRESS"), deviceName); }
         if (command == "unpair") return Unpair(args.Required("NAME"));
+        if (command == "wait-for-pr")
+        {
+            if (hostName is not null) throw new UsageException("wait-for-pr only works in the current agent chat.");
+            var cancel = args.Flag("--cancel");
+            var repository = args.Required("OWNER/REPO"); var number = args.Required("PR");
+            if (args.Next() is not null) throw new UsageException("Expected wait-for-pr OWNER/REPO PR [--cancel].");
+            var chatId = Environment.GetEnvironmentVariable("VIBE_HARDER_CHAT_ID");
+            if (string.IsNullOrWhiteSpace(chatId)) throw new IOException("Run wait-for-pr from inside a Vibe Harder agent chat.");
+            using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            var result = await CliPipe.Request(CliPipe.DataDirectory, new JsonObject
+            {
+                ["method"] = "pr/wait", ["chatId"] = chatId, ["repository"] = repository, ["number"] = number, ["cancel"] = cancel
+            }, lifetime.Token);
+            if (json) return Print(result);
+            var url = result?["url"]?.GetValue<string>();
+            Console.WriteLine(cancel ? $"Stopped waiting for {url}." : $"Registered {url}. End this turn now; Vibe Harder will resume this chat when checks finish.");
+            return 0;
+        }
         await using var client = await Client.Open(hostName);
         switch (command)
         {

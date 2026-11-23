@@ -62,7 +62,7 @@ public static class AgentProviders
         AgentProvider.Pi => command == "npx -y pi-acp@0.0.33",
         _ => false
     };
-    public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider)
+    public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider, string? chatId = null, string? profile = null)
     {
         var autoReview = provider == AgentProvider.Codex && Regex.IsMatch(command, $@"(?<!\S){AutoReviewArgument}(?!\S)");
         if (autoReview) command = Regex.Replace(command, $@"(?<!\S){AutoReviewArgument}(?!\S)", "").Trim();
@@ -92,6 +92,13 @@ public static class AgentProviders
             config["approvals_reviewer"] = autoReview && !fullAccess ? "auto_review" : "user";
             environment["CODEX_CONFIG"] = config.ToJsonString();
             if (!fullAccess) environment["INITIAL_AGENT_MODE"] = autoReview ? "agent" : "workspace-write";
+        }
+        if (chatId is not null && profile is not null)
+        {
+            environment ??= [];
+            environment["VIBE_HARDER_CHAT_ID"] = chatId;
+            environment["CODEX_MANAGER_DATA"] = profile;
+            if (workspace.IsWsl) environment["VIBE_HARDER_HOST_CLI"] = Path.Combine(AppContext.BaseDirectory, "vh.exe");
         }
         return Hosts.Agent(workspace, command, environment);
     }
