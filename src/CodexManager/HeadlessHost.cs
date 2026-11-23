@@ -64,14 +64,15 @@ public static class HeadlessHost
             catch (Exception error) { Console.Error.WriteLine("Web access: " + error.Message); }
         }
         var webStartup = StartWeb();
-        _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.Handle(request)), webLifetime.Token);
+        _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.HandleLocal(request)), webLifetime.Token);
+        var pullRequestWaits = service.PullRequestWaits.Run(webLifetime.Token);
         async void Stop()
         {
             if (stopping) return; stopping = true;
             service.Schedules.Dispose();
             try
             {
-                webLifetime.Cancel(); await webStartup; await backendUpdates; await classifier.DisposeAsync();
+                webLifetime.Cancel(); await webStartup; await backendUpdates; await pullRequestWaits; await classifier.DisposeAsync();
                 if (webServer is not null) await webServer.DisposeAsync();
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
                 await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);

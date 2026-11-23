@@ -49,7 +49,7 @@ When you change a system, run its tests, integration tests included, before repo
 | Speak to type (`SpeechInput`, `Speech/`, `AndroidSpeech`) | `SpeechInputTests` |
 | Terminals | `TerminalTests`, `TerminalRecoveryTests`, `TerminalInputTests`, `TerminalLinkTests`, `TerminalFileLinkTests`, `WslShellTests`, `TerminalAppearanceTests`, `SharedTerminalTests` |
 | Providers, installation, updates, launch configuration | `ConfigurationTests`, `ProviderAuthenticationTests`, `AgentInstallationTests`, `AdditionalAgentTests`, `BackendUpdateTests`, `DesktopUpdaterTests`, `VtCodeLaunchTests`, `SessionConfigTests` |
-| Workspaces, sidebar, settings, tray, startup, CLI | `WorkspaceHistoryTests`, `WorkspaceLaunchTests`, `ArchiveSelectionTests`, `SidebarCustomizationTests`, `SettingsUiTests`, `TrayStartupTests`, `AppInstanceTests`, `CliTests`, `UiTests`, `NewFolderTests` |
+| Workspaces, sidebar, settings, tray, startup, CLI | `WorkspaceHistoryTests`, `WorkspaceLaunchTests`, `ArchiveSelectionTests`, `SidebarCustomizationTests`, `SettingsUiTests`, `TrayStartupTests`, `AppInstanceTests`, `CliTests`, `PullRequestWaitTests`, `UiTests`, `NewFolderTests` |
 
 When you add a test class, add it to this table.
 

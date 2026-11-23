@@ -341,7 +341,13 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             vtOpenAiMethod = VtCodeLaunch.Method(store, workspace);
             (launchCommand, vtOpenAiPinned) = VtCodeLaunch.Prepare(launchCommand, authenticatedProviders, vtOpenAiMethod);
         }
-        void StartAgent() => client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider)) { ReadTextFile = files.Read, WriteTextFile = files.Write };
+        void StartAgent() => client = new(AgentProviders.Start(workspace, launchCommand, chat.Provider, chat.Id,
+#if !MOBILE_CLIENT
+            store.DirectoryPath
+#else
+            null
+#endif
+            )) { ReadTextFile = files.Read, WriteTextFile = files.Write };
         if (BackendMaintenance is { } maintenance) await maintenance.BeforeStart(workspace, chat.Provider, StartAgent, timeout.Token);
         else StartAgent();
         if (client is null) throw new IOException("Could not start the agent.");

@@ -65,6 +65,17 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         using var cancel = token.Register(() => completion.TrySetResult(RpcJson.Permission()));
         try { return await completion.Task; } finally { permissions.Remove(id); }
     }
+    internal PullRequestWaits PullRequestWaits { get; } = new(store, workspaces, chats, runtime);
+
+    public async Task<JsonNode?> HandleLocal(JsonObject request)
+    {
+        if (request["method"]?.GetValue<string>() != "pr/wait") return await Handle(request);
+        string Text(string key) => request[key]?.GetValue<string>() ?? "";
+        var result = PullRequestWaits.Set(Text("chatId"), Text("repository"), Text("number"), request["cancel"]?.GetValue<bool>() == true);
+        await store.FlushAsync();
+        return result;
+    }
+
     public async Task<JsonNode?> Handle(JsonObject request)
     {
         var method = request["method"]?.GetValue<string>() ?? "";

@@ -217,7 +217,10 @@ public partial class MainView : UserControl
 #if !MOBILE_CLIENT
         // The vh command line drives this app's chats through the same handler as paired devices.
         if (!remoteOnly && !OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser())
-            _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => remoteSessions.Handle(request)), discoveryLifetime.Token);
+        {
+            _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => remoteSessions.HandleLocal(request)), discoveryLifetime.Token);
+            _ = remoteSessions.PullRequestWaits.Run(discoveryLifetime.Token);
+        }
 #endif
         // Files dropped anywhere on the chat (transcript or composer) attach to the open chat.
         DragDrop.SetAllowDrop(ChatPane, true);

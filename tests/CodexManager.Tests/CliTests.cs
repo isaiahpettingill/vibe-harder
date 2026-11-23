@@ -12,17 +12,42 @@ public class CliTests
     private static string Vh => Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "../../../../../src/CodexManager.Cli/bin", new DirectoryInfo(AppContext.BaseDirectory).Parent!.Name, "net11.0/vh.dll"));
 
     private static Task<(int Code, string Output, string Error)> Run(string data, params string[] args) => Run(data, null, args);
-    private static async Task<(int Code, string Output, string Error)> Run(string data, Func<Task<string>>? input, params string[] args)
+    private static Task<(int Code, string Output, string Error)> Run(string data, Func<Task<string>>? input, params string[] args) => RunInChat(data, null, input, args);
+    private static async Task<(int Code, string Output, string Error)> RunInChat(string data, string? chat, Func<Task<string>>? input, params string[] args)
     {
         var start = new ProcessStartInfo("dotnet") { RedirectStandardOutput = true, RedirectStandardError = true, RedirectStandardInput = true, UseShellExecute = false };
         start.ArgumentList.Add(Vh); foreach (var arg in args) start.ArgumentList.Add(arg);
         start.Environment["CODEX_MANAGER_DATA"] = data;
+        if (chat is not null) start.Environment["VIBE_HARDER_CHAT_ID"] = chat;
+        else start.Environment.Remove("VIBE_HARDER_CHAT_ID");
         using var process = Process.Start(start)!;
         if (input is not null) await process.StandardInput.WriteLineAsync(await input());
         process.StandardInput.Close();
         var output = process.StandardOutput.ReadToEndAsync(); var error = process.StandardError.ReadToEndAsync();
         await process.WaitForExitAsync().WaitAsync(TimeSpan.FromSeconds(60));
         return (process.ExitCode, await output, await error);
+    }
+
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task CommandLineRegistersAndCancelsAWaitFromTheAgentChat()
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("vh-pr-wait-cli-").FullName);
+        var workspace = new Workspace("workspace", "", store.DirectoryPath);
+        var chat = new Chat { WorkspaceId = workspace.Id };
+        using var service = new SessionService(store, [workspace], [chat], (_, _) => throw new InvalidOperationException());
+        using var stop = new CancellationTokenSource();
+        var serving = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.HandleLocal(request)), stop.Token);
+        try
+        {
+            Assert.Equal(1, (await Run(store.DirectoryPath, "wait-for-pr", "org/repo", "4")).Code);
+            var result = await RunInChat(store.DirectoryPath, chat.Id, null, "wait-for-pr", "org/repo", "4");
+            Assert.True(result.Code == 0, result.Error);
+            Assert.True(PullRequestWaits.IsWaiting(store, chat));
+            Assert.Equal(0, (await RunInChat(store.DirectoryPath, chat.Id, null, "wait-for-pr", "org/repo", "4", "--cancel")).Code);
+            Assert.False(PullRequestWaits.IsWaiting(store, chat));
+        }
+        finally { stop.Cancel(); await serving; }
     }
 
     [Trait("Category", "Integration")]
