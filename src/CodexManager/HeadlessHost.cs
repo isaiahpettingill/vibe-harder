@@ -25,6 +25,7 @@ public static class HeadlessHost
                 runtime = new(chat, workspace, store, AgentProviders.LaunchCommand(store, workspace, chat.Provider));
                 runtime.BackendMaintenance = backendMaintenance;
                 runtime.Classifier = classifier;
+                runtime.IsWaitingForWorkflowRun = () => service.Schedules.HasRunWait(chat.Id);
                 runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, workspace, chat.Provider);
                 runtime.Permission = (request, token) => service.Permission(chat, request, token); runtimes[chat.Id] = runtime;
                 runtime.Elicitation = (request, token) => service.Elicit(chat, request, token);

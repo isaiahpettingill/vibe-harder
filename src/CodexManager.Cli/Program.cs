@@ -31,6 +31,10 @@ public static class Program
           stop CHAT                    Stop the running turn
           wait-for-pr OWNER/REPO PR [--cancel]
                                        From an agent chat, resume it when GitHub checks finish
+          wait-for-run OWNER/REPO RUN_ID [--cancel]
+          wait-for-run RUN_ID | RUN_URL [--cancel]
+                                       Resume this chat when a GitHub Actions run finishes.
+                                       A bare run ID uses the workspace's GitHub origin.
           approve CHAT [OPTION]        Answer a permission request (lists options when omitted)
           answer CHAT [VALUE | FIELD=VALUE...] [--decline]
                                        Answer an agent's question
@@ -45,6 +49,34 @@ public static class Program
         Without --host, commands go to Vibe Harder running on this computer.
         Exit codes: 0 done, 1 error, 2 usage, 3 waiting for your input or timed out.
         """;
+
+    private static async Task<int> RegisterWait(Arguments args, string command, string? hostName, bool json)
+    {
+        if (hostName is not null) throw new UsageException($"{command} only works in the current agent chat.");
+        var cancel = args.Flag("--cancel");
+        var workflow = command == "wait-for-run";
+        var target = args.Required(workflow ? "OWNER/REPO, RUN_ID, or RUN_URL" : "OWNER/REPO");
+        var request = new JsonObject { ["method"] = workflow ? "run/wait" : "pr/wait", ["cancel"] = cancel };
+        if (workflow)
+        {
+            if (target.All(char.IsAsciiDigit)) request["runId"] = target;
+            else request["url"] = target.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+                ? target : $"https://github.com/{target}/actions/runs/{args.Required("RUN_ID")}";
+        }
+        else { request["repository"] = target; request["number"] = args.Required("PR"); }
+        if (args.Next() is not null) throw new UsageException(workflow
+            ? "Expected wait-for-run [OWNER/REPO] RUN_ID [--cancel] or wait-for-run RUN_URL [--cancel]."
+            : "Expected wait-for-pr OWNER/REPO PR [--cancel].");
+        var chatId = Environment.GetEnvironmentVariable("VIBE_HARDER_CHAT_ID");
+        if (string.IsNullOrWhiteSpace(chatId)) throw new IOException($"Run {command} from inside a Vibe Harder agent chat.");
+        request["chatId"] = chatId;
+        using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var result = await CliPipe.Request(CliPipe.DataDirectory, request, lifetime.Token);
+        if (json) return Print(result);
+        var url = result?["url"]?.GetValue<string>();
+        Console.WriteLine(cancel ? $"Stopped waiting for {url}." : $"Registered {url}. End this turn now; Vibe Harder will resume this chat when {(workflow ? "the run finishes" : "checks finish")}.");
+        return 0;
+    }
 
     public static async Task<int> Main(string[] args)
     {
@@ -64,24 +96,7 @@ public static class Program
         if (command == "hosts") return Hosts(json);
         if (command == "pair") { var deviceName = args.Option("--name"); return await Pair(args.Required("ADDRESS"), deviceName); }
         if (command == "unpair") return Unpair(args.Required("NAME"));
-        if (command == "wait-for-pr")
-        {
-            if (hostName is not null) throw new UsageException("wait-for-pr only works in the current agent chat.");
-            var cancel = args.Flag("--cancel");
-            var repository = args.Required("OWNER/REPO"); var number = args.Required("PR");
-            if (args.Next() is not null) throw new UsageException("Expected wait-for-pr OWNER/REPO PR [--cancel].");
-            var chatId = Environment.GetEnvironmentVariable("VIBE_HARDER_CHAT_ID");
-            if (string.IsNullOrWhiteSpace(chatId)) throw new IOException("Run wait-for-pr from inside a Vibe Harder agent chat.");
-            using var lifetime = new CancellationTokenSource(TimeSpan.FromSeconds(10));
-            var result = await CliPipe.Request(CliPipe.DataDirectory, new JsonObject
-            {
-                ["method"] = "pr/wait", ["chatId"] = chatId, ["repository"] = repository, ["number"] = number, ["cancel"] = cancel
-            }, lifetime.Token);
-            if (json) return Print(result);
-            var url = result?["url"]?.GetValue<string>();
-            Console.WriteLine(cancel ? $"Stopped waiting for {url}." : $"Registered {url}. End this turn now; Vibe Harder will resume this chat when checks finish.");
-            return 0;
-        }
+        if (command is "wait-for-pr" or "wait-for-run") return await RegisterWait(args, command, hostName, json);
         await using var client = await Client.Open(hostName);
         switch (command)
         {

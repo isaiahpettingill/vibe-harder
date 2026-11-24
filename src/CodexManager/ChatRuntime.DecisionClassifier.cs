@@ -6,6 +6,7 @@ namespace CodexManager;
 public sealed partial class ChatRuntime
 {
     internal DecisionClassifier? Classifier { get; set; }
+    internal Func<bool>? IsWaitingForWorkflowRun { get; set; }
 
     private async Task<JsonElement> ReviewCompletion(string request, long sequence, JsonElement result,
         Func<JsonArray?, Task<JsonElement>> prompt, CancellationToken token)
@@ -13,7 +14,7 @@ public sealed partial class ChatRuntime
         if (Classifier is not { Enabled: true } classifier || string.IsNullOrWhiteSpace(request)) return result;
         string? previousResponse = null;
         for (var i = 0; i < classifier.Attempts && !token.IsCancellationRequested && turnFailure is null && !HasBackgroundWork &&
-            chat.QueuedInputs.Count == 0 && !IsSteering && !detachedTurn && !PullRequestWaits.IsWaiting(store, chat) &&
+            chat.QueuedInputs.Count == 0 && !IsSteering && !detachedTurn && !PullRequestWaits.IsWaiting(store, chat) && IsWaitingForWorkflowRun?.Invoke() != true &&
             result.TryGetProperty("stopReason", out var reason) && reason.GetString() == "end_turn"; i++)
         {
             var response = string.Join("\n", chat.Messages.Where(message => message.Sequence > sequence && message.Role == "assistant").Select(message => message.Text));

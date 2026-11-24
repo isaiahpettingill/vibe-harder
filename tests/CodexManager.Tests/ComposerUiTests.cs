@@ -11,6 +11,52 @@ public class ComposerUiTests
 {
     [Trait("Category", "Integration")]
     [AvaloniaTheory]
+    [InlineData(true, 1100)]
+    [InlineData(false, 640)]
+    public async Task ScheduleUsesAPastedWorkflowLink(bool inMessage, int width)
+    {
+        var directory = Directory.CreateTempSubdirectory("vibe-schedule-run-").FullName;
+        var store = new Store(directory);
+        store.Setting("remoteEnabled", "0"); store.Setting("runInTray", "0");
+        store.Save(new Workspace("w", "Workspace", directory));
+        store.Save(new Chat { Id = "chat", WorkspaceId = "w" });
+        var window = new MainWindow(store) { Width = width }; window.Show();
+        var exited = new TaskCompletionSource(); window.Closed += (_, _) => exited.TrySetResult();
+        try
+        {
+            const string link = "https://github.com/org/repo/actions/runs/45483362226";
+            var clock = UiTests.Named<Button>(window, "ScheduleSend");
+            var composer = window.FindControl<ComposerEditor>("Composer")!;
+            var message = inMessage ? $"Review the results of {link}" : "Review the results";
+            composer.Text = message;
+            var flyout = Assert.IsType<Flyout>(clock.Flyout);
+            flyout.ShowAt(clock);
+            var fields = Assert.IsType<StackPanel>(Assert.IsType<ScrollViewer>(flyout.Content).Content);
+            var mode = fields.Children.OfType<ComboBox>().Single();
+            if (!inMessage) mode.SelectedIndex = (int)SendRepeat.GitHubRun;
+            Assert.Equal((int)SendRepeat.GitHubRun, mode.SelectedIndex);
+            var runLink = fields.GetVisualDescendants().OfType<TextBox>().Single(control => control.Name == "ScheduleRunLink");
+            if (!inMessage) runLink.Text = link;
+            Assert.Equal(link, runLink.Text);
+            Assert.True(runLink.IsEffectivelyVisible);
+            Assert.False(fields.Children.OfType<CalendarDatePicker>().First().IsVisible);
+            fields.Children.OfType<Button>().Single(b => b.Name == "ConfirmScheduleSend").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.False(flyout.IsOpen);
+            using var scheduler = new ScheduledSends(store, [], [], (_, _) => throw new InvalidOperationException());
+            var send = Assert.Single(scheduler.ForChat("chat"));
+            Assert.Equal(link, send.Schedule.WorkflowRunUrl);
+            Assert.Equal(message, send.Input.Text);
+            Assert.True(UiTests.Named<Expander>(window, "ScheduledPanel").IsVisible);
+        }
+        finally
+        {
+            window.RequestExit();
+            await exited.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Trait("Category", "Integration")]
+    [AvaloniaTheory]
     [InlineData(1, 4, 1100)]
     [InlineData(2, 6, 640)]
     public async Task ScheduleSetupSurvivesEditingAndSavedSendIsVisibleInChat(int repeat, int interval, int width)

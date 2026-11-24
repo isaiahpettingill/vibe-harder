@@ -69,9 +69,17 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
 
     public async Task<JsonNode?> HandleLocal(JsonObject request)
     {
-        if (request["method"]?.GetValue<string>() != "pr/wait") return await Handle(request);
+        var method = request["method"]?.GetValue<string>();
+        if (method is not ("pr/wait" or "run/wait")) return await Handle(request);
         string Text(string key) => request[key]?.GetValue<string>() ?? "";
-        var result = PullRequestWaits.Set(Text("chatId"), Text("repository"), Text("number"), request["cancel"]?.GetValue<bool>() == true);
+        var cancel = request["cancel"]?.GetValue<bool>() == true;
+        JsonObject result;
+        if (method == "pr/wait") result = PullRequestWaits.Set(Text("chatId"), Text("repository"), Text("number"), cancel);
+        else
+        {
+            var run = await Schedules.SetRunWait(Text("chatId"), Text("url"), Text("runId"), cancel);
+            result = new() { ["url"] = run.Url, ["waiting"] = !cancel };
+        }
         await store.FlushAsync();
         return result;
     }

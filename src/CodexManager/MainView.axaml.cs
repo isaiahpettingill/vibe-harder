@@ -887,6 +887,7 @@ public partial class MainView : UserControl
             if (Application.Current?.ApplicationLifetime is Avalonia.Controls.ApplicationLifetimes.IClassicDesktopStyleApplicationLifetime)
                 runtime.BackendMaintenance = BackendMaintenance;
             runtime.Classifier = decisionClassifier;
+            runtime.IsWaitingForWorkflowRun = () => remoteSessions.Schedules.HasRunWait(chat.Id);
             runtime.ResolveCommand = () => AgentProviders.LaunchCommand(store, owner, chat.Provider);
             runtime.AuthenticationSucceeded += () => authentication[$"{owner.Distro}:{chat.Provider}"] = false;
             runtime.IsActiveView = () => ReferenceEquals(current, chat) && remoteView is null && desktopWindow is { IsVisible: true, IsActive: true } && !closing;

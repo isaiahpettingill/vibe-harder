@@ -21,6 +21,59 @@ public class ScheduledSendTests
     }
 
     [Theory]
+    [InlineData("Check [CI](https://github.com/Org/Repo/actions/runs/45483362226?x=1).", "https://github.com/org/repo/actions/runs/45483362226")]
+    [InlineData("https://github.com/org/repo/actions/runs/42 and https://github.com/ORG/repo/actions/runs/42#jobs", "https://github.com/org/repo/actions/runs/42")]
+    [InlineData("https://github.com/org/repo/actions/runs/42 https://github.com/org/repo/actions/runs/43", null)]
+    [InlineData("https://github.com.evil.example/org/repo/actions/runs/42", null)]
+    [InlineData("https://github.com/org/repo;echo/actions/runs/42", null)]
+    [InlineData("https://github.com/org/repo/actions/runs/42/job/123", null)]
+    [InlineData("https://github.com/org/repo/actions/runs/0", null)]
+    public void FindsOnlyAnUnambiguousGitHubRunLink(string message, string? expected) =>
+        Assert.Equal(expected, GitHubWorkflowRun.FindInMessage(message)?.Url);
+
+    [Theory]
+    [InlineData("in_progress", "", false)]
+    [InlineData("queued", "", false)]
+    [InlineData("completed", "success", true)]
+    [InlineData("completed", "failure", true)]
+    public async Task WorkflowSendWaitsForCompletionAndDispatchesOnlyOnce(string status, string conclusion, bool finished)
+    {
+        var path = Directory.CreateTempSubdirectory("scheduled-workflow-").FullName;
+        try
+        {
+            var owner = new Workspace("w", "Project", path);
+            var chat = new Chat { Id = "chat", WorkspaceId = owner.Id, Busy = true };
+            var run = GitHubWorkflowRun.Parse("https://github.com/org/repo/actions/runs/42")!;
+            var input = new PendingInput("Review the CI outcome", []);
+            using (var store = new Store(path))
+            using (var scheduler = new ScheduledSends(store, [owner], [chat], (_, _) => throw new InvalidOperationException()))
+            {
+                Assert.True(scheduler.Add(chat.Id, input, SendSchedule.After(run)));
+                await scheduler.CheckRuns((workspace, target) =>
+                {
+                    Assert.Same(owner, workspace);
+                    Assert.Equal(run, target);
+                    return Task.FromResult(GitHubWorkflowRun.IsComplete($$"""{"status":"{{status}}","conclusion":"{{conclusion}}"}"""));
+                });
+                scheduler.Dispatch((_, _, _) => throw new InvalidOperationException("The chat is still busy."));
+                Assert.Equal(!finished, Assert.Single(scheduler.ForChat(chat.Id)).WaitingForRun);
+            }
+
+            using var reopened = new Store(path);
+            using var reloaded = new ScheduledSends(reopened, [owner], [chat], (_, _) => throw new InvalidOperationException());
+            chat.Busy = false;
+            var delivered = new List<PendingInput>();
+            Task Send(Chat target, Workspace _, PendingInput message)
+            { Assert.Same(chat, target); delivered.Add(message); return Task.CompletedTask; }
+            reloaded.Dispatch(Send);
+            reloaded.Dispatch(Send);
+            Assert.Equal(finished ? [input.Text] : Array.Empty<string>(), delivered.Select(message => message.Text));
+            Assert.Equal(finished ? 0 : 1, reloaded.CountFor(chat.Id));
+        }
+        finally { RemoveTestDirectory(path); }
+    }
+
+    [Theory]
     [InlineData(1, 62, 2, true)]
     [InlineData(2, 10, 6, false)]
     public void DraftSurvivesReloadWithoutBecomingAScheduledSend(int repeat, int days, int hours, bool limitDaily)

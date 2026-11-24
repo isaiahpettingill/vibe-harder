@@ -35,13 +35,17 @@ public partial class MainView
                 SendRepeat.Hourly => $"Every {send.Schedule.Hours} hours",
                 _ => "One-time send"
             };
-            if (send.Schedule.Repeat != SendRepeat.Once)
+            if (send.Schedule.Repeat is SendRepeat.Daily or SendRepeat.Hourly)
                 frequency += " · " + string.Join(", ", dayOrder.Where(day => (send.Schedule.Days & (1 << (int)day)) != 0).Select(day => day.ToString()[..3]));
             if (send.Schedule.End is { } last) frequency += $" · Ends {last:d}";
+            var timing = GitHubWorkflowRun.Parse(send.Schedule.WorkflowRunUrl) is { } run
+                ? $"{(send.WaitingForRun ? "Waiting for" : "Finished:")} {run.Repository} · #{run.Id}"
+                : $"{send.Due.ToLocalTime():g} · {frequency}";
+            if (send.RunCheckFailed) timing += " · Can't check run; verify GitHub CLI access";
             var details = new StackPanel
             {
                 Children = { new TextBlock { Text = preview, TextTrimming = TextTrimming.CharacterEllipsis },
-                    new TextBlock { Text = $"{send.Due.ToLocalTime():g} · {frequency}", TextWrapping = TextWrapping.Wrap, FontSize = 11, Classes = { "muted" } } }
+                    new TextBlock { Text = timing, TextWrapping = TextWrapping.Wrap, FontSize = 11, Classes = { "muted" } } }
             };
             var cancel = new IconButton { Name = "CancelScheduledSend", Icon = "remove", Label = "Cancel scheduled send" };
             cancel.Click += (_, _) =>
@@ -91,15 +95,25 @@ public partial class MainView
     private (Control Content, Action SaveDraft) CreateScheduleEditor(Chat chat, Action close, ScheduledSend? existing = null)
     {
         var schedules = remoteSessions.Schedules;
+        var draft = existing is null ? schedules.DraftFor(chat.Id) : null;
         var initial = existing is { Schedule: var saved }
-            ? new ScheduledSendDraft(saved.Start.Date, saved.Start.TimeOfDay, saved.Repeat,
-                saved.Repeat == SendRepeat.Once ? 0b1111111 : saved.Days, saved.Hours > 0 ? saved.Hours : 2,
-                saved.Repeat == SendRepeat.Daily && saved.End is not null, saved.End?.ToDateTime(TimeOnly.MinValue))
-            : schedules.DraftFor(chat.Id) ?? ScheduledSendDraft.New(DateTime.Now);
+            ? saved.Repeat == SendRepeat.GitHubRun
+                ? ScheduledSendDraft.New(DateTime.Now) with { Repeat = saved.Repeat, WorkflowRunUrl = saved.WorkflowRunUrl }
+                : new ScheduledSendDraft(saved.Start.Date, saved.Start.TimeOfDay, saved.Repeat,
+                    saved.Repeat == SendRepeat.Once ? 0b1111111 : saved.Days, saved.Hours > 0 ? saved.Hours : 2,
+                    saved.Repeat == SendRepeat.Daily && saved.End is not null, saved.End?.ToDateTime(TimeOnly.MinValue))
+            : draft ?? ScheduledSendDraft.New(DateTime.Now);
+        var detectedRun = GitHubWorkflowRun.FindInMessage(existing?.Input.Text ?? Composer.Text);
+        if (existing is null && draft is null && detectedRun is not null)
+            initial = initial with { Repeat = SendRepeat.GitHubRun, WorkflowRunUrl = detectedRun.Url };
         var date = new CalendarDatePicker { SelectedDate = initial.Date };
         var time = new TimePicker { SelectedTime = initial.Time };
         var zone = existing?.Schedule.Zone ?? TimeZoneInfo.Local.Id;
-        var repeat = new ComboBox { ItemsSource = new[] { "Once", "Daily on selected days", "Every X hours on selected days" }, SelectedIndex = (int)initial.Repeat };
+        var repeat = new ComboBox { ItemsSource = new[] { "Once", "Daily on selected days", "Every X hours on selected days", "When GitHub Actions finishes" }, SelectedIndex = (int)initial.Repeat };
+        var runLink = new TextBox { Name = "ScheduleRunLink", Text = initial.WorkflowRunUrl ?? detectedRun?.Url, PlaceholderText = "https://github.com/OWNER/REPO/actions/runs/…" };
+        var runField = new StackPanel { Spacing = 6, Children = { new Label { Content = "GitHub Actions run link", Target = runLink }, runLink } };
+        ToolTip.SetTip(runLink, "Uses GitHub CLI access on the workspace host.");
+        var startLabel = new TextBlock { Text = $"Start date and time ({zone})", TextWrapping = TextWrapping.Wrap };
         var hours = new NumericUpDown { Minimum = 1, Maximum = int.MaxValue, Value = initial.Hours, FormatString = "0", Increment = 1 };
         var end = new CalendarDatePicker { SelectedDate = initial.End };
         var limitDaily = new CheckBox { Content = "End on a date", IsChecked = initial.LimitDaily };
@@ -117,9 +131,12 @@ public partial class MainView
         var hourLabel = new TextBlock { Text = "Hours between sends" };
         void UpdateMode()
         {
-            dayPanel.IsVisible = dayLabel.IsVisible = repeat.SelectedIndex > 0;
-            hours.IsVisible = hourLabel.IsVisible = repeat.SelectedIndex == 2;
-            limitDaily.IsVisible = repeat.SelectedIndex == 1;
+            var mode = (SendRepeat)repeat.SelectedIndex;
+            runField.IsVisible = mode == SendRepeat.GitHubRun;
+            date.IsVisible = time.IsVisible = startLabel.IsVisible = !runField.IsVisible;
+            dayPanel.IsVisible = dayLabel.IsVisible = mode is SendRepeat.Daily or SendRepeat.Hourly;
+            hours.IsVisible = hourLabel.IsVisible = mode == SendRepeat.Hourly;
+            limitDaily.IsVisible = mode == SendRepeat.Daily;
             end.IsVisible = endLabel.IsVisible = hours.IsVisible || limitDaily.IsVisible && limitDaily.IsChecked == true;
             endLabel.Text = hours.IsVisible ? "Last day (required, inclusive)" : "Last day (inclusive)";
         }
@@ -133,10 +150,10 @@ public partial class MainView
         void SaveDraft()
         {
             if (submitted || existing is not null) return;
-            var draft = new ScheduledSendDraft(date.SelectedDate, time.SelectedTime, (SendRepeat)repeat.SelectedIndex,
-                SelectedDays(), hours.Value, limitDaily.IsChecked == true, end.SelectedDate);
-            if (draft == initial) return;
-            try { schedules.SaveDraft(chat.Id, draft); }
+            var updated = new ScheduledSendDraft(date.SelectedDate, time.SelectedTime, (SendRepeat)repeat.SelectedIndex,
+                SelectedDays(), hours.Value, limitDaily.IsChecked == true, end.SelectedDate) { WorkflowRunUrl = runLink.Text };
+            if (updated == initial) return;
+            try { schedules.SaveDraft(chat.Id, updated); }
             catch (Exception ex) { StatusText.Text = ex.Message; }
         }
         var add = new Button { Name = "ConfirmScheduleSend", Content = existing is null ? "Schedule send" : "Save", Classes = { "accent" } };
@@ -149,7 +166,7 @@ public partial class MainView
             fields.Children.Add(new Label { Content = "Message", Target = message });
             fields.Children.Add(message);
         }
-        foreach (var field in new Control[] { repeat, new TextBlock { Text = $"Start date and time ({zone})", TextWrapping = TextWrapping.Wrap }, date, time,
+        foreach (var field in new Control[] { repeat, runField, startLabel, date, time,
             dayLabel, dayPanel, hourLabel, hours, limitDaily, endLabel, end, error, add }) fields.Children.Add(field);
         add.Click += (_, _) =>
         {
@@ -160,10 +177,17 @@ public partial class MainView
                 var text = (message is null ? Composer.Text : message.Text)?.Trim() ?? "";
                 var attachments = existing?.Input.Attachments ?? OutgoingAttachments(chat);
                 if (text.Length == 0 && attachments.Length == 0) { error.Text = "Enter a message or add an attachment first."; return; }
+                var mode = (SendRepeat)repeat.SelectedIndex;
+                if (mode == SendRepeat.GitHubRun)
+                {
+                    if (GitHubWorkflowRun.Parse(runLink.Text) is not { } run)
+                    { error.Text = "Paste a GitHub Actions run link."; return; }
+                    SaveSend(text, attachments, SendSchedule.After(run));
+                    return;
+                }
                 if (date.SelectedDate is not { } start || time.SelectedTime is not { } at || repeat.SelectedIndex < 0)
                 { error.Text = "Select a start date, time, and repeat option."; return; }
                 var mask = SelectedDays();
-                var mode = (SendRepeat)repeat.SelectedIndex;
                 if (mode != SendRepeat.Once && mask == 0) { error.Text = "Select at least one day."; return; }
                 var until = end.IsVisible && end.SelectedDate is { } last ? DateOnly.FromDateTime(last) : (DateOnly?)null;
                 if (mode == SendRepeat.Daily && limitDaily.IsChecked == true && until is null)
@@ -174,19 +198,24 @@ public partial class MainView
                 { error.Text = "Enter a whole number of hours and select an end date."; return; }
                 var schedule = new SendSchedule(start.Date + at, mode, mode == SendRepeat.Once ? existing?.Schedule.Days ?? mask : mask,
                     mode == SendRepeat.Hourly ? (int)hours.Value!.Value : existing?.Schedule.Hours ?? 2, until, zone);
-                var accepted = existing is null ? schedules.Add(chat.Id, new(text, attachments), schedule) : schedules.Edit(existing.Id, text, schedule);
-                if (!accepted) { error.Text = "Choose settings with at least one future send."; return; }
-                submitted = true;
-                if (existing is null)
-                {
-                    schedules.SaveDraft(chat.Id, null);
-                    Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
-                }
-                close();
+                SaveSend(text, attachments, schedule);
             }
             catch (Exception ex) { error.Text = ex.Message; }
         };
         return (new ScrollViewer { MaxHeight = 440, Content = fields }, SaveDraft);
+
+        void SaveSend(string text, Attachment[] attachments, SendSchedule schedule)
+        {
+            var accepted = existing is null ? schedules.Add(chat.Id, new(text, attachments), schedule) : schedules.Edit(existing.Id, text, schedule);
+            if (!accepted) { error.Text = "Choose settings with at least one future send."; return; }
+            submitted = true;
+            if (existing is null)
+            {
+                schedules.SaveDraft(chat.Id, null);
+                Composer.Text = ""; chat.Draft = ""; chat.Attachments.Clear(); store.Save(chat); UpdateControls();
+            }
+            close();
+        }
     }
 
     private static DayOfWeek[] ScheduleDayOrder()

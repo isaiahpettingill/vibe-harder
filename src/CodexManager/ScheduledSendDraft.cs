@@ -2,6 +2,8 @@ namespace CodexManager;
 
 internal sealed record ScheduledSendDraft(DateTime? Date, TimeSpan? Time, SendRepeat Repeat, int Days, decimal? Hours, bool LimitDaily, DateTime? End)
 {
+    public string? WorkflowRunUrl { get; init; }
+
     public static ScheduledSendDraft New(DateTime now)
     {
         var start = now.AddHours(1);

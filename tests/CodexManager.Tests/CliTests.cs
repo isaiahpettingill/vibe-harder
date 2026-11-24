@@ -51,6 +51,40 @@ public class CliTests
     }
 
     [Trait("Category", "Integration")]
+    [AvaloniaTheory]
+    [InlineData("Org/Repo", "45483362226")]
+    [InlineData("https://github.com/Org/Repo/actions/runs/45483362226", null)]
+    [InlineData("45483362226", null)]
+    public async Task CommandLineWaitsForOneWorkflowRunAndCancelsById(string target, string? id)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("vh-run-wait-cli-").FullName);
+        var workspace = new Workspace("workspace", "", store.DirectoryPath);
+        if (target.All(char.IsAsciiDigit))
+        {
+            await Hosts.Capture(Hosts.Agent(workspace, "git init -q"));
+            await Hosts.Capture(Hosts.Agent(workspace, "git remote add origin git@github.com:Org/Repo.git"));
+        }
+        var chat = new Chat { WorkspaceId = workspace.Id };
+        using var service = new SessionService(store, [workspace], [chat], (_, _) => throw new InvalidOperationException());
+        using var stop = new CancellationTokenSource();
+        var serving = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.HandleLocal(request)), stop.Token);
+        try
+        {
+            string[] args = id is null ? ["wait-for-run", target] : ["wait-for-run", target, id];
+            var result = await RunInChat(store.DirectoryPath, chat.Id, null, args);
+            Assert.True(result.Code == 0, result.Error);
+            var pending = Assert.Single(service.Schedules.ForChat(chat.Id));
+            Assert.True(pending.WaitingForRun);
+            Assert.Equal("https://github.com/org/repo/actions/runs/45483362226", pending.Schedule.WorkflowRunUrl);
+            Assert.Equal(0, (await RunInChat(store.DirectoryPath, chat.Id, null, "wait-for-run", "org/repo", "45483362226")).Code);
+            Assert.Single(service.Schedules.ForChat(chat.Id));
+            Assert.Equal(0, (await RunInChat(store.DirectoryPath, chat.Id, null, "wait-for-run", "org/repo", "45483362226", "--cancel")).Code);
+            Assert.Empty(service.Schedules.ForChat(chat.Id));
+        }
+        finally { stop.Cancel(); await serving; }
+    }
+
+    [Trait("Category", "Integration")]
     [AvaloniaFact]
     public async Task CommandLineListsChatsSendsWaitsAndAnswersApprovals()
     {

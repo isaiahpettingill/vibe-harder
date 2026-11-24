@@ -147,6 +147,12 @@ WSLENV="${WSLENV:+$WSLENV:}VIBE_HARDER_CHAT_ID/w:CODEX_MANAGER_DATA/w" \
   "$(wslpath "$VIBE_HARDER_HOST_CLI")" wait-for-pr OWNER/REPO PR_NUMBER
 ```
 
+## Send a message after a GitHub Actions run
+
+Paste a GitHub Actions run link into the message, then open **Schedule send**. The scheduler selects **When GitHub Actions finishes** for a message with one run link. You can also select that option and paste the link into the run field. The workspace's authenticated `gh` CLI must be able to read the run, including for private repositories.
+
+From an agent chat, use `vibe-harder wait-for-run OWNER/REPO RUN_ID` or `vibe-harder wait-for-run RUN_URL`. With a bare `RUN_ID`, the command uses the workspace's GitHub `origin`. Both success and failure trigger one follow-up to the same chat when it is available. The command registers the wait and exits; `--cancel` removes it.
+
 ## Agent commands
 
 Type `/` in the composer for commands advertised by the connected ACP session. Up/Down selects; Enter or Tab inserts without sending; Escape dismisses. Commands are sent unchanged through `session/prompt`. `/goal` appears only when advertised; CLI-only commands are not added. The list refreshes on `available_commands_update` and clears on reconnect.
