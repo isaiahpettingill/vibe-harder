@@ -40,12 +40,23 @@ jobs:
         run: |
           choco install nsis --no-progress -y
           Add-Content $env:GITHUB_PATH 'C:\Program Files (x86)\NSIS'
-      - shell: pwsh
+      - if: runner.os != 'Windows'
+        shell: pwsh
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
           if ($env:RELEASE_VERSION -notmatch '^\d+\.\d+\.\d+$') { throw 'Expected numeric major.minor.patch version' }
           ./tools/package.ps1 -Runtime '${{ matrix.platform.rid }}' -Mode '${{ matrix.mode }}' -Version $env:RELEASE_VERSION
+      - if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+          WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
+          WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
+          WINDOWS_SIGNING_THUMBPRINT: ${{ vars.WINDOWS_SIGNING_THUMBPRINT }}
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Windows releases must build from main.' }
+          ./tools/sign-windows-package.ps1 -Runtime '${{ matrix.platform.rid }}' -Mode '${{ matrix.mode }}' -Version $env:RELEASE_VERSION
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 1
