@@ -210,6 +210,7 @@ public partial class MainView : UserControl
         remoteSessions = new SessionService(store, workspaces, chats, LocalRuntime) { DeleteChat = DeleteRemoteChat, CloseWorkspace = CloseWorkspace, RenameWorkspace = RenameWorkspace };
         if (!OperatingSystem.IsAndroid() && !OperatingSystem.IsBrowser()) InitializeSchedule();
         remoteSessions.Changed += BuildWorkspaceTree;
+        remoteSessions.PullRequestWaits.Changed += PullRequestWaitsChanged;
         HostTerminals.Changed += HostTerminalsChanged;
         // Paired phones that registered for UnifiedPush get the same notifications.
         if (!remoteOnly) ChatNotifications.Push = (chat, title) => UnifiedPushHost.Notify(RemoteServer.DirectoryPath, title, chat.Title, chat.Id);
@@ -1963,6 +1964,7 @@ public partial class MainView : UserControl
         {
             ReleaseTray();
             remoteSessions.Changed -= BuildWorkspaceTree;
+            remoteSessions.PullRequestWaits.Changed -= PullRequestWaitsChanged;
             MessageList.ItemsSource = null; AttachmentList.ItemsSource = null;
             runtimes.Clear(); terminals.Clear(); loginSessions.Clear(); discoveries.Clear(); workspaceClosures.Clear();
             foreach (var owned in desktopWindow!.OwnedWindows.ToArray()) owned.Close();

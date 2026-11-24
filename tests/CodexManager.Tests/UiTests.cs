@@ -25,6 +25,46 @@ public class UiTests
         finally { window.Close(); }
     }
 
+    [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData(820, "org/repo", "4")]
+    [InlineData(1200, "another-org/another-repo", "42")]
+    public async Task RegisteredPullRequestWaitAppearsOnlyInItsChatAndClearsOnCancel(int width, string repository, string number)
+    {
+        var store = new Store(Directory.CreateTempSubdirectory("pr-wait-ui-").FullName);
+        store.Setting("remoteEnabled", "0");
+        var workspace = new Workspace("pr-wait", "", store.DirectoryPath);
+        store.Save(workspace);
+        var waiting = new Chat { WorkspaceId = workspace.Id, Title = "Waiting" };
+        var other = new Chat { WorkspaceId = workspace.Id, Title = "Other" };
+        store.Save(waiting); store.Save(other);
+        var window = new MainWindow(store) { Width = width };
+        var closed = new TaskCompletionSource(); window.Closed += (_, _) => closed.TrySetResult();
+        var token = TestContext.Current.CancellationToken;
+        window.Show();
+        try
+        {
+            var chats = Named<ListBox>(window, "Chats_" + workspace.Id);
+            void Select(Chat chat) => chats.SelectedItem = chats.Items.OfType<Chat>().Single(item => item.Id == chat.Id);
+            var requests = window.FindControl<ScrollViewer>("PullRequestScroll")!;
+            Task Set(bool cancel) => CliPipe.Request(store.DirectoryPath, new()
+            {
+                ["method"] = "pr/wait", ["chatId"] = waiting.Id, ["repository"] = repository, ["number"] = number, ["cancel"] = cancel
+            }, token);
+            Select(waiting);
+            Assert.False(requests.IsVisible);
+            await Set(false);
+            Assert.True(requests.IsVisible);
+            Select(other);
+            Assert.False(requests.IsVisible);
+            Select(waiting);
+            Assert.True(requests.IsVisible);
+            await Set(true);
+            Assert.False(requests.IsVisible);
+        }
+        finally { window.RequestExit(); await closed.Task.WaitAsync(TimeSpan.FromSeconds(5), token); }
+    }
+
     [AvaloniaTheory]
     [InlineData("SettingsButton")]
     [InlineData("SearchBox")]

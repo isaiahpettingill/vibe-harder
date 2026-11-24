@@ -65,6 +65,10 @@ public partial class MainView
         }
         finally { refreshingPullRequests = false; }
     }
+    private void PullRequestWaitsChanged(Chat chat)
+    {
+        if (!closing && ReferenceEquals(current, chat)) UpdatePullRequestPane();
+    }
     private void UpdatePullRequestPane()
     {
         if (current is { IsRemote: false } chat)
@@ -81,10 +85,24 @@ public partial class MainView
             }
         }
         var requests = current?.PullRequests.Where(p => !p.Dismissed).ToArray() ?? [];
-        var signature = current?.Id + "\n" + string.Join("\n", requests.Select(p => p.ToString()));
+        var waits = current is { IsRemote: false, Archived: false } selected ? remoteSessions.PullRequestWaits.Pending(selected) : [];
+        var signature = current?.Id + "\n" + string.Join("\n", requests.Select(p => p.ToString())) + "\n" + string.Join("\n", waits);
         if (signature == pullRequestSignature) return;
         pullRequestSignature = signature;
-        PullRequestPane.Children.Clear(); PullRequestScroll.IsVisible = requests.Length > 0;
+        PullRequestPane.Children.Clear(); PullRequestScroll.IsVisible = requests.Length > 0 || waits.Length > 0;
+        foreach (var url in waits)
+        {
+            var reference = url["https://github.com/".Length..].Replace("/pull/", " #", StringComparison.Ordinal);
+            var label = new TextBlock { Text = "Waiting for checks · " + reference, TextWrapping = TextWrapping.Wrap };
+            var row = new Grid { ColumnDefinitions = new("Auto,*"), ColumnSpacing = 6 };
+            row.Children.Add(AppIcons.Create("schedule", 14));
+            Grid.SetColumn(label, 1); row.Children.Add(label);
+            var link = new Button { Content = row, HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch, Padding = new Thickness(4, 2) };
+            ToolTip.SetTip(link, url);
+            link.Click += async (_, _) => { if (Launcher is { } launcher) await launcher.LaunchUriAsync(new Uri(url)); };
+            PullRequestPane.Children.Add(link);
+        }
         foreach (var request in requests)
         {
             var row = new Grid { ColumnDefinitions = new("*,Auto"), ColumnSpacing = 4 };
