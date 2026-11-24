@@ -17,7 +17,12 @@ public partial class MainView
     private static string RemoteCollapsedKey(RemoteHost host) => "collapsed:connection:" + host.Address + ":" + host.Port;
     private Control SidebarChatRow(Chat chat, Action<IconButton> renameChat, Func<Task> chatAction, string? scope = null, string? colorId = null, RemoteView? remote = null, Action<string, string, bool>? move = null)
     {
-        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto,Auto"), Margin = new(0, 4), Background = Brushes.Transparent, Classes = { "chatRow" } };
+        var row = new Grid { ColumnDefinitions = new("20,*,Auto,Auto,Auto"), Margin = new(0, 4), Classes = { "chatRow" } };
+        var marker = new Border { Width = 2, IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left };
+        marker.Bind(Border.BackgroundProperty, this.GetResourceObservable("AppAccent"));
+        Grid.SetColumnSpan(marker, 5); row.Children.Add(marker);
+        void UpdateHighlight() => row.Classes.Set("prJustOpened", marker.IsVisible = chat.RecentPullRequest != 0);
+        UpdateHighlight();
         row.Tapped += (_, e) =>
         {
             if (!SidebarTouchSwipe && !chat.Archived && e.Source is Visual source && source is not Button && !source.GetVisualAncestors().TakeWhile(v => v != row).OfType<Button>().Any()) CollapseSidebar();
@@ -64,6 +69,11 @@ public partial class MainView
             pullRequests.IsVisible = requests.Length > 0;
         }
         UpdatePullRequests(); meta.Children.Add(pullRequests);
+        var wait = new TextBlock { Name = "PullRequestWait_" + chat.Id, Text = "Waiting for checks", FontSize = 11, Classes = { "muted" },
+            Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        void UpdateWait() => wait.IsVisible = !chat.IsRemote && !chat.Archived && PullRequestWaits.IsWaiting(store, chat);
+        void WaitChanged(Chat owner) { if (ReferenceEquals(owner, chat)) UpdateWait(); }
+        UpdateWait(); meta.Children.Add(wait);
         details.Children.Add(title); details.Children.Add(meta); Grid.SetColumn(details, 1); row.Children.Add(details);
         var rename = new IconButton { Name = "Rename_" + chat.Id, Icon = "edit", Label = "Rename chat", ClickAllowed = () => !SidebarTouchSwipe, MinWidth = OperatingSystem.IsAndroid() ? 40 : 20, MinHeight = OperatingSystem.IsAndroid() ? 40 : 20, VerticalAlignment = VerticalAlignment.Top, Classes = { "rowAction" } };
         rename.Click += (_, e) => { e.Handled = true; renameChat(rename); }; Grid.SetColumn(rename, 3);
@@ -94,19 +104,29 @@ public partial class MainView
             if (e.PropertyName is nameof(Chat.Busy) or nameof(Chat.Status) or nameof(Chat.Pinned)) UpdateAction();
             if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage();
             if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests();
+            if (e.PropertyName == nameof(Chat.RecentPullRequest)) UpdateHighlight();
+            if (e.PropertyName == nameof(Chat.Archived)) UpdateWait();
             if (e.PropertyName == nameof(Chat.RemoteScheduledSendCount)) UpdateScheduleBadge();
         }
         UpdateAction();
         row.AttachedToVisualTree += (_, _) =>
         {
             chat.PropertyChanged += ChatChanged;
-            if (!chat.IsRemote) remoteSessions.Schedules.Changed += ScheduleChanged;
-            UpdateScheduleBadge();
+            if (!chat.IsRemote)
+            {
+                remoteSessions.Schedules.Changed += ScheduleChanged;
+                remoteSessions.PullRequestWaits.Changed += WaitChanged;
+            }
+            UpdateScheduleBadge(); UpdateWait(); UpdateHighlight();
         };
         row.DetachedFromVisualTree += (_, _) =>
         {
             chat.PropertyChanged -= ChatChanged;
-            if (!chat.IsRemote) remoteSessions.Schedules.Changed -= ScheduleChanged;
+            if (!chat.IsRemote)
+            {
+                remoteSessions.Schedules.Changed -= ScheduleChanged;
+                remoteSessions.PullRequestWaits.Changed -= WaitChanged;
+            }
         };
         archive.Click += async (_, e) => { e.Handled = true; await chatAction(); }; Grid.SetColumn(archive, 4); row.Children.Add(archive);
         ToolTip.SetTip(row, chat.ProviderLabel); return chat.Archived ? ArchiveSelectableRow(row, chat, colorId ?? chat.Id, remote) : row;

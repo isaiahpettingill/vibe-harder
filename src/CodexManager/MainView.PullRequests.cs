@@ -36,6 +36,15 @@ public partial class MainView
         lines.AddRange(requests.Select(p => "#" + p.Url[(p.Url.LastIndexOf('/') + 1)..] + " " + (p.Title.Length > 60 ? p.Title[..59] + "…" : p.Title) + " · " + p.State.ToLowerInvariant()));
         return string.Join("\n", lines);
     }
+    private long pullRequestHighlightSequence;
+    private async Task HighlightPullRequestChat(Chat chat)
+    {
+        var sequence = ++pullRequestHighlightSequence;
+        chat.RecentPullRequest = sequence;
+        try { await Task.Delay(TimeSpan.FromSeconds(6), discoveryLifetime.Token); }
+        catch (OperationCanceledException) { return; }
+        if (chat.RecentPullRequest == sequence) chat.RecentPullRequest = 0;
+    }
     private bool refreshingPullRequests;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Message, object> scannedPullRequestTools = new();
     private string pullRequestSignature = "";

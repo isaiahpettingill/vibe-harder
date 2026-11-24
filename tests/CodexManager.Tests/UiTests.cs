@@ -55,12 +55,17 @@ public class UiTests
             Assert.False(requests.IsVisible);
             await Set(false);
             Assert.True(requests.IsVisible);
+            window.UpdateLayout();
+            TextBlock SidebarWait(Chat chat) => window.GetVisualDescendants().OfType<TextBlock>().Single(label => label.Name == "PullRequestWait_" + chat.Id);
+            Assert.True(SidebarWait(waiting).IsEffectivelyVisible);
+            Assert.False(SidebarWait(other).IsEffectivelyVisible);
             Select(other);
             Assert.False(requests.IsVisible);
             Select(waiting);
             Assert.True(requests.IsVisible);
             await Set(true);
             Assert.False(requests.IsVisible);
+            Assert.False(SidebarWait(waiting).IsEffectivelyVisible);
         }
         finally { window.RequestExit(); await closed.Task.WaitAsync(TimeSpan.FromSeconds(5), token); }
     }

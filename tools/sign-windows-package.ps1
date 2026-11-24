@@ -29,11 +29,13 @@ try {
     if ($personal.Subject -eq $personal.Issuer) {
         $public = Join-Path $stage 'publisher.cer'
         Export-Certificate -Cert $personal -FilePath $public | Out-Null
-        $root = Import-Certificate -FilePath $public -CertStoreLocation Cert:\CurrentUser\Root
+        # CurrentUser Root can display a trust confirmation in noninteractive CI.
+        # Hosted Windows release runners are elevated and disposable.
+        $root = Import-Certificate -FilePath $public -CertStoreLocation Cert:\LocalMachine\Root
     }
     & "$PSScriptRoot/package.ps1" -Runtime $Runtime -Mode $Mode -Version $Version -SignWindows
 } finally {
-    if ($root) { Remove-Item -LiteralPath "Cert:\CurrentUser\Root\$($root.Thumbprint)" }
+    if ($root) { Remove-Item -LiteralPath "Cert:\LocalMachine\Root\$($root.Thumbprint)" }
     foreach ($cert in @($personal) | Where-Object { $_ }) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$($cert.Thumbprint)" -DeleteKey }
     Remove-Item -LiteralPath $stage -Recurse -Force
 }
