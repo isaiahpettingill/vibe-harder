@@ -3,7 +3,8 @@ param(
     [string]$Runtime = 'win-x64',
     [string]$Version = '1.0.0',
     [switch]$Managed,
-    [ValidateSet('aot','bundled','framework')][string]$Mode = 'aot'
+    [ValidateSet('aot','bundled','framework')][string]$Mode = 'aot',
+    [switch]$SignWindows
 )
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path $PSScriptRoot -Parent
@@ -45,12 +46,14 @@ Set-Content -LiteralPath (Join-Path $publish 'runtime.txt') -Value $Runtime -NoN
 @{ version = $Version; runtime = $Runtime; mode = $mode } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $publish 'update.json')
 
 if ($Runtime.StartsWith('win')) {
+    if ($SignWindows) { & "$PSScriptRoot/sign-windows-release.ps1" -Paths @((Join-Path $publish 'VibeHarder.exe'), (Join-Path $publish 'vh.exe')) }
     Copy-Item (Join-Path $repo 'packaging/vibe-harder.cmd'), (Join-Path $repo 'packaging/register-cli.ps1') -Destination $publish
     $compiler = Get-Command makensis -ErrorAction SilentlyContinue
     if (!$compiler) { throw 'Install NSIS (https://nsis.sourceforge.io/Download) and add makensis to PATH, then rerun.' }
     $output = Join-Path $packages "VibeHarder-$Version-$Runtime-$mode-Setup.exe"
     & $compiler.Source "/DPUBLISH=$publish" "/DOUTPUT=$output" "/DVERSION=$Version" (Join-Path $repo 'packaging/windows.nsi')
     if ($LASTEXITCODE) { throw 'Installer compilation failed' }
+    if ($SignWindows) { & "$PSScriptRoot/sign-windows-release.ps1" -Paths $output }
 } elseif ($Runtime.StartsWith('linux')) {
     if (!$IsLinux) { throw 'Build Linux packages on Linux to preserve executable modes and symlinks.' }
     Copy-Item -LiteralPath (Join-Path $repo 'packaging/install-linux.sh') -Destination (Join-Path $publish 'install.sh')

@@ -71,6 +71,8 @@ The manually triggered **Release** workflow builds x64/ARM64 Windows and
 glibc/musl Linux in `aot`, `bundled`, and `framework` modes. It also builds both
 managed macOS modes and the Android APK. Windows assets are NSIS installers.
 
+Windows releases sign and timestamp `VibeHarder.exe`, `vh.exe`, and the Windows setup packages. Configure the repository Actions secrets `WINDOWS_SIGNING_PFX_BASE64` and `WINDOWS_SIGNING_PFX_PASSWORD`, and set the `WINDOWS_SIGNING_THUMBPRINT` repository variable to the intended publisher. The release fails if signing or verification fails. Do not commit a PFX or password. A self-signed publisher is for explicitly managed trust; users on other computers do not trust it by default. Signing does not override malware detection.
+
 Android requires `ANDROID_KEYSTORE_BASE64` and `ANDROID_KEYSTORE_PASSWORD`
 repository secrets, with signing alias `codexmanager`. Preserve that signing
 identity for every update.
