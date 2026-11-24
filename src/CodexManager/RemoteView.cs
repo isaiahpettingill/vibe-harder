@@ -57,8 +57,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
             var path = await FileLinks.Download(Call, id, target, lifetime.Token, (received, total) => downloads.Report(transfer.Id, received, total));
             if (FileLinks.OpenNativeFile is { } open) { await open(path); return; }
             if (TopLevel.GetTopLevel(this) is not { } top) return;
-            var file = await top.StorageProvider.TryGetFileFromPathAsync(path);
-            if (file is null || !await top.Launcher.LaunchFileAsync(file)) FileLinks.Reveal(path);
+            await FileLinks.Open(path, preferences?.Setting(FileLinks.DirectoryAppKey), top);
         }
         finally { downloads.Finish(transfer.Id); }
     }

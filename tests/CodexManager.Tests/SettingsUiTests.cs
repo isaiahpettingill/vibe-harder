@@ -87,6 +87,41 @@ public class SettingsUiTests
     }
 
     [Trait("Category", "CI")]
+    [AvaloniaTheory]
+    [InlineData("Double Commander.exe", 600)]
+    [InlineData("My File Manager.exe", 820)]
+    public async Task ResetFolderLinkAppRestoresTheSystemDefault(string executable, int width)
+    {
+        var store = new Store(Directory.CreateTempSubdirectory("folder-link-app-").FullName);
+        store.Setting("remoteEnabled", "0");
+        store.Setting(FileLinks.DirectoryAppKey, Path.Combine(store.DirectoryPath, executable));
+        var window = new MainWindow(store); window.Show();
+        var closed = new TaskCompletionSource(); window.Closed += (_, _) => closed.TrySetResult();
+        try
+        {
+            (Window Dialog, Button Reset) Open()
+            {
+                window.FindControl<Button>("SettingsButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var dialog = Assert.Single(window.OwnedWindows); dialog.Width = width;
+                return (dialog, dialog.GetLogicalDescendants().OfType<Button>().Single(button => button.Name == "ResetDirectoryLinkApp"));
+            }
+            var (first, reset) = Open();
+            Assert.True(reset.IsEnabled);
+            reset.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Assert.True(string.IsNullOrEmpty(store.Setting(FileLinks.DirectoryAppKey)));
+            first.Close();
+            var (reopened, resetAfterReopen) = Open();
+            Assert.False(resetAfterReopen.IsEnabled);
+            reopened.Close();
+        }
+        finally
+        {
+            window.RequestExit();
+            await closed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        }
+    }
+
+    [Trait("Category", "CI")]
     [AvaloniaFact]
     public async Task TrayQuitRequiresAcceptanceAndReusesPendingConfirmation()
     {

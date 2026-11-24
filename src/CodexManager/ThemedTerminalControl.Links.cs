@@ -11,6 +11,7 @@ namespace CodexManager;
 public sealed partial class ThemedTerminalControl
 {
     public Workspace? FileWorkspace { get; init; }
+    internal Func<string?>? DirectoryLinkApp { get; init; }
     private static readonly Regex UrlPattern = new(@"\b(?:https?://|mailto:|www\.)[^\s<>""'\x00-\x1f]+", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking);
     private static readonly Cursor LinkCursor = new(StandardCursorType.Hand);
     private Uri? pressedLink;
@@ -204,9 +205,7 @@ public sealed partial class ThemedTerminalControl
             if (uri.IsFile)
             {
                 if (FileWorkspace is null) return;
-                var file = await top.StorageProvider.TryGetFileFromPathAsync(uri);
-                if (file is null) throw new IOException("This file could not be found.");
-                if (!await top.Launcher.LaunchFileAsync(file)) throw new IOException("No default application is configured for this file.");
+                await FileLinks.Open(uri.LocalPath, DirectoryLinkApp?.Invoke(), top);
             }
             else if (!await top.Launcher.LaunchUriAsync(uri)) throw new IOException("No application could open this link.");
         }

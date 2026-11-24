@@ -360,7 +360,7 @@ public sealed class ChatMarkdown : MarkdownScrollViewer
             { if (TopLevel.GetTopLevel(this) is { } top) await top.Launcher.LaunchUriAsync(uri); return; }
             if (Uri.TryCreate(target, UriKind.Absolute, out uri) && !uri.IsFile) throw new IOException("Unsupported link type.");
             if (this.GetVisualAncestors().OfType<RemoteView>().FirstOrDefault() is { } remote) await remote.OpenFileLink(target);
-            else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) main.OpenFileLink(target);
+            else if (this.GetVisualAncestors().OfType<MainView>().FirstOrDefault() is { } main) await main.OpenFileLink(target);
         }
         catch (Exception error)
         {

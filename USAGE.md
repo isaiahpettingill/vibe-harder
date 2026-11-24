@@ -71,6 +71,8 @@ Folders, chats, selected folder/chat, drafts, attachments, ACP session IDs, and 
 
 ## Configuration and data
 
+In **Settings → General → Folder app for links**, choose a file manager such as Double Commander (`doublecmd.exe` on Windows). The choice applies to local folder links in chats and terminals. Regular files use the system's default app when possible. **Use system default** clears the folder app choice.
+
 **Connection settings** exposes separate local and WSL ACP and account commands for each provider. Defaults:
 
 ```text

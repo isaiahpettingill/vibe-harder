@@ -46,11 +46,12 @@ public partial class MainView : UserControl
         if (workspace is null) throw new IOException("Select a workspace first.");
         return Task.FromResult(FileLinks.Resolve(target, workspace));
     }
-    public void OpenFileLink(string target)
+    public Task OpenFileLink(string target)
     {
-        if (current is { IsRemote: true } remoteChat && RemoteSessionOf(remoteChat) is { } session) { _ = OpenRemoteFileLink(session, remoteChat, target); return; }
+        if (current is { IsRemote: true } remoteChat && RemoteSessionOf(remoteChat) is { } session) return OpenRemoteFileLink(session, remoteChat, target);
         if (workspace is null) throw new IOException("Select a workspace first.");
-        FileLinks.Reveal(FileLinks.Resolve(target, workspace));
+        return TopLevel.GetTopLevel(this) is { } top
+            ? FileLinks.Open(FileLinks.Resolve(target, workspace), store.Setting(FileLinks.DirectoryAppKey), top) : Task.CompletedTask;
     }
     private readonly Store store;
     private bool restoringSelection = true;
@@ -1216,7 +1217,11 @@ public partial class MainView : UserControl
         var allowAll = new CheckBox { Name = "AllowAllPermissions", Content = "Allow all permission prompts", IsChecked = store.Setting("allowAllPermissions") == "1" };
         allowAll.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting("allowAllPermissions", allowAll.IsChecked == true ? "1" : "0"));
         panel.Children.Add(allowAll);
-        if (AgentRuleLinks.Desktop) panel.Children.Add(CreateAgentRuleSetting(ApplyChange));
+        if (AgentRuleLinks.Desktop)
+        {
+            panel.Children.Add(DirectoryLinkSettings.Create(store, ApplyChange));
+            panel.Children.Add(CreateAgentRuleSetting(ApplyChange));
+        }
         var syntax = new CheckBox { Name = "SyntaxHighlighting", Content = "Syntax highlighting in code blocks", IsChecked = store.Setting("syntaxHighlighting") != "0" };
         syntax.IsCheckedChanged += (_, _) => ApplyChange(() => { var enabled = syntax.IsChecked == true; store.Setting("syntaxHighlighting", enabled ? "1" : "0"); AppTheme.SetSyntaxHighlighting(enabled); });
         appearance.Children.Add(syntax);
@@ -1412,7 +1417,8 @@ public partial class MainView : UserControl
     }
     private TerminalControl CreateTerminalControl(TerminalSession session, int fontSize, Workspace owner)
     {
-        var control = new ThemedTerminalControl { FileWorkspace = owner, Model = session.Model, FontSize = fontSize, FontFamily = FontSettings.Family(null) };
+        var control = new ThemedTerminalControl { FileWorkspace = owner, DirectoryLinkApp = () => store.Setting(FileLinks.DirectoryAppKey),
+            Model = session.Model, FontSize = fontSize, FontFamily = FontSettings.Family(null) };
         control.Bind(TerminalControl.FontFamilyProperty, this.GetResourceObservable("TerminalFont"));
         control.Bind(TerminalControl.FontSizeProperty, this.GetResourceObservable("TerminalFontSize"));
         return control;

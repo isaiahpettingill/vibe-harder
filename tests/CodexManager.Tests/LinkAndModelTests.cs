@@ -10,6 +10,46 @@ namespace CodexManager.Tests;
 
 public class LinkAndModelTests
 {
+    [Trait("Category", "CI")]
+    [Theory]
+    [InlineData("folder with spaces", true, true, true, "custom folder")]
+    [InlineData("default folder", true, false, true, "system folder")]
+    [InlineData("report.pdf", false, true, true, "document")]
+    [InlineData("report.unknown", false, true, false, "reveal")]
+    [InlineData("installer.EXE", false, true, true, "reveal")]
+    [InlineData("shortcut.lnk", false, true, true, "reveal")]
+    public async Task FolderAppOnlyReceivesDirectoryLinks(string name, bool isDirectory, bool useCustomApp, bool hasAssociation, string expected)
+    {
+        var root = Directory.CreateTempSubdirectory("vibe-file-open-").FullName;
+        try
+        {
+            var app = Path.Combine(root, "test app.exe");
+            File.WriteAllText(app, "fixture");
+            if (!OperatingSystem.IsWindows()) File.SetUnixFileMode(app, UnixFileMode.UserRead | UnixFileMode.UserExecute);
+            var target = Path.Combine(root, name);
+            if (isDirectory) Directory.CreateDirectory(target); else File.WriteAllText(target, "fixture");
+            var calls = new List<string>();
+            await FileLinks.Open(target, useCustomApp ? app : null,
+                path => { Assert.Equal(target, path); calls.Add("document"); return Task.FromResult(hasAssociation); },
+                info =>
+                {
+                    if (info.FileName == app)
+                    {
+                        Assert.False(info.UseShellExecute);
+                        Assert.Equal(target, Assert.Single(info.ArgumentList));
+                        calls.Add("custom folder");
+                    }
+                    else
+                    {
+                        Assert.Equal(target, OperatingSystem.IsWindows() ? info.FileName : info.ArgumentList.Last());
+                        calls.Add("system folder");
+                    }
+                }, path => { Assert.Equal(target, path); calls.Add("reveal"); });
+            Assert.Equal(!isDirectory && !hasAssociation ? ["document", expected] : [expected], calls);
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
+
     [Theory]
     [InlineData("new first\nsecond\nthird\n", "first\nsecond\nnew third\n", false)]
     [InlineData("new first\nsecond\nthird\n", "different first\nsecond\nthird\n", true)]

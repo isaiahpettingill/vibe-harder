@@ -1,4 +1,6 @@
+using System.ComponentModel;
 using System.Diagnostics;
+using Avalonia.Controls;
 using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 
@@ -26,6 +28,71 @@ public static class FileLinks
             return @"\\wsl.localhost\" + workspace.Distro + path.Replace('/', '\\');
         }
         return Path.IsPathFullyQualified(path) ? Path.GetFullPath(path) : Path.GetFullPath(path, workspace.Path);
+    }
+
+    internal const string DirectoryAppKey = "directoryLinkApp";
+    private static readonly HashSet<string> ExecutableExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".appref-ms", ".application", ".bat", ".cmd", ".com", ".command", ".cpl", ".desktop", ".exe", ".hta", ".inf", ".ins", ".isp", ".jar", ".js", ".jse", ".lnk",
+        ".mjs", ".cjs", ".msc", ".msi", ".msp", ".pif", ".pl", ".ps1", ".ps1xml", ".py", ".pyw", ".rb", ".reg", ".scf", ".scr", ".sh", ".url", ".vb", ".vbe", ".vbs", ".ws", ".wsc", ".wsf", ".wsh"
+    };
+
+    internal static Task Open(string path, string? directoryApp, TopLevel top) => Open(path, directoryApp, async filePath =>
+    {
+        if (await top.StorageProvider.TryGetFileFromPathAsync(new Uri(filePath)) is not { } file) return false;
+        using (file) return await top.Launcher.LaunchFileAsync(file);
+    }, info => Process.Start(info)?.Dispose(), Reveal);
+
+    internal static async Task Open(string path, string? directoryApp, Func<string, Task<bool>> openDocument, Action<ProcessStartInfo> start, Action<string> reveal)
+    {
+        if (Directory.Exists(path))
+        {
+            if (!IsApplicationBundle(path)) start(DirectoryLaunch(path, directoryApp));
+            else reveal(path);
+            return;
+        }
+        if (!File.Exists(path)) throw new FileNotFoundException("File not found on this host.", path);
+        // A file link must not launch a program, shortcut, or install script.
+        try
+        {
+            var target = File.ResolveLinkTarget(path, returnFinalTarget: true)?.FullName ?? path;
+            if (CanOpenDocument(path) && CanOpenDocument(target) && await openDocument(path)) return;
+        }
+        catch (Exception error) when (error is Win32Exception or IOException or NotSupportedException)
+        { AppDiagnostics.Record("Open linked document", error); }
+        reveal(path);
+    }
+
+    internal static bool IsDirectoryApp(string? app) => !string.IsNullOrWhiteSpace(app) && Path.IsPathFullyQualified(app) &&
+        (OperatingSystem.IsWindows() ? Path.GetExtension(app).Equals(".exe", StringComparison.OrdinalIgnoreCase) && File.Exists(app) :
+            IsApplicationBundle(app) && Directory.Exists(app) || File.Exists(app) &&
+            (File.GetUnixFileMode(app) & (UnixFileMode.UserExecute | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute)) != 0);
+
+    private static bool CanOpenDocument(string path)
+    {
+        var extension = Path.GetExtension(path).TrimEnd(' ', '.');
+        return !ExecutableExtensions.Contains(extension) && (!OperatingSystem.IsWindows() || extension.Length > 0);
+    }
+
+    private static bool IsApplicationBundle(string path) => OperatingSystem.IsMacOS() &&
+        Path.GetExtension(Path.TrimEndingDirectorySeparator(path)).Equals(".app", StringComparison.OrdinalIgnoreCase);
+
+    private static ProcessStartInfo DirectoryLaunch(string path, string? app)
+    {
+        if (IsDirectoryApp(app))
+        {
+            var custom = new ProcessStartInfo(app!) { UseShellExecute = false };
+            if (IsApplicationBundle(app!))
+            {
+                custom.FileName = "/usr/bin/open";
+                custom.ArgumentList.Add("-a"); custom.ArgumentList.Add(app!); custom.ArgumentList.Add("--");
+            }
+            custom.ArgumentList.Add(path);
+            return custom;
+        }
+        if (OperatingSystem.IsWindows()) return new ProcessStartInfo(path) { UseShellExecute = true };
+        return OperatingSystem.IsMacOS() ? new ProcessStartInfo("/usr/bin/open") { ArgumentList = { "-a", "Finder", "--", path } }
+            : new ProcessStartInfo("xdg-open") { ArgumentList = { path } };
     }
 
     public static void Reveal(string path)
