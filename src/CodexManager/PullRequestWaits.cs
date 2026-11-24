@@ -7,6 +7,8 @@ internal sealed class PullRequestWaits(Store store, IList<Workspace> workspaces,
 {
     private static readonly TimeSpan Interval = TimeSpan.FromMinutes(1);
     private bool refreshing;
+    internal event Action<Chat>? Changed;
+    internal string[] Pending(Chat chat) => Read(chat).Order(StringComparer.OrdinalIgnoreCase).ToArray();
     private static string Key(Chat chat) => "pullRequestWaits:" + chat.Id;
     internal static bool IsWaiting(Store store, Chat chat) => store.Setting(Key(chat)) is not (null or "[]");
 
@@ -31,8 +33,11 @@ internal sealed class PullRequestWaits(Store store, IList<Workspace> workspaces,
     private HashSet<string> Read(Chat chat) => (JsonNode.Parse(store.Setting(Key(chat)) ?? "[]") as JsonArray ?? [])
         .Select(v => v?.GetValue<string>()).OfType<string>().Where(ChatPullRequests.ValidUrl).ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-    private void Save(Chat chat, HashSet<string> urls) => store.Setting(Key(chat),
-        new JsonArray(urls.Select(url => (JsonNode)JsonValue.Create(url)!).ToArray()).ToJsonString());
+    private void Save(Chat chat, HashSet<string> urls)
+    {
+        store.Setting(Key(chat), new JsonArray(urls.Select(url => (JsonNode)JsonValue.Create(url)!).ToArray()).ToJsonString());
+        Changed?.Invoke(chat);
+    }
 
     internal async Task Run(CancellationToken token)
     {
