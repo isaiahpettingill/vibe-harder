@@ -56,7 +56,7 @@ public class UiTests
             await Set(false);
             Assert.True(requests.IsVisible);
             window.UpdateLayout();
-            TextBlock SidebarWait(Chat chat) => window.GetVisualDescendants().OfType<TextBlock>().Single(label => label.Name == "PullRequestWait_" + chat.Id);
+            Control SidebarWait(Chat chat) => window.GetVisualDescendants().OfType<Control>().Single(indicator => indicator.Name == "PullRequestWait_" + chat.Id);
             Assert.True(SidebarWait(waiting).IsEffectivelyVisible);
             Assert.False(SidebarWait(other).IsEffectivelyVisible);
             Select(other);

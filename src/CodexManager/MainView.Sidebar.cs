@@ -69,8 +69,12 @@ public partial class MainView
             pullRequests.IsVisible = requests.Length > 0;
         }
         UpdatePullRequests(); meta.Children.Add(pullRequests);
-        var wait = new TextBlock { Name = "PullRequestWait_" + chat.Id, Text = "Waiting for checks", FontSize = 11, Classes = { "muted" },
-            Margin = new(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
+        var wait = AppIcons.Create("schedule", 11);
+        wait.Name = "PullRequestWait_" + chat.Id;
+        wait.Margin = new(6, 0, 0, 0);
+        wait.VerticalAlignment = VerticalAlignment.Center;
+        ToolTip.SetTip(wait, "Waiting for checks");
+        Avalonia.Automation.AutomationProperties.SetName(wait, "Waiting for checks");
         void UpdateWait() => wait.IsVisible = !chat.IsRemote && !chat.Archived && PullRequestWaits.IsWaiting(store, chat);
         void WaitChanged(Chat owner) { if (ReferenceEquals(owner, chat)) UpdateWait(); }
         UpdateWait(); meta.Children.Add(wait);
