@@ -80,7 +80,7 @@ public static class Hosts
         }
         result.Append('\\', slashes * 2); return result.Append('"').ToString();
     }
-    public static ProcessStartInfo Agent(Workspace workspace, string command, IReadOnlyDictionary<string, string>? environment = null)
+    public static ProcessStartInfo Agent(Workspace workspace, string command, IReadOnlyDictionary<string, string>? environment = null, string? wslSetup = null)
     {
         var fullAccessCodex = environment?.TryGetValue("CODEX_PATH", out var codexPath) == true && codexPath == FullAccessCodexPath;
         var launchEnvironment = environment is null ? null : new Dictionary<string, string>(environment);
@@ -98,7 +98,7 @@ public static class Hosts
         if (workspace.IsWsl)
         {
             if (!OperatingSystem.IsWindows()) throw new PlatformNotSupportedException("WSL workspaces require Windows.");
-            string? setup = null;
+            var setup = wslSetup;
             if (fullAccessCodex)
             {
                 launchEnvironment!["CODEX_PATH"] = WslFullAccessCodexPath;

@@ -49,6 +49,8 @@ public static class AgentProviders
         var command = Command(store, workspace, provider);
         if (provider == AgentProvider.Codex) command = RemoveFullAccessArgument(command);
         command = BundledPackages.Apply(store, workspace, provider, command);
+        if (provider == AgentProvider.Codex && store.Setting(CodexUltrafast.SettingKey) == "1" && CodexUltrafast.IsManagedAdapter(command))
+            command += " " + CodexUltrafast.Argument;
         if (provider == AgentProvider.Codex && store.Setting(AutoReviewKey) == "1") command += " " + AutoReviewArgument;
         return provider == AgentProvider.Codex && store.Setting(FullAccessKey) != "0"
             ? command + " " + FullAccessArgument
@@ -64,6 +66,8 @@ public static class AgentProviders
     };
     public static System.Diagnostics.ProcessStartInfo Start(Workspace workspace, string command, AgentProvider provider, string? chatId = null, string? profile = null)
     {
+        var ultrafast = provider == AgentProvider.Codex && CodexUltrafast.Requested(command);
+        if (ultrafast) command = CodexUltrafast.RemoveArgument(command);
         var autoReview = provider == AgentProvider.Codex && Regex.IsMatch(command, $@"(?<!\S){AutoReviewArgument}(?!\S)");
         if (autoReview) command = Regex.Replace(command, $@"(?<!\S){AutoReviewArgument}(?!\S)", "").Trim();
         var fullAccess = RequestsFullAccess(command, provider);
@@ -100,7 +104,9 @@ public static class AgentProviders
             environment["CODEX_MANAGER_DATA"] = profile;
             if (workspace.IsWsl) environment["VIBE_HARDER_HOST_CLI"] = Path.Combine(AppContext.BaseDirectory, "vh.exe");
         }
-        return Hosts.Agent(workspace, command, environment);
+        return ultrafast && CodexUltrafast.IsManagedAdapter(command)
+            ? CodexUltrafast.Start(workspace, command, environment!, fullAccess, profile)
+            : Hosts.Agent(workspace, command, environment);
     }
     internal static bool RequestsFullAccess(string command, AgentProvider provider) =>
         provider == AgentProvider.Codex && Regex.IsMatch(command, $@"(?<!\S){Regex.Escape(FullAccessArgument)}(?!\S)");

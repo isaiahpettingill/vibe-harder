@@ -4,6 +4,65 @@ public class ConfigurationTests
 {
     [Trait("Category", "Integration")]
     [Theory]
+    [InlineData(false, false, "astra", "ultrafast")]
+    [InlineData(true, true, "terra", "fast")]
+    [InlineData(true, false, "sol", "ultrafast")]
+    public async Task ManagedCodexRequestsUltrafastOnlyForSupportedModels(bool pinned, bool fullAccess, string model, string expected)
+    {
+        var token = TestContext.Current.CancellationToken;
+        using var store = new Store(Directory.CreateTempSubdirectory("codex-ultrafast-").FullName);
+        var workspace = new Workspace("w", "Test", store.DirectoryPath);
+        store.Setting(CodexUltrafast.SettingKey, "1");
+        store.Setting(AgentProviders.FullAccessKey, fullAccess ? "1" : "0");
+        if (pinned) BundledPackages.Pin(store, workspace, new Dictionary<string, string> { ["@agentclientprotocol/codex-acp"] = "2.12.0", ["@openai/codex"] = "0.172.0" });
+        var package = Path.Combine(store.DirectoryPath, "node_modules", "@openai", "codex", "bin");
+        Directory.CreateDirectory(package);
+        var bin = Directory.CreateDirectory(Path.Combine(store.DirectoryPath, "node_modules", ".bin")).FullName;
+        await File.WriteAllTextAsync(Path.Combine(package, "codex.js"), """
+            process.stdout.write(JSON.stringify({args: process.argv.slice(2)}) + '\n');
+            require('node:readline').createInterface({input: process.stdin}).on('line', line => {
+                const input = JSON.parse(line);
+                const result = input.method === 'model/list' ? {data: [
+                    {id:'astra', serviceTiers:[{id:'ultrafast'}]},
+                    {id:'terra', serviceTiers:[{id:'fast'}]},
+                    {id:'sol', additionalSpeedTiers:['ultrafast']},
+                ]} : input.params;
+                process.stdout.write(JSON.stringify({id: input.id, result}) + '\n');
+            });
+            """, token);
+        var command = AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex);
+        var launch = AgentProviders.Start(workspace, command, AgentProvider.Codex, profile: store.DirectoryPath);
+        var wrapper = launch.Environment["CODEX_PATH"];
+        Assert.True(File.Exists(wrapper));
+        var start = Hosts.Agent(workspace, OperatingSystem.IsWindows() ? "& $env:CODEX_PATH app-server" : "\"$CODEX_PATH\" app-server");
+        start.Environment["PATH"] = bin + Path.PathSeparator + start.Environment["PATH"];
+        start.Environment["CODEX_PATH"] = wrapper;
+        start.Environment["VIBE_HARDER_ULTRAFAST_FULL_ACCESS"] = launch.Environment["VIBE_HARDER_ULTRAFAST_FULL_ACCESS"];
+        using var process = System.Diagnostics.Process.Start(start)!;
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(token); limit.CancelAfter(TimeSpan.FromSeconds(12));
+        async Task<System.Text.Json.Nodes.JsonNode> Read() => System.Text.Json.Nodes.JsonNode.Parse(await process.StandardOutput.ReadLineAsync(limit.Token)
+            ?? throw new IOException(await process.StandardError.ReadToEndAsync(limit.Token)))!;
+        try
+        {
+            var args = (await Read())["args"]!.AsArray().Select(value => value!.GetValue<string>());
+            Assert.Equal(fullAccess ? ["--disable", "guardian_approval", AgentProviders.FullAccessArgument, "app-server"] : ["app-server"], args);
+            await process.StandardInput.WriteLineAsync("""{"id":1,"method":"model/list","params":{}}""");
+            Assert.Equal(3, (await Read())["result"]!["data"]!.AsArray().Count);
+            await process.StandardInput.WriteLineAsync($$$"""{"id":2,"method":"turn/start","params":{"model":"{{{model}}}","serviceTier":"fast","threadId":"thread-1"}}""");
+            var result = (await Read())["result"]!;
+            Assert.Equal(expected, result["serviceTier"]!.GetValue<string>());
+            Assert.Equal("thread-1", result["threadId"]!.GetValue<string>());
+            await process.StandardInput.WriteLineAsync("""{"id":3,"method":"thread/read","params":{"model":"astra","serviceTier":"fast"}}""");
+            Assert.Equal("fast", (await Read())["result"]!["serviceTier"]!.GetValue<string>());
+            process.StandardInput.Close();
+            await process.WaitForExitAsync(limit.Token);
+            Assert.True(process.ExitCode == 0, await process.StandardError.ReadToEndAsync(limit.Token));
+        }
+        finally { if (!process.HasExited) process.Kill(entireProcessTree: true); }
+    }
+
+    [Trait("Category", "Integration")]
+    [Theory]
     [InlineData("0")]
     [InlineData("1")]
     public async Task FullAccessCodexProcessStartsWithGuardianDisabled(string autoReview)

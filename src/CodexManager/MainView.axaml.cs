@@ -1265,6 +1265,10 @@ public partial class MainView : UserControl
         ToolTip.SetTip(codexAutoReview, "Use Guardian to review approval requests. This uses additional tokens. Off by default. Full access always disables Guardian. Changes apply when a session starts or reconnects.");
         codexAutoReview.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(AgentProviders.AutoReviewKey, codexAutoReview.IsChecked == true ? "1" : "0"));
         agents.Children.Add(codexAutoReview);
+        var codexUltrafast = new CheckBox { Name = "CodexUltrafast", Content = "Prefer Codex Ultrafast when available", IsChecked = store.Setting(CodexUltrafast.SettingKey) == "1" };
+        ToolTip.SetTip(codexUltrafast, "For the built-in Codex adapter and supported models. Uses more of your plan limit or credits. Reconnect to apply.");
+        codexUltrafast.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(CodexUltrafast.SettingKey, codexUltrafast.IsChecked == true ? "1" : "0"));
+        agents.Children.Add(codexUltrafast);
         void SaveCommand(string key, TextBox field) => SettingsEdit.OnCommit(field, () => ApplyChange(() =>
         {
             if (string.IsNullOrWhiteSpace(field.Text)) throw new IOException("Enter a command.");

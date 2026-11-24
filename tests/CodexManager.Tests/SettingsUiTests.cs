@@ -153,6 +153,10 @@ public class SettingsUiTests
                 codexFullAccess.IsChecked = true; Assert.Equal("1", store.Setting(AgentProviders.FullAccessKey));
                 codexFullAccess.IsChecked = false; Assert.Equal("0", store.Setting(AgentProviders.FullAccessKey));
                 var codexAutoReview = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "CodexAutoReview");
+                var ultrafast = dialog.GetLogicalDescendants().OfType<CheckBox>().Single(c => c.Name == "CodexUltrafast");
+                Assert.Equal(i != 0, ultrafast.IsChecked);
+                ultrafast.IsChecked = true;
+                Assert.Equal("1", store.Setting(CodexUltrafast.SettingKey));
                 Assert.False(codexAutoReview.IsChecked);
                 codexAutoReview.IsChecked = true; Assert.Equal("1", store.Setting(AgentProviders.AutoReviewKey));
                 codexAutoReview.IsChecked = false; Assert.Equal("0", store.Setting(AgentProviders.AutoReviewKey));
