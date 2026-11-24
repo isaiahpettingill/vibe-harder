@@ -1,5 +1,9 @@
 name: Build and test
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
 jobs:
   desktop:
     strategy:
@@ -25,9 +29,12 @@ jobs:
       - run: npm ci --ignore-scripts
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y clang zlib1g-dev xvfb imagemagick
-      # CI runs the fast high-value tests only (see AGENTS.md). macOS is built and packaged only.
-      - if: runner.os != 'macOS'
+      # Run the shared CI suite once. Windows keeps focused coverage for native
+      # startup, CLI, remote trust, and terminal behavior; macOS packages only.
+      - if: runner.os == 'Linux'
         run: dotnet test tests/CodexManager.Tests --filter "Category=CI"
+      - if: runner.os == 'Windows'
+        run: dotnet test tests/CodexManager.Tests --filter "Category=CI&(FullyQualifiedName~AppInstanceTests|FullyQualifiedName~TrayStartupTests|FullyQualifiedName~ConfigurationTests|FullyQualifiedName~CliTests|FullyQualifiedName~PullRequestWaitTests|FullyQualifiedName~RemotePairingTests|FullyQualifiedName~TerminalTests|FullyQualifiedName~SettingsUiTests)"
       - if: runner.os == 'Windows'
         run: choco install nsis --no-progress -y
       - if: runner.os == 'Windows'
