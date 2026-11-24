@@ -67,9 +67,14 @@ an Alpine .NET SDK environment with clang, build-base, zlib-dev, and icu-libs.
 
 ## GitHub releases
 
-The manually triggered **Release** workflow builds x64/ARM64 Windows and
-glibc/musl Linux in `aot`, `bundled`, and `framework` modes. It also builds both
-managed macOS modes and the Android APK. Windows assets are NSIS installers.
+By default, the **Release** workflow publishes Windows x64, glibc Linux x64 and
+ARM64, and Android ARM64. Desktop packages keep the `aot`, `bundled`, and
+`framework` variants. Windows assets are NSIS installers.
+
+To also publish Windows ARM64, macOS (Intel and Apple Silicon), Alpine/musl Linux,
+Android x64, and the browser client, enable **include_optional** when running the
+workflow, or pass `-f include_optional=true` to `gh workflow run release.yml`.
+The browser client remains best-effort when selected.
 
 Windows releases sign and timestamp `VibeHarder.exe`, `vh.exe`, and the Windows setup packages. Configure the repository Actions secrets `WINDOWS_SIGNING_PFX_BASE64` and `WINDOWS_SIGNING_PFX_PASSWORD`, and set the `WINDOWS_SIGNING_THUMBPRINT` repository variable to the intended publisher. The release fails if signing or verification fails. Do not commit a PFX or password. A self-signed publisher is for explicitly managed trust; users on other computers do not trust it by default. Signing does not override malware detection.
 
@@ -78,8 +83,8 @@ repository secrets, with signing alias `codexmanager`. Preserve that signing
 identity for every update.
 
 Choose **Actions → Release → Run workflow**, supply a numeric `major.minor.patch`
-version, and wait for all builds. Only after every platform succeeds does the
-workflow publish a release with all assets and `SHA256SUMS.txt`. After publication,
+version. After the required builds for the selected targets succeed, the workflow
+publishes the resulting assets and `SHA256SUMS.txt`. After publication,
 it deletes the run’s temporary Actions artifacts. Build and release artifacts
 otherwise expire after one day; published release downloads are retained.
 

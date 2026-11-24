@@ -6,6 +6,10 @@ on:
         description: Release version (without v)
         required: true
         default: 1.0.0
+      include_optional:
+        description: Also build Windows ARM64, macOS, Alpine Linux, Android x64, and the web client
+        type: boolean
+        default: false
 permissions:
   contents: read
 jobs:
@@ -15,16 +19,19 @@ jobs:
       matrix:
         platform:
           - { os: windows-latest, rid: win-x64 }
-          - { os: windows-11-vs2026-arm, rid: win-arm64 }
+          - { os: windows-11-vs2026-arm, rid: win-arm64, tier: optional }
           - { os: ubuntu-24.04, rid: linux-x64 }
           - { os: ubuntu-24.04-arm, rid: linux-arm64 }
-          - { os: macos-15-intel, rid: osx-x64 }
-          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-15-intel, rid: osx-x64, tier: optional }
+          - { os: macos-latest, rid: osx-arm64, tier: optional }
         mode: [aot, bundled, framework]
         exclude:
-          - platform: { os: macos-15-intel, rid: osx-x64 }
+          - platform: { os: windows-11-vs2026-arm, rid: "${{ inputs.include_optional && 'none' || 'win-arm64' }}", tier: optional }
+          - platform: { os: macos-15-intel, rid: "${{ inputs.include_optional && 'none' || 'osx-x64' }}", tier: optional }
+          - platform: { os: macos-latest, rid: "${{ inputs.include_optional && 'none' || 'osx-arm64' }}", tier: optional }
+          - platform: { os: macos-15-intel, rid: osx-x64, tier: optional }
             mode: aot
-          - platform: { os: macos-latest, rid: osx-arm64 }
+          - platform: { os: macos-latest, rid: osx-arm64, tier: optional }
             mode: aot
     runs-on: ${{ matrix.platform.os }}
     steps:
@@ -54,6 +61,7 @@ jobs:
           WINDOWS_SIGNING_PFX_BASE64: ${{ secrets.WINDOWS_SIGNING_PFX_BASE64 }}
           WINDOWS_SIGNING_PFX_PASSWORD: ${{ secrets.WINDOWS_SIGNING_PFX_PASSWORD }}
           WINDOWS_SIGNING_THUMBPRINT: ${{ vars.WINDOWS_SIGNING_THUMBPRINT }}
+        timeout-minutes: 15
         run: |
           if ($env:GITHUB_REF -ne 'refs/heads/main') { throw 'Windows releases must build from main.' }
           ./tools/sign-windows-package.ps1 -Runtime '${{ matrix.platform.rid }}' -Mode '${{ matrix.mode }}' -Version $env:RELEASE_VERSION
@@ -64,6 +72,7 @@ jobs:
           path: artifacts/packages/*
           if-no-files-found: error
   musl:
+    if: ${{ inputs.include_optional }}
     strategy:
       fail-fast: false
       matrix:
@@ -91,9 +100,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
+        platform:
           - { rid: android-arm64, artifact: android, filename: VibeHarder-Android.apk }
-          - { rid: android-x64, artifact: android-x64, filename: VibeHarder-Android-x64.apk }
+          - { rid: android-x64, artifact: android-x64, filename: VibeHarder-Android-x64.apk, tier: optional }
+        exclude:
+          - platform: { rid: "${{ inputs.include_optional && 'none' || 'android-x64' }}", artifact: android-x64, filename: VibeHarder-Android-x64.apk, tier: optional }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -117,18 +128,19 @@ jobs:
         run: |
           test -n "$KEYSTORE"
           printf '%s' "$KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
-          dotnet publish src/CodexManager.Android -c Release -r "${{ matrix.rid }}" -p:RuntimeIdentifiers="${{ matrix.rid }}" -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore" -p:AndroidSigningKeyAlias=codexmanager -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:KEYSTORE_PASSWORD -p:ApplicationDisplayVersion="$RELEASE_VERSION" -p:ApplicationVersion="${{ github.run_number }}"
+          dotnet publish src/CodexManager.Android -c Release -r "${{ matrix.platform.rid }}" -p:RuntimeIdentifiers="${{ matrix.platform.rid }}" -p:AndroidSdkDirectory="$ANDROID_HOME" -p:JavaSdkDirectory="$JAVA_HOME" -p:AndroidKeyStore=true -p:AndroidSigningKeyStore="$RUNNER_TEMP/release.keystore" -p:AndroidSigningKeyAlias=codexmanager -p:AndroidSigningStorePass=env:KEYSTORE_PASSWORD -p:AndroidSigningKeyPass=env:KEYSTORE_PASSWORD -p:ApplicationDisplayVersion="$RELEASE_VERSION" -p:ApplicationVersion="${{ github.run_number }}"
           mkdir -p artifacts/packages
-          cp src/CodexManager.Android/bin/Release/net11.0-android/${{ matrix.rid }}/publish/*-Signed.apk "artifacts/packages/${{ matrix.filename }}"
-          python3 tools/check-android-package.py "${{ matrix.rid }}" "artifacts/packages/${{ matrix.filename }}" src/CodexManager.Mobile.UI/obj/project.assets.json
+          cp src/CodexManager.Android/bin/Release/net11.0-android/${{ matrix.platform.rid }}/publish/*-Signed.apk "artifacts/packages/${{ matrix.platform.filename }}"
+          python3 tools/check-android-package.py "${{ matrix.platform.rid }}" "artifacts/packages/${{ matrix.platform.filename }}" src/CodexManager.Mobile.UI/obj/project.assets.json
       - uses: actions/upload-artifact@v4
         with:
           retention-days: 1
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.platform.artifact }}
           path: artifacts/packages/*.apk
           if-no-files-found: error
   # The browser client is optional: a failed web build leaves it out of the release.
   web:
+    if: ${{ inputs.include_optional }}
     runs-on: ubuntu-24.04
     continue-on-error: true
     steps:
@@ -160,7 +172,7 @@ jobs:
       - run: sh tools/check-linux-instance.sh
   publish:
     needs: [desktop, musl, android, web, linux-installer]
-    if: ${{ !cancelled() && needs.desktop.result == 'success' && needs.musl.result == 'success' && needs.android.result == 'success' && needs.linux-installer.result == 'success' }}
+    if: ${{ !cancelled() && needs.desktop.result == 'success' && needs.android.result == 'success' && needs.linux-installer.result == 'success' && (!inputs.include_optional || needs.musl.result == 'success') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write

@@ -894,7 +894,7 @@ public partial class MainView : UserControl
             runtime.Elicitation = (request, token) => Elicit(chat, request, token);
             runtime.TurnCompleted += () => NotifyCompleted(chat);
             runtime.IssuesChanged += UpdateIssuePane;
-            runtime.PullRequestCreated += () => { CelebratePullRequest(); UpdatePullRequestPane(); _ = RefreshPullRequests(); };
+            runtime.PullRequestCreated += () => { _ = HighlightPullRequestChat(chat); CelebratePullRequest(); UpdatePullRequestPane(); _ = RefreshPullRequests(); };
             runtime.PullRequestMerged += UpdatePullRequestPane;
             runtime.Changed += () =>
             {

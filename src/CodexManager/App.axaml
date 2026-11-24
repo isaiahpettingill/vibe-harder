@@ -56,6 +56,8 @@
     <Style Selector="Expander"><Setter Property="Padding" Value="4"/></Style>
     <Style Selector="Expander /template/ ToggleButton"><Setter Property="MinHeight" Value="28"/><Setter Property="Padding" Value="6,3"/></Style>
     <Style Selector="TextBlock.muted"><Setter Property="Foreground" Value="{DynamicResource AppMuted}"/></Style>
+    <Style Selector="Grid.chatRow"><Setter Property="Background" Value="Transparent"/></Style>
+    <Style Selector="Grid.chatRow.prJustOpened"><Setter Property="Background" Value="{DynamicResource AppSurface}"/></Style>
     <Style Selector="Grid.chatRow Button.rowAction"><Setter Property="Opacity" Value="0"/></Style>
     <Style Selector="Grid.chatRow:pointerover Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
     <Style Selector="Grid.chatRow:focus-within Button.rowAction"><Setter Property="Opacity" Value="1"/></Style>
