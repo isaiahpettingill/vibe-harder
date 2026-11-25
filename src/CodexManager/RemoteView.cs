@@ -89,6 +89,22 @@ public sealed partial class RemoteView : UserControl, IDisposable
     }
     // The same composer as the desktop chat pane.
     private readonly ChatComposer chatComposer = new(remote: true, "Message the agent…");
+    private readonly StackPanel githubIndicatorRows = new() { Name = "RemoteGitHubIndicators", Spacing = 2 };
+    private ScrollViewer? githubIndicators;
+    private string? indicatorSnapshot;
+    private void UpdateIndicators(JsonNode? summary)
+    {
+        var snapshot = summary is null ? null : string.Join("\n", new[] { "pullRequests", "issues", "pullRequestWaits", "scheduled", "scheduledSends" }.Select(key => summary[key]?.ToJsonString()));
+        if (snapshot == indicatorSnapshot) return;
+        indicatorSnapshot = snapshot;
+        RemoteIndicatorViews.ShowGitHub(githubIndicatorRows, summary, async uri =>
+        {
+            if (TopLevel.GetTopLevel(this)?.Launcher is { } launcher) await launcher.LaunchUriAsync(uri);
+        });
+        if (githubIndicators is not null) githubIndicators.IsVisible = githubIndicatorRows.Children.Count > 0;
+        RemoteIndicatorViews.ShowScheduled(chatComposer, summary is null ? 0 : RemoteChatIndicators.ScheduledCount(summary),
+            summary is null ? [] : RemoteChatIndicators.Scheduled(summary));
+    }
     private TextBlock attachmentError => chatComposer.AttachmentError;
     private IconButton send => chatComposer.SendButton;
     private StackPanel queuedMessages => chatComposer.QueueItems;
@@ -296,7 +312,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         // A page and scroll position saved while asleep belong to the previous chat; a notification
         // can switch chats before the view wakes.
         sleepingAnchor = null; sleepingPage = presentationSleeping ? messages : null;
-        chatSearch.Close(); viewingHistory = false; output.ItemsSource = presentationSleeping ? null : messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); availableCommands = []; UpdateSlashCommands(); chatId = id; messageProvider = null; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
+        chatSearch.Close(); viewingHistory = false; output.ItemsSource = presentationSleeping ? null : messages; busy = false; preparing = true; queueJson = ""; queuedMessages.Children.Clear(); UpdateIndicators(null); availableCommands = []; UpdateSlashCommands(); chatId = id; messageProvider = null; UpdateSendAction(); if (connection is not null) _ = Call(new() { ["method"] = "read", ["chatId"] = id }); messages.Clear(); permissionsJson = ""; configJson = "";
         if (OperatingSystem.IsBrowser())
         {
             restoringBrowserDraft = true;
@@ -336,7 +352,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         this.downloads = downloads ?? new RemoteDownloads();
         this.allowAll = allowAll ?? (() => false); this.activate = activate;
         this.host = host;
-        var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto"), Margin = new Thickness(12) };
+        var panel = new Grid { RowDefinitions = new("Auto,*,Auto,Auto,Auto"), Margin = new Thickness(12) };
         var connectionNotice = new Grid { Name = "RemoteConnectionNotice", ColumnDefinitions = new("*,Auto"), Margin = new Thickness(0, 0, 0, 6) };
         connectionNotice.Bind(IsVisibleProperty, status.GetObservable(IsVisibleProperty));
         var connectionText = new TextBlock { FontSize = 11, TextWrapping = Avalonia.Media.TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center };
@@ -432,9 +448,11 @@ public sealed partial class RemoteView : UserControl, IDisposable
         approvals.Children.CollectionChanged += (_, _) => UpdateSendAction();
         var approvalScroll = new ScrollViewer { Content = approvals, MaxHeight = 180 };
         panel.SizeChanged += (_, _) => approvalScroll.MaxHeight = Math.Clamp(panel.Bounds.Height * .35, 64, 220);
-        Grid.SetRow(approvalScroll, 2); panel.Children.Add(approvalScroll);
+        githubIndicators = new ScrollViewer { Content = githubIndicatorRows, MaxHeight = 120, IsVisible = false };
+        Grid.SetRow(githubIndicators, 2); panel.Children.Add(githubIndicators);
+        Grid.SetRow(approvalScroll, 3); panel.Children.Add(approvalScroll);
         queuedMessages.Children.CollectionChanged += (_, _) => { var count = queuedMessages.Children.Count; queuePanel.IsVisible = count > 0; queuePanel.Header = $"{count} queued message{(count == 1 ? "" : "s")}"; };
-        var input = chatComposer; Grid.SetRow(input, 3); panel.Children.Add(input);
+        var input = chatComposer; Grid.SetRow(input, 4); panel.Children.Add(input);
         chatComposer.OpenAttachment += attachment => _ = OpenAttachment(attachment);
         chatComposer.RemoveAttachment += attachment => { attachments.Remove(attachment); if (attachment.Reference is { } reference) composer.Text = composer.Text.Replace(reference, "", StringComparison.Ordinal); RefreshAttachments(); };
         slashCommands.PointerReleased += (_, _) => InsertSlashCommand();
@@ -584,6 +602,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
                 status.IsVisible = false;
                 busy = result["busy"]?.GetValue<bool>() == true; preparing = result["preparing"]?.GetValue<bool>() ?? (busy && (result["status"]?.GetValue<string>() is { } state && (state.StartsWith("Loading") || state.StartsWith("Connecting") || state.StartsWith("Reconnecting")))); UpdateSendAction();
                 UpdateRemoteQueue(result);
+                UpdateIndicators(result);
                 timer.Interval = TimeSpan.FromMilliseconds(busy || preparing ? 250 : 2000);
                 var commands = result["commandOptions"] is JsonArray detailed
                     ? detailed.Select(c => new SlashCommand(c!["name"]!.GetValue<string>(), c["description"]?.GetValue<string>() ?? "", c["hint"]?.GetValue<string>())).ToArray()
@@ -837,7 +856,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
         if (chats.SelectedItem is null)
         {
             if (chatId is not null) SaveBrowserDraft();
-            chatId = null; busy = false; preparing = false; UpdateSendAction(); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear();
+            chatId = null; busy = false; preparing = false; UpdateSendAction(); UpdateIndicators(null); queuedMessages.Children.Clear(); queueJson = ""; messages.Clear(); configs.Children.Clear(); approvals.Children.Clear();
             optionRows.Children.Clear(); chatComposer.OptionsSummary.IsVisible = false; CloseOptions(); configJson = "";
         }
         UpdateEmptyState();
@@ -896,7 +915,7 @@ public sealed partial class RemoteView : UserControl, IDisposable
     {
         var result = await Call(new() { ["method"] = "delete", ["chatId"] = id }) ?? throw new IOException("Could not delete chat. Reconnect and try again.");
         if (result["deleted"]?.GetValue<bool>() != true) throw new IOException("The host did not confirm deletion.");
-        if (chatId == id) { chatId = null; messages.Clear(); messageRevisions.Clear(); busy = preparing = false; UpdateSendAction(); }
+        if (chatId == id) { chatId = null; UpdateIndicators(null); messages.Clear(); messageRevisions.Clear(); busy = preparing = false; UpdateSendAction(); }
         await RefreshList();
         return result["warning"]?.GetValue<string>();
     }

@@ -79,7 +79,9 @@ public partial class MainView
                 };
             }
             var wasUnread = chat.HasUnreadCompletion; var wasBusy = chat.Busy;
+            var opened = chat.PullRequestOpenedAt;
             RemoteChatSession.ApplySummary(chat, record);
+            HighlightNewRemotePullRequest(chat, opened);
             if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
             if (wasBusy && chat.HasUnreadCompletion && !wasUnread && !chat.Busy) NotifyCompleted(chat);
             seen.Add(scoped);

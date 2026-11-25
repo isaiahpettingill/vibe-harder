@@ -42,6 +42,12 @@ public class RemoteDesktopTests
             return runtime;
         }
         using var hostService = service = new SessionService(hostStore, [hostWorkspace], [hostChat], HostRuntime);
+        const string pr = "https://github.com/org/repo/pull/42";
+        ChatPullRequests.Add(hostStore, hostChat, pr);
+        ChatIssues.Add(hostStore, hostChat, "https://github.com/org/repo/issues/7");
+        service.PullRequestWaits.Set(hostChat.Id, "org/repo", "42", cancel: false);
+        Assert.True(service.Schedules.Add(hostChat.Id, new PendingInput("Scheduled for later", []),
+            new SendSchedule(DateTime.UtcNow.Date.AddDays(2), SendRepeat.Once, 0, 0, null, "UTC")));
         var port = Port();
         await using var server = new RemoteServer(hostDirectory, "127.0.0.1", port, service.Handle);
         await Wait(() => server.Fingerprint is not null);
@@ -66,6 +72,17 @@ public class RemoteDesktopTests
             var messages = window.FindControl<ListBox>("MessageList")!;
             // The same pane: no separate remote view.
             Assert.Empty(window.GetLogicalDescendants().OfType<RemoteView>());
+            var prPane = window.FindControl<ScrollViewer>("PullRequestScroll")!;
+            var issuePane = window.FindControl<ScrollViewer>("IssueScroll")!;
+            var schedulePane = window.FindControl<Expander>("ScheduledPanel")!;
+            await Wait(() => prPane.IsVisible && issuePane.IsVisible && schedulePane.IsVisible);
+            var waitBadge = window.GetVisualDescendants().OfType<Control>().Single(control => control.Name == "PullRequestWait_" + remoteChat.Id);
+            Assert.True(waitBadge.IsEffectivelyVisible);
+            Assert.Equal(pr, Assert.Single(remoteChat.RemotePullRequestWaits));
+            service.PullRequestWaits.Set(hostChat.Id, "org/repo", "42", cancel: true);
+            service.Schedules.Remove(service.Schedules.ForChat(hostChat.Id).Single().Id);
+            await Wait(() => !waitBadge.IsEffectivelyVisible && !schedulePane.IsVisible);
+            Assert.True(prPane.IsVisible);
 
             composer.Text = "hello";
             window.FindControl<Button>("SendButton")!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

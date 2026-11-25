@@ -11,7 +11,7 @@ public partial class MainView
     private static readonly IBrush openPullRequestBrush = Brush.Parse("#3fb950");
     private static readonly IBrush mergedPullRequestBrush = Brush.Parse("#a371f7");
     private static readonly IBrush closedPullRequestBrush = Brush.Parse("#f85149");
-    private static PathIcon PullRequestIcon(ChatPullRequest request)
+    internal static PathIcon PullRequestIcon(ChatPullRequest request)
     {
         var icon = AppIcons.Create(request.State switch { "MERGED" => "git-merge", "CLOSED" => "git-pull-request-closed", _ => "git-pull-request" });
         icon.Foreground = request.State switch { "MERGED" => mergedPullRequestBrush, "CLOSED" => closedPullRequestBrush, _ => openPullRequestBrush };
@@ -45,6 +45,11 @@ public partial class MainView
         catch (OperationCanceledException) { return; }
         if (chat.RecentPullRequest == sequence) chat.RecentPullRequest = 0;
     }
+    private void HighlightNewRemotePullRequest(Chat chat, DateTimeOffset? previous)
+    {
+        if (chat.PullRequestOpenedAt is { } opened && opened != previous && DateTimeOffset.UtcNow - opened is var age &&
+            age >= TimeSpan.Zero && age < TimeSpan.FromSeconds(15)) _ = HighlightPullRequestChat(chat);
+    }
     private bool refreshingPullRequests;
     private readonly System.Runtime.CompilerServices.ConditionalWeakTable<Message, object> scannedPullRequestTools = new();
     private string pullRequestSignature = "";
@@ -63,13 +68,7 @@ public partial class MainView
         {
             foreach (var chat in chats.Where(c => !c.IsRemote).ToArray())
                 if (!closing && workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId) is { } owner)
-                {
-                    await ChatPullRequests.Refresh(store, chat, owner, discoveryLifetime.Token);
-                    var queued = ChatPullRequests.QueueMergedPrompts(store, chat);
-                    if (!chat.Busy && !chat.Archived && queued.Length > 0)
-                        await Runtime(chat, owner).SendQueuedNow(chat.QueuedInputs[0], waitForCompletion: false);
-                    await ChatIssues.Refresh(store, chat, owner, discoveryLifetime.Token);
-                }
+                    await remoteSessions.RefreshGitHub(chat, owner, discoveryLifetime.Token);
             if (!closing) { UpdatePullRequestPane(); UpdateIssuePane(); }
         }
         finally { refreshingPullRequests = false; }
@@ -94,7 +93,8 @@ public partial class MainView
             }
         }
         var requests = current?.PullRequests.Where(p => !p.Dismissed).ToArray() ?? [];
-        var waits = current is { IsRemote: false, Archived: false } selected ? remoteSessions.PullRequestWaits.Pending(selected) : [];
+        var waits = current is { Archived: false } selected
+            ? selected.IsRemote ? selected.RemotePullRequestWaits : remoteSessions.PullRequestWaits.Pending(selected) : [];
         var signature = current?.Id + "\n" + string.Join("\n", requests.Select(p => p.ToString())) + "\n" + string.Join("\n", waits);
         if (signature == pullRequestSignature) return;
         pullRequestSignature = signature;

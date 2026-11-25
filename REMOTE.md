@@ -74,6 +74,8 @@ Remote workspace history is under **＋ Open workspace** in the sidebar. **Open 
 
 On Android the keyboard leaves room for the composer and action icons. The attachment button opens the system file picker; selected files remain visible as removable chips until sent. Code blocks wrap long lines without overlaying horizontal scrollbars. Copy buttons appear on code blocks rather than every message or tool call. New sessions select Full access when the provider exposes that option; existing sessions retain their selections.
 
+Connected chats show the host’s GitHub pull requests, issues, and check waits, plus pending scheduled sends. The sidebar shows PR and wait icons and the scheduled-send count. Update both the host and client to see all indicators. GitHub checks and scheduled sends still run on the host.
+
 ## Headless host
 
 ```sh

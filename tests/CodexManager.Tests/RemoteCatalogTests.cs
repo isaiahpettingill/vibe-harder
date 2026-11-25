@@ -33,6 +33,44 @@ public class RemoteCatalogTests
 
     [Trait("Category", "CI")]
     [Theory]
+    [InlineData("OPEN", false)]
+    [InlineData("MERGED", true)]
+    public async Task CatalogCarriesOnlyVisibleIndicatorsForTheOwningChat(string state, bool dismissed)
+    {
+        using var store = new Store(Directory.CreateTempSubdirectory("catalog-github-").FullName);
+        var workspace = new Workspace("workspace", "Host", store.DirectoryPath);
+        var chat = new Chat { WorkspaceId = workspace.Id };
+        var other = new Chat { WorkspaceId = workspace.Id };
+        using var service = new SessionService(store, [workspace], [chat, other], (_, _) => throw new InvalidOperationException());
+        const string pr = "https://github.com/org/repo/pull/42";
+        const string issue = "https://github.com/org/repo/issues/12";
+        ChatPullRequests.Add(store, chat, pr);
+        ChatPullRequests.SetMergePrompt(store, chat, pr, "Host-only continuation");
+        ChatPullRequests.Apply(store, chat, pr, "Feature", state);
+        if (dismissed) ChatPullRequests.Dismiss(store, chat, pr);
+        ChatIssues.Add(store, chat, issue);
+        service.PullRequestWaits.Set(chat.Id, "org/repo", "53", cancel: false);
+        var catalog = (await service.Handle(new() { ["method"] = "list" }))!["chats"]!.AsArray();
+        var record = catalog.Single(row => row!["id"]!.GetValue<string>() == chat.Id)!;
+        var paired = new Chat { WorkspaceId = workspace.Id };
+        RemoteChatSession.ApplySummary(paired, record);
+        if (dismissed) Assert.Empty(paired.PullRequests);
+        else
+        {
+            var visible = Assert.Single(paired.PullRequests);
+            Assert.Equal((pr, state), (visible.Url, visible.State));
+            Assert.Null(visible.MergePrompt);
+        }
+        Assert.Equal(issue, Assert.Single(paired.Issues).Url);
+        Assert.Equal("https://github.com/org/repo/pull/53", Assert.Single(paired.RemotePullRequestWaits));
+        RemoteChatSession.ApplySummary(paired, catalog.Single(row => row!["id"]!.GetValue<string>() == other.Id)!);
+        Assert.Empty(paired.PullRequests);
+        Assert.Empty(paired.Issues);
+        Assert.Empty(paired.RemotePullRequestWaits);
+    }
+
+    [Trait("Category", "CI")]
+    [Theory]
     [InlineData(null)]
     [InlineData("provider-session-123")]
     public async Task CatalogIncludesProviderSessionIdForFailedAndArchivedChats(string? sessionId)

@@ -75,7 +75,7 @@ public partial class MainView
         wait.VerticalAlignment = VerticalAlignment.Center;
         ToolTip.SetTip(wait, "Waiting for checks");
         Avalonia.Automation.AutomationProperties.SetName(wait, "Waiting for checks");
-        void UpdateWait() => wait.IsVisible = !chat.IsRemote && !chat.Archived && PullRequestWaits.IsWaiting(store, chat);
+        void UpdateWait() => wait.IsVisible = !chat.Archived && (chat.IsRemote ? chat.RemotePullRequestWaits.Length > 0 : PullRequestWaits.IsWaiting(store, chat));
         void WaitChanged(Chat owner) { if (ReferenceEquals(owner, chat)) UpdateWait(); }
         UpdateWait(); meta.Children.Add(wait);
         details.Children.Add(title); details.Children.Add(meta); Grid.SetColumn(details, 1); row.Children.Add(details);
@@ -109,7 +109,7 @@ public partial class MainView
             if (e.PropertyName == nameof(Chat.UsageLabel)) UpdateUsage();
             if (e.PropertyName == nameof(Chat.PullRequestVersion)) UpdatePullRequests();
             if (e.PropertyName == nameof(Chat.RecentPullRequest)) UpdateHighlight();
-            if (e.PropertyName == nameof(Chat.Archived)) UpdateWait();
+            if (e.PropertyName is nameof(Chat.Archived) or nameof(Chat.RemotePullRequestWaits)) UpdateWait();
             if (e.PropertyName == nameof(Chat.RemoteScheduledSendCount)) UpdateScheduleBadge();
         }
         UpdateAction();
@@ -163,7 +163,9 @@ public partial class MainView
                     chat.SessionId = record["sessionId"]?.GetValue<string>();
                     chat.Title = record["title"]!.GetValue<string>(); chat.Status = record["status"]!.GetValue<string>(); chat.Busy = record["busy"]!.GetValue<bool>(); chat.Archived = showArchived; chat.Pinned = record["pinned"]?.GetValue<bool>() == true; chat.HasUnreadCompletion = record["unread"]?.GetValue<bool>() == true; if (chat.HasUnreadCompletion && !chat.Busy) chat.Status = "Done";
                     chat.NeedsPermission = record["needsPermission"]?.GetValue<bool>() == true;
-                    chat.RemoteScheduledSendCount = record["scheduled"]?.GetValue<int>() ?? 0;
+                    var opened = chat.PullRequestOpenedAt;
+                    RemoteChatIndicators.Apply(chat, record);
+                    HighlightNewRemotePullRequest(chat, opened);
                     chat.CostLabel = record["cost"]?.GetValue<string>() ?? "";
                     chat.ContextLabel = record["context"]?.GetValue<string>() ?? "";
                     if (chat.Title.Contains(SearchBox.Text ?? "", StringComparison.OrdinalIgnoreCase)) rows.Add(chat);
