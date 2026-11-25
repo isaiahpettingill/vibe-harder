@@ -1262,18 +1262,14 @@ public partial class MainView : UserControl
         ToolTip.SetTip(backendAutoUpdate, "Check at startup, every six hours, and on reconnect. Backends in use are skipped. Check for updates lists available backend updates either way.");
         backendAutoUpdate.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(BackendUpdates.EnabledKey, backendAutoUpdate.IsChecked == true ? "1" : "0"));
         agents.Children.Add(backendAutoUpdate);
-        var codexFullAccess = new CheckBox { Name = "CodexFullAccess", Content = "Run Codex without approval prompts or sandbox restrictions (dangerous)", IsChecked = store.Setting(AgentProviders.FullAccessKey) != "0" };
-        ToolTip.SetTip(codexFullAccess, "Pass --dangerously-bypass-approvals-and-sandbox to the Codex process for Codex ACP sessions. This lets Codex run commands without sandboxing or confirmation prompts.");
+        var codexFullAccess = new CheckBox { Name = "CodexFullAccess", Content = "Disable the Codex sandbox entirely (dangerous)", IsChecked = store.Setting(AgentProviders.FullAccessKey) == "1" };
+        ToolTip.SetTip(codexFullAccess, "Forces Full access at the ACP level and bypasses sandboxing and approval prompts in the Codex process. Without this override, new chats still default to Full access and can switch modes. Reconnect to apply.");
         codexFullAccess.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(AgentProviders.FullAccessKey, codexFullAccess.IsChecked == true ? "1" : "0"));
         agents.Children.Add(codexFullAccess);
         var codexAutoReview = new CheckBox { Name = "CodexAutoReview", Content = "Enable Codex Auto-review", IsChecked = store.Setting(AgentProviders.AutoReviewKey) == "1" };
         ToolTip.SetTip(codexAutoReview, "Use Guardian to review approval requests. This uses additional tokens. Off by default. Full access always disables Guardian. Changes apply when a session starts or reconnects.");
         codexAutoReview.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(AgentProviders.AutoReviewKey, codexAutoReview.IsChecked == true ? "1" : "0"));
         agents.Children.Add(codexAutoReview);
-        var codexUltrafast = new CheckBox { Name = "CodexUltrafast", Content = "Prefer Codex Ultrafast when available", IsChecked = store.Setting(CodexUltrafast.SettingKey) == "1" };
-        ToolTip.SetTip(codexUltrafast, "For the built-in Codex adapter and supported models. Uses more of your plan limit or credits. Reconnect to apply.");
-        codexUltrafast.IsCheckedChanged += (_, _) => ApplyChange(() => store.Setting(CodexUltrafast.SettingKey, codexUltrafast.IsChecked == true ? "1" : "0"));
-        agents.Children.Add(codexUltrafast);
         void SaveCommand(string key, TextBox field) => SettingsEdit.OnCommit(field, () => ApplyChange(() =>
         {
             if (string.IsNullOrWhiteSpace(field.Text)) throw new IOException("Enter a command.");

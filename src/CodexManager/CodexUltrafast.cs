@@ -7,8 +7,8 @@ namespace CodexManager;
 
 internal static class CodexUltrafast
 {
-    internal const string SettingKey = "codexUltrafast";
-    internal const string Argument = "--vibe-harder-codex-ultrafast";
+    private const string Argument = "--vibe-harder-codex-ultrafast";
+    internal const string SpeedOption = "fast-mode";
     private const string FullAccessKey = "VIBE_HARDER_ULTRAFAST_FULL_ACCESS";
     private const string Script = "codex-ultrafast.cjs";
     private static readonly Lazy<string> Bridge = new(() =>
@@ -22,7 +22,6 @@ internal static class CodexUltrafast
          command.StartsWith("npx -y --prefer-offline --package=@agentclientprotocol/codex-acp@", StringComparison.Ordinal)) &&
         command.Contains(" --package=@openai/codex@", StringComparison.Ordinal) && command.Contains(" -- codex-acp", StringComparison.Ordinal);
 
-    internal static bool Requested(string command) => Regex.IsMatch(command, $@"(?<!\S){Argument}(?!\S)");
     internal static string RemoveArgument(string command) => Regex.Replace(command, $@"(?<!\S){Argument}(?!\S)", "").Trim();
 
     internal static ProcessStartInfo Start(Workspace workspace, string command, Dictionary<string, string> environment, bool fullAccess, string? profile)
@@ -45,8 +44,9 @@ internal static class CodexUltrafast
                   mv -f "$vibe_codex_tmp/codex" "$vibe_codex_dir/codex"
                 ); then rm -f -- "$vibe_codex_tmp/{{Script}}" "$vibe_codex_tmp/codex"; rmdir "$vibe_codex_tmp"; exit 1; fi
                 rmdir "$vibe_codex_tmp"
-                export CODEX_PATH="$vibe_codex_dir/codex"
+                export VIBE_HARDER_CODEX_WRAPPER="$vibe_codex_dir/codex"
                 """.ReplaceLineEndings("\n");
+            command = command.Replace(" -- codex-acp", " -- node \"$vibe_codex_dir/" + Script + "\" --acp", StringComparison.Ordinal);
             return Hosts.Agent(workspace, command, environment, setup);
         }
 
@@ -57,7 +57,10 @@ internal static class CodexUltrafast
         Install(wrapper, OperatingSystem.IsWindows()
             ? $"@echo off\r\nnode \"%~dp0{Script}\" %*\r\n"
             : $"#!/bin/sh\nexec node \"$(dirname \"$0\")/{Script}\" \"$@\"\n", executable: true);
-        environment["CODEX_PATH"] = wrapper;
+        environment.Remove("CODEX_PATH");
+        environment["VIBE_HARDER_CODEX_WRAPPER"] = wrapper;
+        var bridge = Path.Combine(directory, Script);
+        command = command.Replace(" -- codex-acp", " -- node " + (OperatingSystem.IsWindows() ? "'" + bridge.Replace("'", "''") + "'" : Hosts.Quote(bridge)) + " --acp", StringComparison.Ordinal);
         return Hosts.Agent(workspace, command, environment);
     }
 
