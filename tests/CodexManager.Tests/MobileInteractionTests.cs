@@ -30,13 +30,17 @@ public class MobileInteractionTests
     }
 
     [Trait("Category", "Integration")]
-    [AvaloniaFact]
-    public async Task NewSessionsDefaultToFullAccessAndCanBeChangedAfterwards()
+    [AvaloniaTheory]
+    [InlineData(false, "ask")]
+    [InlineData(true, "full-access")]
+    public async Task CodexDefaultsToFullAccessAndOnlyForcesItWithTheSandboxOverride(bool bypass, string expectedAfterChange)
     {
         var directory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
         using var store = new Store(directory); var workspace = new Workspace("w", "Test", directory); store.Save(workspace);
         var chat = new Chat { WorkspaceId = "w" }; store.Save(chat);
-        await using var runtime = new ChatRuntime(chat, workspace, store, "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config --access --reset-access");
+        store.Setting(AgentProviders.CommandKey(AgentProvider.Codex, false), "node \"" + Path.Combine(AppContext.BaseDirectory, "fake-acp.mjs") + "\" --config --access --reset-access");
+        store.Setting(AgentProviders.FullAccessKey, bypass ? "1" : "0");
+        await using var runtime = new ChatRuntime(chat, workspace, store, AgentProviders.LaunchCommand(store, workspace, AgentProvider.Codex));
         await runtime.Connect();
         Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
         await runtime.Reconnect();
@@ -44,9 +48,9 @@ public class MobileInteractionTests
         await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "model"), "large");
         Assert.Equal("full-access", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
         await runtime.SetConfig(chat.ConfigOptions.Single(c => c.Id == "mode"), "ask");
-        Assert.Equal("ask", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        Assert.Equal(expectedAfterChange, chat.ConfigOptions.Single(c => c.Id == "mode").Current);
         await runtime.Reconnect();
-        Assert.Equal("ask", chat.ConfigOptions.Single(c => c.Id == "mode").Current);
+        Assert.Equal(expectedAfterChange, chat.ConfigOptions.Single(c => c.Id == "mode").Current);
     }
 
     [Trait("Category", "CI")]

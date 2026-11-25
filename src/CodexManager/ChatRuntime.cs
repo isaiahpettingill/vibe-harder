@@ -230,7 +230,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             Configure(result);
             if (chat.ConfigOptions.FirstOrDefault(c => c.Id == config.Id)?.Current != value)
                 throw new IOException("The agent did not accept the selected value.");
-            if (remember)
+            if (remember && !(chat.Provider == AgentProvider.Codex && config.Id == CodexUltrafast.SpeedOption && value == "ultrafast"))
             {
                 store.Setting(ChatConfigKey(config.Id), value);
                 store.Setting(WorkspaceConfigKey(config.Id), value);
@@ -415,7 +415,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             if (loading)
             {
                 foreach (var option in chat.ConfigOptions)
-                    if (FullAccess(option) is null && store.Setting(ChatConfigKey(option.Id)) is null) store.Setting(ChatConfigKey(option.Id), option.Current);
+                    if (FullAccess(option) is null && option.Current != "ultrafast" && store.Setting(ChatConfigKey(option.Id)) is null) store.Setting(ChatConfigKey(option.Id), option.Current);
                 if (!init.GetProperty("agentCapabilities").GetProperty("loadSession").GetBoolean()) throw new IOException("This adapter does not support session resume. Update its connection command.");
                 try
                 {
@@ -474,9 +474,20 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
     private string GlobalConfigKey(string id) => $"globalConfig:{chat.Provider}:{id}";
     private string? SavedConfig(string id) => store.Setting(ChatConfigKey(id)) ?? store.Setting(WorkspaceConfigKey(id))
         ?? store.Setting(GlobalConfigKey(id)) ?? store.Setting(DefaultConfigKey(id));
-    private string? PreferredConfig(SessionConfig option) => FullAccess(option) is { } full
-        ? (fullAccessCommand ? full.Value : store.Setting(AccessKey(option)) ?? SavedConfig(option.Id) ?? full.Value)
-        : SavedConfig(option.Id);
+    private string? PreferredConfig(SessionConfig option)
+    {
+        if (FullAccess(option) is { } full)
+            return fullAccessCommand ? full.Value : store.Setting(AccessKey(option)) ?? SavedConfig(option.Id) ?? full.Value;
+        var preferred = SavedConfig(option.Id);
+        if (chat.Provider == AgentProvider.Codex && option.Id == CodexUltrafast.SpeedOption)
+        {
+            if (option.Current == "ultrafast") return null;
+            if (preferred == "ultrafast") return null;
+            if (option.Kind == "boolean") return preferred switch { "on" => "true", "off" => "false", _ => preferred };
+            return preferred switch { "true" => "on", "false" => "off", _ => preferred };
+        }
+        return preferred;
+    }
     private async Task ApplySessionDefaults()
     {
         // Mode/provider changes can replace the available model and reasoning options.
@@ -505,7 +516,7 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             // does not list yet stays: agents can list some models first and the rest a moment
             // later, and recording the agent's own last-used model here would replace the chat's
             // and workspace's choice for good.
-            else if (value is null && store.Setting(ChatConfigKey(id)) is null)
+            else if (value is null && option.Current != "ultrafast" && store.Setting(ChatConfigKey(id)) is null)
                 store.Setting(ChatConfigKey(id), option.Current);
         }
     }

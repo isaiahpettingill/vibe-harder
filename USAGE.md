@@ -157,7 +157,9 @@ From an agent chat, use `vibe-harder wait-for-run OWNER/REPO RUN_ID` or `vibe-ha
 
 ## Agent commands
 
-For the built-in Codex adapter, enable **Settings → Agents → Prefer Codex Ultrafast when available**, then reconnect the chat. Vibe Harder requests Ultrafast only for models that advertise it. Availability and usage depend on your Codex model and plan.
+For the built-in Codex adapter, choose **Ultrafast** from the chat’s **Speed** menu when the selected model offers it. Ultrafast is an explicit choice for the current connection, never a default for new or reconnected chats. Availability and usage depend on the Codex model and plan.
+
+New Codex chats default to the ACP **Full access** mode. **Settings → Agents → Disable the Codex sandbox entirely** is a separate opt-in: it also bypasses the Codex process sandbox and approval prompts and forces Full access on connect. Reconnect after changing this setting.
 
 Type `/` in the composer for commands advertised by the connected ACP session. Up/Down selects; Enter or Tab inserts without sending; Escape dismisses. Commands are sent unchanged through `session/prompt`. `/goal` appears only when advertised; CLI-only commands are not added. The list refreshes on `available_commands_update` and clears on reconnect.
 
