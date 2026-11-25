@@ -8,17 +8,31 @@ public partial class MainView
     private Chat? scheduledChat;
     private bool scheduledSendsChanged;
     private ScheduledSend[] displayedScheduledSends = [];
+    private RemoteScheduledIndicator[] displayedRemoteSchedules = [];
+    private int displayedRemoteScheduleCount;
 
     private void UpdateScheduledSends()
     {
+        if (current is { IsRemote: true } remote)
+        {
+            if (ReferenceEquals(scheduledChat, remote) && displayedRemoteScheduleCount == remote.RemoteScheduledSendCount &&
+                displayedRemoteSchedules.SequenceEqual(remote.RemoteScheduledIndicators)) return;
+            scheduledChat = remote;
+            displayedScheduledSends = [];
+            displayedRemoteSchedules = remote.RemoteScheduledIndicators;
+            displayedRemoteScheduleCount = remote.RemoteScheduledSendCount;
+            RemoteIndicatorViews.ShowScheduled(chatComposer, displayedRemoteScheduleCount, displayedRemoteSchedules);
+            return;
+        }
         if (!scheduledSendsChanged && ReferenceEquals(scheduledChat, current)) return;
+        var wasRemote = scheduledChat?.IsRemote == true;
         scheduledSendsChanged = false;
         scheduledChat = current;
         var panel = chatComposer.ScheduledPanel;
         var rows = chatComposer.ScheduledItems;
         var schedules = remoteSessions.Schedules;
         var pending = current is { IsRemote: false } chat && chatComposer.ScheduleButton.IsVisible ? schedules.ForChat(chat.Id).ToArray() : [];
-        if (displayedScheduledSends.SequenceEqual(pending)) return;
+        if (!wasRemote && displayedScheduledSends.SequenceEqual(pending)) return;
         displayedScheduledSends = pending;
         rows.Children.Clear();
         panel.IsVisible = pending.Length > 0;

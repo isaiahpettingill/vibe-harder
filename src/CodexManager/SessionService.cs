@@ -297,7 +297,7 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
                 if (chat.SessionId is not null && (page.Length == 0 || store.Setting("historyIncomplete:" + chat.Id) == "1")) _ = active.LoadHistory();
                 else if (request["activate"]?.GetValue<bool>() == true && !active.IsConnected && !active.IsReconnecting) _ = active.Reconnect();
             }
-            var result = Summary(chat);
+            var result = Summary(chat, detail: true);
             var known = request["knownMessages"] as JsonObject;
             if (known?.Count > HistoryWindow.MaxMessages) throw new IOException("Too many message revisions.");
             result["messages"] = new JsonArray(page.Select(m => MessageRow(m, known)).ToArray());
@@ -361,5 +361,38 @@ public sealed class SessionService(Store store, IList<Workspace> workspaces, ILi
         else throw new IOException("Unknown remote operation.");
         return Summary(chat);
     }
-    private JsonObject Summary(Chat c) => new() { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["pinned"] = c.Pinned, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["scheduled"] = Schedules.CountFor(c.Id), ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
+    internal async Task RefreshGitHub(Chat chat, Workspace owner, CancellationToken token)
+    {
+        await ChatPullRequests.Refresh(store, chat, owner, token);
+        if (token.IsCancellationRequested || !chats.Contains(chat)) return;
+        var queued = ChatPullRequests.QueueMergedPrompts(store, chat);
+        if (!chat.Busy && !chat.Archived && queued.Length > 0)
+            await runtime(chat, owner).SendQueuedNow(chat.QueuedInputs[0], waitForCompletion: false);
+        await ChatIssues.Refresh(store, chat, owner, token);
+    }
+
+    internal async Task RunGitHubRefresh(CancellationToken token)
+    {
+        using var timer = new PeriodicTimer(GitHubRefreshSchedule.Interval);
+        try
+        {
+            do
+            {
+                foreach (var chat in chats.Where(c => !c.IsRemote).ToArray())
+                {
+                    token.ThrowIfCancellationRequested();
+                    if (workspaces.FirstOrDefault(w => w.Id == chat.WorkspaceId && store.Setting("closed:" + w.Id) != "1") is { } owner)
+                        await RefreshGitHub(chat, owner, token);
+                }
+            } while (await timer.WaitForNextTickAsync(token));
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested) { }
+    }
+
+    private JsonObject Summary(Chat c, bool detail = false)
+    {
+        var summary = new JsonObject { ["id"] = c.Id, ["sessionId"] = c.SessionId, ["workspaceId"] = c.WorkspaceId, ["title"] = c.Title, ["provider"] = c.Provider.ToString(), ["busy"] = c.Busy, ["needsPermission"] = c.NeedsPermission, ["needsLogin"] = c.NeedsLogin, ["unread"] = c.HasUnreadCompletion, ["status"] = c.Status, ["archived"] = c.Archived, ["pinned"] = c.Pinned, ["updated"] = c.Updated.ToString("O"), ["queued"] = c.QueuedInputs.Count, ["scheduled"] = Schedules.CountFor(c.Id), ["interrupted"] = c.InterruptedInput is not null, ["cost"] = c.CostLabel, ["context"] = c.ContextLabel };
+        RemoteChatIndicators.Write(store, c, Schedules, PullRequestWaits, summary, detail);
+        return summary;
+    }
 }

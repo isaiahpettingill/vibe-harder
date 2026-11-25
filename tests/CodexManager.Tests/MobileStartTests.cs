@@ -83,6 +83,47 @@ public class MobileStartTests
         }
         finally { window.Close(); }
     }
+    [Trait("Category", "Integration")]
+    [AvaloniaFact]
+    public async Task ConnectedPhoneShowsAndClearsHostChatIndicators()
+    {
+        var showIndicators = true;
+        var (server, host, store) = await Host(request => request["method"]!.GetValue<string>() switch
+        {
+            "list" => new JsonObject
+            {
+                ["workspaces"] = new JsonArray(new JsonObject { ["id"] = "workspace", ["name"] = "Project" }),
+                ["chats"] = new JsonArray(Row("newest", "workspace", DateTimeOffset.UtcNow))
+            },
+            "chat" => WithIndicators(),
+            _ => new JsonObject()
+        });
+        JsonNode WithIndicators()
+        {
+            var result = Chat();
+            if (Volatile.Read(ref showIndicators))
+            {
+                result["pullRequests"] = JsonNode.Parse("""[{"url":"https://github.com/org/repo/pull/3","title":"Feature","state":"OPEN"}]""");
+                result["scheduled"] = 1;
+                result["scheduledSends"] = JsonNode.Parse("""[{"preview":"Follow up","due":"2030-01-01T00:00:00Z"}]""");
+            }
+            return result;
+        }
+        await using var _ = server;
+        using var profile = store;
+        using var view = new RemoteView(host, preferences: store) { OpenRecentChat = true };
+        var window = new Window { Content = view, Width = 400, Height = 800 }; window.Show();
+        try
+        {
+            var github = Named<StackPanel>(view, "RemoteGitHubIndicators");
+            var scheduled = Named<Expander>(view, "ScheduledPanel");
+            await Wait(() => github.IsEffectivelyVisible && scheduled.IsEffectivelyVisible);
+            Volatile.Write(ref showIndicators, false);
+            await Wait(() => !github.IsEffectivelyVisible && !scheduled.IsEffectivelyVisible);
+        }
+        finally { window.Close(); }
+    }
+
     private static JsonNode Record(List<string> changes, JsonObject request)
     {
         lock (changes) changes.Add(request["configId"] + "=" + request["value"]);

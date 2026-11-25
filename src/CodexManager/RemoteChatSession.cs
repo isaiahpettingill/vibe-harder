@@ -116,7 +116,7 @@ public sealed class RemoteChatSession : IChatSession
         // The host reports its cost and token labels so a paired device shows the same usage line.
         chat.CostLabel = summary["cost"]?.GetValue<string>() ?? "";
         chat.ContextLabel = summary["context"]?.GetValue<string>() ?? "";
-        chat.RemoteScheduledSendCount = summary["scheduled"]?.GetValue<int>() ?? 0;
+        RemoteChatIndicators.Apply(chat, summary);
         // The host owns the interrupted request; a marker lets the pane offer Resume.
         chat.InterruptedInput = summary["interrupted"]?.GetValue<bool>() == true ? chat.InterruptedInput ?? new PendingInput("", []) : null;
     }

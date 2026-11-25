@@ -794,7 +794,11 @@ public sealed partial class ChatRuntime(Chat chat, Workspace workspace, Store st
             foreach (var pullRequest in call.CreatedGitHubPullRequests())
             {
                 ChatPullRequests.Add(store, chat, pullRequest);
-                if (createdPullRequests.Add(pullRequest) && !replaying) PullRequestCreated?.Invoke();
+                if (createdPullRequests.Add(pullRequest) && !replaying)
+                {
+                    chat.PullRequestOpenedAt = DateTimeOffset.UtcNow;
+                    PullRequestCreated?.Invoke();
+                }
             }
             foreach (var merged in call.MergedGitHubPullRequests())
                 if (ChatPullRequests.Merged(store, chat, merged) && !replaying)

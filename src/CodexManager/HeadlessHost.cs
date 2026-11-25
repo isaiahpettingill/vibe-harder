@@ -67,13 +67,14 @@ public static class HeadlessHost
         var webStartup = StartWeb();
         _ = CliPipe.Serve(store.DirectoryPath, request => Dispatcher.UIThread.InvokeAsync(() => service.HandleLocal(request)), webLifetime.Token);
         var pullRequestWaits = service.PullRequestWaits.Run(webLifetime.Token);
+        var githubRefresh = service.RunGitHubRefresh(webLifetime.Token);
         async void Stop()
         {
             if (stopping) return; stopping = true;
             service.Schedules.Dispose();
             try
             {
-                webLifetime.Cancel(); await webStartup; await backendUpdates; await pullRequestWaits; await classifier.DisposeAsync();
+                webLifetime.Cancel(); await webStartup; await backendUpdates; await pullRequestWaits; await githubRefresh; await classifier.DisposeAsync();
                 if (webServer is not null) await webServer.DisposeAsync();
                 var shutdowns = runtimes.Values.Select(runtime => runtime.DisposeAsync().AsTask()).ToArray();
                 await server.DisposeAsync(); service.Dispose(); await Task.WhenAll(shutdowns);
